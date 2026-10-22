@@ -1293,6 +1293,7 @@ const CARS = {
     gripFront: 1.0, gripRear: 1.1,     // rear tyres are wider
     absMin: 0.45,                     // brakes always get at least this share of a tyre's grip
     brakeKick: 0,                     // rear grip lost when braking while turning (see Car.step)
+    tcSlack: 0.04,                    // wheelspin traction control still allows (share of tyre grip)
     rearLoose: [0, 1],                // rear grip lost at low speed: [share, speed (m/s) it has faded out by]
     pac: { B: 11, C: 1.45, E: 0.15 },
     gearTop: [0, 26, 36, 45, 54, 63, 72, 81, 90],   // m/s at redline per gear
@@ -1327,10 +1328,12 @@ const CARS = {
     ClA: 0.3, CdA: 0.75, aeroFront: 0.45, rho: 1.225,
     brakeMax: 16000, brakeFront: 0.68,   // front-biased, so braking doesn't swap the ends
     gripFront: 0.66, gripRear: 0.74,   // the rear must out-grip the front at speed or the car turns itself round
-    rearLoose: [0.14, 50],             // ...but loses this share of grip at low speed, fading out by this speed (m/s)
+    rearLoose: [0.24, 50],             // ...but loses this share of grip at low speed, fading out by this speed (m/s)
     absMin: 0.3,
-    brakeKick: 0.25,
-    pac: { B: 9, C: 1.6, E: 0.1 },     // grip drops off more past the peak, so slides keep going
+    brakeKick: 0.15,
+    tcSlack: 0.25,                     // lenient TC: the throttle can still swing the rear
+    pac: { B: 9, C: 1.6, E: 0.1 },     // rear: grip drops off more past the peak, so slides keep going
+    pacFront: { B: 10, C: 1.25, E: 0.1 },   // front: holds grip when over-steered, so it doesn't wash wide
     gearTop: [0, 14, 22, 30, 39, 49, 60],
     redline: 7500, idle: 1000,
     torque: [[1000, 300], [2500, 400], [4000, 470], [5000, 480], [6500, 450], [7500, 400], [7800, 0]],
@@ -1930,8 +1933,8 @@ function buildSky(scene, sunDir) {
 // ============================================================================
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
 
-function pacejka(spec, alpha) {
-  const { B, C, E } = spec.pac, x = B * alpha;
+function pacejka(spec, alpha, front) {
+  const { B, C, E } = (front && spec.pacFront) || spec.pac, x = B * alpha;
   return Math.sin(C * Math.atan(x - E * (x - Math.atan(x))));
 }
 function engineTorque(spec, rpm) {
@@ -2152,11 +2155,11 @@ class Car {
       const alpha = Math.atan2(vy, Math.max(Math.abs(vx), 7));
       const loadSens = clamp(1.08 - 0.08 * (w.Fz / 2000), 0.72, 1.1);
       const Fmax = w.muBlend * loadSens * w.Fz * (w.front ? this.spec.gripFront : this.spec.gripRear * rearGrip);
-      let Fy = -Fmax * pacejka(this.spec, alpha);
+      let Fy = -Fmax * pacejka(this.spec, alpha, w.front);
 
       // longitudinal: drive (rear), brakes, rolling + surface drag
       let Fdrive = w.front ? 0 : drive / 2;
-      if (this.tc && Fdrive > 0) Fdrive = Math.min(Fdrive, Math.sqrt(Math.max(0, Fmax * Fmax - Fy * Fy)) * 0.97 + 0.04 * Fmax);
+      if (this.tc && Fdrive > 0) Fdrive = Math.min(Fdrive, Math.sqrt(Math.max(0, Fmax * Fmax - Fy * Fy)) * 0.97 + this.spec.tcSlack * Fmax);
       // ABS: cornering force keeps priority; brakes get the grip that's left, but never less than absMin.
       const longAvail = Math.sqrt(Math.max(0, Fmax * Fmax - Fy * Fy));
       const brakeF = Math.min(brake * this.spec.brakeMax * (w.front ? this.spec.brakeFront : 1 - this.spec.brakeFront) / 2, Math.max(longAvail, this.spec.absMin * Fmax));
