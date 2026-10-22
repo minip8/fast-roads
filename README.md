@@ -21,6 +21,7 @@ Append `?autopilot` to the URL to watch the built-in driver lap the circuit.
 | A D / ← → | Steer |
 | R | Reset to track (invalidates the lap) |
 | Enter | Restart session at the grid |
+| V | Mouse steering on/off (remembered; also on the start screen) |
 | C | Cycle camera (onboard / chase / far) |
 | G | Automatic / manual gears (choice is remembered; also on the start screen) |
 | E / Q | Shift up / down (manual) |
@@ -29,6 +30,11 @@ Append `?autopilot` to the URL to watch the built-in driver lap the circuit.
 | O | Autopilot on/off |
 
 Gamepad: RT throttle, LT brake, left stick steer, RB/LB shift up/down, Y camera, X reset.
+
+Mouse steering: click the game to capture the mouse, then move left/right to turn the wheel (it stays where you
+leave it; ~350 px from centre is full lock). Left click is throttle, right click is brake, scroll shifts gears in
+manual, middle click centres the wheel. Esc releases the mouse and pauses; click to resume. Steering keys still work
+and override the mouse while held.
 
 ## How it works (all in `index.html`)
 
