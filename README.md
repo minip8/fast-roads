@@ -19,6 +19,12 @@ The game opens on a menu: **Drive** or **Watch autopilot**, plus settings for ge
 **Reset best times** option (click twice to confirm). While driving, **Esc** or **P** opens it as a pause menu
 (Resume / Restart session / Watch autopilot). Mouse or keyboard (↑ ↓ ← → Enter) both work in the menu.
 
+## HUD
+
+Bottom right: F1-style shift lights (5 green, 5 red, 5 blue) fill from 9,500 rpm and all flash at the shift point
+(12,250 rpm, where the automatic box shifts up); throttle (green) and brake (red) bars show how hard each pedal is
+applied; then the gear and speed.
+
 ## Controls
 
 | Key | Action |

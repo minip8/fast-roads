@@ -43,10 +43,22 @@
 
   #minimap { position: fixed; top: 16px; right: 16px; width: 220px; height: 220px; padding: 0; }
 
-  #dash { position: fixed; right: 16px; bottom: 16px; width: 220px; padding: 12px 14px; text-align: right; }
-  #rpmbar { height: 8px; background: rgba(255,255,255,.12); border-radius: 4px; overflow: hidden; }
-  #rpmfill { height: 100%; width: 0; background: linear-gradient(90deg, #3ddc84 0 60%, #ffd23f 60% 85%, #ff4d4d 85%); }
-  #dashrow { display: flex; align-items: baseline; justify-content: space-between; margin-top: 6px; }
+  #dash { position: fixed; right: 16px; bottom: 16px; width: 236px; padding: 12px 14px; text-align: right; }
+  /* F1-style shift lights: 5 green, 5 red, 5 blue; all flash at the shift point */
+  #shiftLights { display: flex; justify-content: space-between; }
+  #shiftLights i { width: 11px; height: 11px; border-radius: 50%; background: rgba(255,255,255,.1); }
+  #shiftLights i.on.g { background: #2ee66b; box-shadow: 0 0 6px #2ee66b; }
+  #shiftLights i.on.r { background: #ff3b3b; box-shadow: 0 0 6px #ff3b3b; }
+  #shiftLights i.on.b { background: #3d8bff; box-shadow: 0 0 6px #3d8bff; }
+  #shiftLights.flash i.on { background: #3d8bff; box-shadow: 0 0 8px #3d8bff; }
+  #shiftLights.flash.off i.on { background: rgba(255,255,255,.1); box-shadow: none; }
+  #dashrow { display: flex; align-items: flex-end; gap: 10px; margin-top: 10px; }
+  #dashrow .spd { margin-left: auto; }
+  /* pedal bars: throttle and brake application */
+  #pedals { display: flex; gap: 4px; height: 50px; }
+  .pedal { width: 9px; height: 100%; background: rgba(255,255,255,.1); border-radius: 3px; position: relative; overflow: hidden; }
+  .pedal > div { position: absolute; left: 0; right: 0; bottom: 0; height: 0; }
+  #thrFill { background: #2ee66b; } #brkFill { background: #ff3b3b; }
   #gear { font-size: 40px; font-weight: 800; width: 48px; text-align: center; background: rgba(255,255,255,.08); border-radius: 6px; }
   #speed { font-size: 44px; font-weight: 700; line-height: 1; }
   .unit { font-size: 11px; color: var(--muted); letter-spacing: .12em; }
@@ -129,10 +141,14 @@
   </div>
   <canvas id="minimap" class="panel" width="440" height="440"></canvas>
   <div id="dash" class="panel">
-    <div id="rpmbar"><div id="rpmfill"></div></div>
+    <div id="shiftLights"></div>
     <div id="dashrow">
+      <div id="pedals" title="Throttle / brake">
+        <div class="pedal"><div id="thrFill"></div></div>
+        <div class="pedal"><div id="brkFill"></div></div>
+      </div>
       <div id="gear" class="num">N</div>
-      <div><div id="speed" class="num">0</div><div class="unit">KM/H</div></div>
+      <div class="spd"><div id="speed" class="num">0</div><div class="unit">KM/H</div></div>
     </div>
     <div id="flags"></div>
   </div>
@@ -2638,8 +2654,22 @@ async function main() {
   const $ = (id) => document.getElementById(id);
   $('trkLen').textContent = (track.L / 1000).toFixed(2) + ' km';
   const hud = { lap: $('lapTime'), state: $('lapState'), delta: $('delta'), last: $('lastLap'), best: $('bestLap'), opt: $('optLap'),
-    list: $('lapList'), speed: $('speed'), gear: $('gear'), rpm: $('rpmfill'), flags: $('flags'), msg: $('msg'), help: $('help'),
+    list: $('lapList'), speed: $('speed'), gear: $('gear'), flags: $('flags'), msg: $('msg'), help: $('help'),
     sec: [0, 1, 2].map((k) => $('sec' + k)) };
+  // Shift lights light up between SHIFT_LIGHTS_FROM and the auto-upshift point, then all flash.
+  const SHIFT_LIGHTS_FROM = 9500, SHIFT_POINT = 12250;
+  const lights = [];
+  for (let k = 0; k < 15; k++) { const d = document.createElement('i'); d.className = k < 5 ? 'g' : k < 10 ? 'r' : 'b'; $('shiftLights').append(d); lights.push(d); }
+  let litCount = -1;
+  const updateDash = () => {
+    const n = car.gear === 0 ? 0 : Math.round(clamp((car.rpm - SHIFT_LIGHTS_FROM) / (SHIFT_POINT - SHIFT_LIGHTS_FROM), 0, 1) * 15);
+    if (n !== litCount) { lights.forEach((d, k) => d.classList.toggle('on', k < n)); litCount = n; }
+    const sl = $('shiftLights'), flashing = n === 15;
+    sl.classList.toggle('flash', flashing);
+    sl.classList.toggle('off', flashing && Math.floor(performance.now() / 70) % 2 === 1);
+    $('thrFill').style.height = Math.round(clamp(car.throttle, 0, 1) * 100) + '%';
+    $('brkFill').style.height = Math.round(clamp(car.brake, 0, 1) * 100) + '%';
+  };
   let msgTimer = 0;
   const showMsg = (html, secs = 2.5) => { hud.msg.innerHTML = html; hud.msg.classList.add('show'); msgTimer = secs; };
   const renderLapList = () => {
@@ -2948,7 +2978,7 @@ async function main() {
       hud.opt.textContent = bs.every((x) => x != null) ? fmtTime(bs[0] + bs[1] + bs[2]) : '—';
       hud.speed.textContent = Math.round(Math.abs(car.speedF) * 3.6);
       hud.gear.textContent = car.gear === 0 ? 'R' : !car.manual && Math.abs(car.speedF) < 0.5 && car.throttle < 0.05 ? 'N' : car.gear;
-      hud.rpm.style.width = clamp((car.rpm - 4000) / (CAR.redline - 4000), 0, 1) * 100 + '%';
+      updateDash();
       const surfName = SURF[Math.max(...car.wheels.map((w) => w.surf))].name;
       hud.flags.textContent = `${car.manual ? 'MANUAL' : 'AUTO'} · TC ${car.tc ? 'ON' : 'OFF'}${autoOn ? ' · AUTOPILOT' : ''}${paused ? ' · PAUSED' : ''}${surfName !== 'asphalt' ? ' · ' + surfName.toUpperCase() : ''}`;
       if (msgTimer > 0 && (msgTimer -= fdt) <= 0) hud.msg.classList.remove('show');
