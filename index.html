@@ -1231,8 +1231,10 @@ const CAR = {
   kFront: 70000, kRear: 85000,  // spring N/m
   damp: 4800,                   // N per m/s
   arbFront: 26000, arbRear: 18000,
-  ClA: 3.5, CdA: 1.5, aeroFront: 0.42, rho: 1.225,
-  brakeMax: 42000, brakeFront: 0.58,
+  ClA: 4.2, CdA: 1.5, aeroFront: 0.40, rho: 1.225,
+  brakeMax: 42000, brakeFront: 0.55,
+  gripFront: 1.0, gripRear: 1.1,     // rear tyres are wider
+  absMin: 0.45,                     // brakes always get at least this share of a tyre's grip
   pac: { B: 11, C: 1.45, E: 0.15 },
   gearTop: [0, 26, 36, 45, 54, 63, 72, 81, 90],   // m/s at redline per gear
   redline: 12500, idle: 4500,
@@ -1943,7 +1945,7 @@ class Car {
       const surf = SURF[w.surf];
       if (w.surf >= S_GRASS) offCount++;
       const loadSens = clamp(1.08 - 0.08 * (w.Fz / 2000), 0.72, 1.1);
-      const Fmax = surf.mu * loadSens * w.Fz;
+      const Fmax = surf.mu * loadSens * w.Fz * (w.front ? CAR.gripFront : CAR.gripRear);
 
       const alpha = Math.atan2(vy, Math.max(Math.abs(vx), 7));
       let Fy = -Fmax * pacejka(alpha);
@@ -1951,7 +1953,9 @@ class Car {
       // longitudinal: drive (rear), brakes, rolling + surface drag
       let Fdrive = w.front ? 0 : drive / 2;
       if (this.tc && Fdrive > 0) Fdrive = Math.min(Fdrive, Math.sqrt(Math.max(0, Fmax * Fmax - Fy * Fy)) * 0.97 + 0.04 * Fmax);
-      const brakeF = brake * CAR.brakeMax * (w.front ? CAR.brakeFront : 1 - CAR.brakeFront) / 2;
+      // ABS: cornering force keeps priority; brakes get the grip that's left, but never less than absMin.
+      const longAvail = Math.sqrt(Math.max(0, Fmax * Fmax - Fy * Fy));
+      const brakeF = Math.min(brake * CAR.brakeMax * (w.front ? CAR.brakeFront : 1 - CAR.brakeFront) / 2, Math.max(longAvail, CAR.absMin * Fmax));
       const resist = brakeF + surf.rr * w.Fz + surf.drag * Math.abs(vx) * (w.Fz / 2000);
       const Fres = -Math.sign(vx) * Math.min(resist, (mc * Math.abs(vx)) / dt);
       let Fx = Fdrive + Fres;
@@ -1970,7 +1974,7 @@ class Car {
       const ax = (wf.x * Fx + ws.x * Fy) * dt, ay = (wf.y * Fx + ws.y * Fy) * dt, az = (wf.z * Fx + ws.z * Fy) * dt;
       b.applyImpulseAtPoint({ x: ax, y: ay, z: az }, { x: w.contact.x + up.x * 0.12, y: w.contact.y + up.y * 0.12, z: w.contact.z + up.z * 0.12 }, true);
 
-      w.slip = Math.max(Math.abs(alpha) / 0.15, slide * 2);
+      w.slip = Math.max(Math.abs(alpha) / 0.15, slide * 2); w.slipA = alpha;
       if (!w.front && slide > 0.05 && Fdrive > 0) rearSpin = Math.max(rearSpin, slide);
       w.omega = vx / CAR.wheelRadius * (1 + (!w.front && Fdrive > 0 ? slide * 0.8 : 0)) * (brake > 0.9 && slide > 0.3 ? 0.2 : 1);
       maxSlip = Math.max(maxSlip, w.slip);
@@ -2276,7 +2280,7 @@ class EngineAudio {
 function buildSpeedProfile(tr) {
   const N = tr.N, k = smoothClosed(tr.K, 3, 1);
   const c = (0.5 * CAR.rho * CAR.ClA) / (CAR.mass * 9.81);       // downforce per (m/s)^2, as a fraction of weight
-  const muLat = 0.75 * 1.65 * 9.81, muLong = 0.8 * 1.5 * 9.81;
+  const muLat = 0.68 * 1.65 * 9.81, muLong = 0.8 * 1.5 * 9.81;
   const v = new Float64Array(N);
   for (let i = 0; i < N; i++) {
     const den = Math.abs(k[i]) - muLat * c;

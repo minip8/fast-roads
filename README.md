@@ -40,8 +40,12 @@ Gamepad: RT throttle, LT brake, left stick steer, Y camera, X reset.
   the tick. A lap is deleted if all four wheels pass the kerb (or white line where there's no kerb), on reset, or when
   crossing a line backwards. Best lap, best sectors, and the best-lap trace (for the live delta) persist in localStorage.
 
-Measured car performance: 0–100 km/h 2.9 s, 0–200 km/h 5.5 s, top speed ~325 km/h, ~3.2 g average braking from top speed,
-lateral grip 1.3 g at 60 km/h rising to 4.3 g at 260 km/h.
+Combined grip works like ABS: cornering force keeps priority and the brakes get the remaining grip (never less than 45%),
+so you can trail-brake into corners. The rear tyres have 10% more grip and the aero balance sits behind the weight
+distribution, so the car understeers gently at the limit instead of spinning.
+
+Measured car performance: 0–100 km/h 2.5 s, 0–200 km/h 4.8 s, top speed ~325 km/h, ~3.6 g average braking from top speed,
+steady-state lateral grip 1.3 g at 60 km/h rising to 3.5 g at 260 km/h.
 
 For testing, `window.__game.simulate(seconds, true)` runs the physics headless with the autopilot.
 
