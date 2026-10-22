@@ -50,7 +50,13 @@ Run `npm run typecheck` and `npm test` before committing.
 - `track.ts`: track geometry and colliders (`Track`)
 - `trackMeshes.ts`, `textures.ts`, `scenery.ts`, `brakeMarkers.ts`: visuals
 - `timing.ts`, `input.ts`, `audio.ts`, `dust.ts`, `autopilot.ts`
-- `main.ts`: scene setup, camera, settings, menu, HUD and the game loop, all as closures inside `main()`
+- `stage.ts`: renderer, scene, lights, static track visuals (`buildStage`)
+- `camera.ts`: `CameraRig` (camera modes)
+- `settings.ts`: setting types, menu rows, defaults, load/save
+- `menu.ts`: `Menu`, which talks to `main.ts` only through the `MenuHost` callbacks
+- `hud.ts`, `minimap.ts`: in-game HUD; `dom.ts`: `$` element lookup
+- `main.ts`: wires it together and owns game state (`car`, `started`/`paused`, `simTime`, the `applySetting`
+  table, hotkeys, the frame loop)
 
 - **Track data**: `tracks/melbourne.csv` (TUM racetrack-database centreline + widths), imported into `main.ts` with
   Vite's `?raw` suffix; `parseCSV` skips `#` comment lines.
@@ -72,11 +78,11 @@ Run `npm run typecheck` and `npm test` before committing.
   Drift-car stability lesson: the rear must out-grip the front at speed (`gripRear > gripFront` by ~10%+), or the car
   yaws itself round under braking at 200 km/h; looseness is added only at low speed (`rearLoose`) or while
   braking + steering (`brakeKick`).
-- **Switching cars**: `setSetting('car', id)` in `main()` destroys the old `Car` (body + mesh), builds a new one,
+- **Switching cars**: `applySetting.car` in `main()` destroys the old `Car` (body + mesh), builds a new one,
   re-applies gearbox/TC settings, swaps the timing store and resets to the grid. `car` in `main()` is a `let`;
   closures must read it at call time, never cache it.
-- **Settings and menu** (top of `main.ts`): the `Settings` type, `SETTING_DEFS` (menu rows and their order),
-  `DEFAULT_SETTINGS`, and inside `main()` the `applySetting` table (what each setting does). `setSetting` saves to
+- **Settings and menu**: `settings.ts` has the `Settings` type, `SETTING_DEFS` (menu rows and their order) and
+  `DEFAULT_SETTINGS`; `main()` has the `applySetting` table (what each setting does). `setSetting` saves to
   `localStorage` `fastroads.settings` and calls `applySetting`; in-game hotkeys go through `cycleSetting` so the menu
   stays in sync. Adding a setting means adding it to all four; the compiler flags any you miss.
 - **Timing**: start/finish and two sector lines as segments, with crossings interpolated within a tick; track-limit
