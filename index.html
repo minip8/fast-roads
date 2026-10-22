@@ -1242,23 +1242,25 @@ const CAR = {
 };
 
 // Arcade handling (default): relaxed, forgiving, slides progressively instead of snapping.
-// Tyres push each corner's sideways velocity toward zero up to a grip limit, then keep most of that grip
-// while sliding. Acceleration is a simple curve to a top speed; the body leans visually.
+// Tyre force grows linearly with slip angle up to slipPeak, then fades gently to slipMod of the grip.
+// Keyboard steering is limited to roughly what the tyres can use at the current speed. Acceleration is a simple curve to a top speed; the body leans visually.
 const ARCADE = {
   accel: 12,            // m/s^2 at standstill
   topSpeed: 100,        // m/s, acceleration fades to zero here
   coast: 0.8,           // m/s^2 engine braking off throttle
   brake: 22,            // m/s^2 requested at full brake (grip still limits it)
   grip: 1.75,           // lateral grip coefficient on asphalt
-  gripFront: 0.95, gripRear: 1.05,
-  slipMod: 0.72,        // share of grip kept while fully sliding
-  latStiff: 0.35,       // how hard tyres kill sideways velocity each tick (0..1)
+  gripFront: 0.95, gripRear: 1.12,
+  slipPeak: 0.09,       // slip angle (rad) where front grip peaks
+  slipPeakRear: 0.06,   // rear peaks sooner: a stiffer rear damps the yaw wobble after turn-in
+  slipMod: 0.85,        // share of grip kept while fully sliding
+  steerAssist: 1.25,    // keyboard steer limit, as a multiple of the angle the tyres can use
   aero: 2.2, drag: 0.55,
   maxSteer: 0.42, steerFalloff: 16,   // max steer angle and how fast it shrinks with speed (m/s)
-  steerSpeed: 9, steerAccel: 30,      // steering follow rate (1/s) and acceleration limit (rad/s^2)
+  steerSpeed: 7, steerAccel: 30,      // steering follow rate (1/s) and acceleration limit (rad/s^2)
   countersteer: 0.55,   // automatic countersteer when the car slides
   rock: 0.016,          // visual body lean per m/s^2
-  angularDamping: 1.4,
+  angularDamping: 3.0,
 };
 const MODES = ['arcade', 'sim'];
 
@@ -1873,13 +1875,18 @@ class Car {
     // --- steering (speed-sensitive for keyboard)
     const arc = this.mode === 'arcade';
     let target;
-    if (inp.steerAngle != null) target = inp.steerAngle;
+    const vs = Math.max(0, vF);
+    // Arcade: steering angle the tyres can actually use at this speed (geometric angle for a max-grip turn + peak slip).
+    const aMax = ARCADE.grip * ARCADE.gripFront * 9.81 * (1 + (0.5 * CAR.rho * ARCADE.aero * vs * vs) / (CAR.mass * 9.81));
+    const usable = ((CAR.zFront - CAR.zRear) * aMax) / Math.max(vs * vs, 1) + ARCADE.slipPeak;
+    if (inp.steerAngle != null) target = arc ? clamp(inp.steerAngle, -usable * ARCADE.steerAssist, usable * ARCADE.steerAssist) : inp.steerAngle;
     else if (arc) {
-      const vs = Math.max(0, vF);
-      const maxSteer = ARCADE.maxSteer / (1 + vs / ARCADE.steerFalloff) * (inp.analog ? 1.15 : 1);
+      const maxSteer = Math.min(ARCADE.maxSteer / (1 + vs / ARCADE.steerFalloff), usable * ARCADE.steerAssist) * (inp.analog ? 1.15 : 1);
       // sideslip: positive when the car is travelling to the left of where it points
       const beta = vs > 4 ? Math.atan2(this.vel.dot(this.left), vs) : 0;
-      target = inp.steer * maxSteer + beta * ARCADE.countersteer;
+      // countersteer only once the car is properly sliding (normal cornering has a few degrees of sideslip)
+      const slideBeta = Math.sign(beta) * Math.max(0, Math.abs(beta) - 0.1);
+      target = inp.steer * maxSteer + slideBeta * ARCADE.countersteer;
     } else {
       const maxSteer = inp.analog ? 0.36 / (1 + Math.max(0, vF) / 45) : 0.34 / (1 + Math.max(0, vF) / 22);
       target = inp.steer * maxSteer;
@@ -1993,12 +2000,12 @@ class Car {
       if (w.surf >= S_GRASS) offCount++;
       const alpha = Math.atan2(vy, Math.max(Math.abs(vx), 7));
       if (arc) {
-        // Arcade tyre: cancel part of this corner's sideways velocity each tick, up to the grip limit.
-        // Past the limit the force fades gently to slipMod of the grip, so slides are progressive.
+        // Arcade tyre: force linear in slip angle up to slipPeak, then fades gently to slipMod of grip.
         const Fmax = (surf.mu / SURF[S_ASPHALT].mu) * ARCADE.grip * w.Fz * (w.front ? ARCADE.gripFront : ARCADE.gripRear);
-        const want = (-ARCADE.latStiff * mc * vy) / dt;
-        const x = Math.abs(want) / (Fmax || 1);
-        let Fy = Math.sign(want) * Fmax * (x <= 1 ? x : 1 - (1 - ARCADE.slipMod) * Math.min(1, (x - 1) / 1.5));
+        const aSlip = Math.atan2(vy, Math.max(Math.abs(vx), 5));
+        const x = Math.abs(aSlip) / (w.front ? ARCADE.slipPeak : ARCADE.slipPeakRear);
+        let Fy = -Math.sign(aSlip) * Fmax * (x <= 1 ? x : 1 - (1 - ARCADE.slipMod) * Math.min(1, (x - 1) / 2));
+        Fy = clamp(Fy, -(mc * Math.abs(vy)) / dt, (mc * Math.abs(vy)) / dt);   // no overshoot at low speed
         const longCap = Math.max(Math.sqrt(Math.max(0, Fmax * Fmax - Fy * Fy)), 0.5 * Fmax);
         const Fdrive = (drive * (w.front ? 0.3 : 0.7)) / 2;
         const brakeF = (brake * CAR.mass * ARCADE.brake * (w.front ? 0.55 : 0.45)) / 2;
@@ -2006,7 +2013,7 @@ class Car {
         let Fx = clamp(Fdrive, -longCap, longCap) - Math.sign(vx) * Math.min(resist, (mc * Math.abs(vx)) / dt);
         const ax = (wf.x * Fx + ws.x * Fy) * dt, ay = (wf.y * Fx + ws.y * Fy) * dt, az = (wf.z * Fx + ws.z * Fy) * dt;
         b.applyImpulseAtPoint({ x: ax, y: ay, z: az }, { x: w.contact.x + up.x * 0.2, y: w.contact.y + up.y * 0.2, z: w.contact.z + up.z * 0.2 }, true);
-        w.slip = Math.max(Math.abs(alpha) / 0.12, (x - 1) * 1.5); w.slipA = alpha;
+        w.slip = Math.max(Math.abs(alpha) / 0.12, (x - 1) * 1.5); w.slipA = alpha; w.overGrip = x;
         w.omega = vx / CAR.wheelRadius;
         maxSlip = Math.max(maxSlip, w.slip);
         continue;
@@ -2364,10 +2371,10 @@ class EngineAudio {
 // ============================================================================
 // Autopilot (demo / testing): pure pursuit on the centerline + precomputed speed profile
 // ============================================================================
-function buildSpeedProfile(tr) {
-  const N = tr.N, k = smoothClosed(tr.K, 3, 1);
-  const c = (0.5 * CAR.rho * CAR.ClA) / (CAR.mass * 9.81);       // downforce per (m/s)^2, as a fraction of weight
-  const muLat = 0.68 * 1.65 * 9.81, muLong = 0.8 * 1.5 * 9.81;
+function buildSpeedProfile(tr, mode) {
+  const N = tr.N, k = smoothClosed(tr.K, 3, 1), arc = mode === 'arcade';
+  const c = (0.5 * CAR.rho * (arc ? ARCADE.aero : CAR.ClA)) / (CAR.mass * 9.81);   // downforce per (m/s)^2, as a fraction of weight
+  const muLat = (arc ? 0.75 * ARCADE.grip * ARCADE.gripFront : 0.68 * 1.65) * 9.81, muLong = 0.8 * 1.5 * 9.81;
   const v = new Float64Array(N);
   for (let i = 0; i < N; i++) {
     const den = Math.abs(k[i]) - muLat * c;
@@ -2386,14 +2393,15 @@ function buildSpeedProfile(tr) {
 
 function autopilot(car, tr, lat = 0) {
   const v = Math.max(0, car.speedF), s = car.proj.s;
-  const Ld = 9 + v * 0.42;
+  const Ld = 8 + v * 0.3;
   const tgt = pointAt(tr, s + Ld, lat);
   const rx = tgt.x - car.pos.x, rz = tgt.z - car.pos.z;
   const xl = rx * car.left.x + rz * car.left.z, zf = rx * car.fwd.x + rz * car.fwd.z;
   const a = Math.atan2(xl, zf);
   const wb = CAR.zFront - CAR.zRear;
   const steerAngle = Math.atan((2 * wb * Math.sin(a)) / Ld);
-  const prof = tr.speedProfile || (tr.speedProfile = buildSpeedProfile(tr));
+  const profs = tr.speedProfiles || (tr.speedProfiles = {});
+  const prof = profs[car.mode] || (profs[car.mode] = buildSpeedProfile(tr, car.mode));
   const vt = prof[pointAt(tr, s + 4 + v * 0.12).i];
   return { throttle: clamp((vt - v) * 0.5, 0, 1), brake: clamp((v - vt) * 0.4, 0, 1), steer: 0, analog: true, steerAngle };
 }

@@ -35,9 +35,11 @@ Gamepad: RT throttle, LT brake, left stick steer, Y camera, X reset.
   Kerbs, gravel traps, and barrier offsets are derived from curvature; barriers are shrunk/dropped where they'd
   intrude on another part of the circuit. Road, kerbs, gravel, and walls are ribbon meshes built from the samples.
 - **Handling modes** (G to switch, best times are kept separately per mode; `?mode=sim` in the URL also works):
-  - **Arcade** (default, in the spirit of slowroads.io): each tyre cancels part of its sideways velocity per tick up to
-    a grip limit, then fades gently to 72% grip while sliding, so slides are progressive and never snap. Simple
-    acceleration curve to a top speed, smoothed steering with automatic countersteer, and a springy visual body lean.
+  - **Arcade** (default, in the spirit of slowroads.io): tyre force grows linearly with slip angle up to a peak, then
+    fades gently to 85% grip, so slides are progressive and never snap. Keyboard steering is limited to roughly the
+    angle the tyres can use at the current speed, so full lock turns hardest instead of scrubbing the front.
+    Simple acceleration curve to a top speed, smoothed steering with countersteer once the car really slides, and a
+    springy visual body lean.
     All tunables live in the `ARCADE` object at the top of the script.
   - **Sim**: the model described below.
 - **Physics (Sim)**: Rapier rigid body (fixed 120 Hz step, interpolated rendering). Custom raycast suspension with
