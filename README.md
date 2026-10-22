@@ -1,7 +1,8 @@
 # Fast Roads
 
 Browser time-trial racer on real circuit layouts. Prototype covering build steps 1–3:
-one circuit (Albert Park, Melbourne), a downforce open-wheel car, and lap/sector timing with track limits.
+one circuit (Albert Park, Melbourne), two cars (a downforce open-wheel car and a rear-drive drift car), and lap/sector
+timing with track limits.
 
 ## Run
 
@@ -14,15 +15,24 @@ Append `?autopilot` to the URL to watch the built-in driver lap the circuit.
 
 ## Main menu
 
-The game opens on a menu: **Drive** or **Watch autopilot**, plus settings for gears (automatic/manual), steering
-(keyboard/mouse), camera, traction control, and sound. Settings are remembered. Your best lap is shown, with a
+The game opens on a menu: **Drive** or **Watch autopilot**, plus settings for car, gears (automatic/manual),
+steering (keyboard/mouse), camera, traction control, and sound. Settings are remembered. Your best lap for the chosen car is shown, with a
 **Reset best times** option (click twice to confirm). While driving, **Esc** or **P** opens it as a pause menu
 (Resume / Restart session / Watch autopilot). Mouse or keyboard (↑ ↓ ← → Enter) both work in the menu.
 
+## Cars
+
+- **F1**: light, huge downforce and grip, 8 gears, 12,500 rpm. Stable and fast.
+- **Drift car**: a heavy rear-drive coupe with almost no downforce and a torquey 7,500 rpm V8 in 6 gears. The rear
+  breaks loose easily under power or with the handbrake (Space); turn traction control off (T) for big slides. It
+  uses a bonnet camera for the onboard view.
+
+Each car keeps its own best lap and sector times. Switching car puts you back on the grid.
+
 ## HUD
 
-Bottom right: F1-style shift lights (5 green, 5 red, 5 blue) fill from 9,500 rpm and all flash at the shift point
-(12,250 rpm, where the automatic box shifts up); throttle (green) and brake (red) bars show how hard each pedal is
+Bottom right: F1-style shift lights (5 green, 5 red, 5 blue) fill towards the shift point and all flash there
+(where the automatic box shifts up: 12,250 rpm in the F1, 7,200 in the drift car); throttle (green) and brake (red) bars show how hard each pedal is
 applied; then the gear and speed.
 
 ## Controls
@@ -31,6 +41,7 @@ applied; then the gear and speed.
 | --- | --- |
 | W / ↑ | Throttle |
 | S / ↓ | Brake (hold when stopped to reverse) |
+| Space | Handbrake (locks the rear wheels) |
 | A D / ← → | Steer |
 | R | Reset to track (invalidates the lap) |
 | Enter | Restart session at the grid |
@@ -43,7 +54,7 @@ applied; then the gear and speed.
 | M / H | Mute / hide help |
 | O | Autopilot on/off |
 
-Gamepad: RT throttle, LT brake, left stick steer, RB/LB shift up/down, Y camera, X reset.
+Gamepad: RT throttle, LT brake, left stick steer, B handbrake, RB/LB shift up/down, Y camera, X reset.
 
 Mouse steering: the cursor stays visible, and how far it is left or right of the screen centre sets the wheel
 (gentle near the centre, full lock towards the edge). Mouse sensitivity (Low / Medium / High) in the menu sets how far
