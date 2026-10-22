@@ -24,6 +24,7 @@ Append `?autopilot` to the URL to watch the built-in driver lap the circuit.
 | C | Cycle camera (chase / far / onboard) |
 | T | Traction control on/off |
 | M / P / H | Mute / pause / hide help |
+| G | Switch handling: Arcade / Sim |
 | O | Autopilot on/off |
 
 Gamepad: RT throttle, LT brake, left stick steer, Y camera, X reset.
@@ -33,7 +34,13 @@ Gamepad: RT throttle, LT brake, left stick steer, Y camera, X reset.
 - **Track**: TUM centerline + widths (`tracks/melbourne.csv`, embedded in the page) → Catmull-Rom → resampled every ~2 m.
   Kerbs, gravel traps, and barrier offsets are derived from curvature; barriers are shrunk/dropped where they'd
   intrude on another part of the circuit. Road, kerbs, gravel, and walls are ribbon meshes built from the samples.
-- **Physics**: Rapier rigid body (fixed 120 Hz step, interpolated rendering). Custom raycast suspension with
+- **Handling modes** (G to switch, best times are kept separately per mode; `?mode=sim` in the URL also works):
+  - **Arcade** (default, in the spirit of slowroads.io): each tyre cancels part of its sideways velocity per tick up to
+    a grip limit, then fades gently to 72% grip while sliding, so slides are progressive and never snap. Simple
+    acceleration curve to a top speed, smoothed steering with automatic countersteer, and a springy visual body lean.
+    All tunables live in the `ARCADE` object at the top of the script.
+  - **Sim**: the model described below.
+- **Physics (Sim)**: Rapier rigid body (fixed 120 Hz step, interpolated rendering). Custom raycast suspension with
   anti-roll bars, simplified Pacejka lateral curve with load sensitivity, friction circle, downforce and drag ∝ v²,
   torque curve + 8-speed auto box, per-surface grip and drag. Walls are static cuboid colliders.
 - **Timing**: start/finish + two sector lines as segments; crossings are detected per tick and interpolated within
