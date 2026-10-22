@@ -2580,7 +2580,7 @@ async function main() {
   }
 
   // Camera rig
-  const camModes = ['chase', 'far', 'onboard'];
+  const camModes = ['onboard', 'chase', 'far'];   // first is the default; C cycles
   let camMode = 0;
   const camPos = new THREE.Vector3(), camLook = new THREE.Vector3(), camFwd = new THREE.Vector3(0, 0, 1);
   let camInit = false;

@@ -21,7 +21,7 @@ Append `?autopilot` to the URL to watch the built-in driver lap the circuit.
 | A D / ← → | Steer |
 | R | Reset to track (invalidates the lap) |
 | Enter | Restart session at the grid |
-| C | Cycle camera (chase / far / onboard) |
+| C | Cycle camera (onboard / chase / far) |
 | T | Traction control on/off |
 | M / P / H | Mute / pause / hide help |
 | O | Autopilot on/off |
