@@ -38,8 +38,7 @@ Gamepad: RT throttle, LT brake, left stick steer, Y camera, X reset.
   - **Arcade** (default, in the spirit of slowroads.io): tyre force grows linearly with slip angle up to a peak, then
     fades gently to 85% grip, so slides are progressive and never snap. Keyboard steering is limited to roughly the
     angle the tyres can use at the current speed, so full lock turns hardest instead of scrubbing the front.
-    Simple acceleration curve to a top speed, smoothed steering with countersteer once the car really slides, and a
-    springy visual body lean.
+    Simple acceleration curve to a top speed, and smoothed steering with countersteer once the car really slides.
     All tunables live in the `ARCADE` object at the top of the script.
   - **Sim**: the model described below.
 - **Physics (Sim)**: Rapier rigid body (fixed 120 Hz step, interpolated rendering). Custom raycast suspension with
