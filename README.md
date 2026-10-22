@@ -45,7 +45,10 @@ Gamepad: RT throttle, LT brake, left stick steer, Y camera, X reset.
   anti-roll bars, simplified Pacejka lateral curve with load sensitivity, friction circle, downforce and drag ∝ v²,
   torque curve + 8-speed auto box, per-surface grip and drag. Walls are static cuboid colliders.
 - **Timing**: start/finish + two sector lines as segments; crossings are detected per tick and interpolated within
-  the tick. A lap is deleted if all four wheels pass the kerb (or white line where there's no kerb), on reset, or when
+  the tick.
+- **Brake markers**: 300/200/100 m boards before every braking zone where the speed drops by more than ~50 km/h,
+  counting down to the turn-in point. Zones are found from the autopilot's speed plan; boards are skipped when they'd
+  fall inside the previous corner. A lap is deleted if all four wheels pass the kerb (or white line where there's no kerb), on reset, or when
   crossing a line backwards. Best lap, best sectors, and the best-lap trace (for the live delta) persist in localStorage.
 
 Combined grip works like ABS: cornering force keeps priority and the brakes get the remaining grip (never less than 45%),
