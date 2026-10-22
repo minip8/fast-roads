@@ -24,7 +24,6 @@ Append `?autopilot` to the URL to watch the built-in driver lap the circuit.
 | C | Cycle camera (chase / far / onboard) |
 | T | Traction control on/off |
 | M / P / H | Mute / pause / hide help |
-| G | Switch handling: Arcade / Sim |
 | O | Autopilot on/off |
 
 Gamepad: RT throttle, LT brake, left stick steer, Y camera, X reset.
@@ -34,16 +33,12 @@ Gamepad: RT throttle, LT brake, left stick steer, Y camera, X reset.
 - **Track**: TUM centerline + widths (`tracks/melbourne.csv`, embedded in the page) → Catmull-Rom → resampled every ~2 m.
   Kerbs, gravel traps, and barrier offsets are derived from curvature; barriers are shrunk/dropped where they'd
   intrude on another part of the circuit. Road, kerbs, gravel, and walls are ribbon meshes built from the samples.
-- **Handling modes** (G to switch, best times are kept separately per mode; `?mode=sim` in the URL also works):
-  - **Arcade** (default, in the spirit of slowroads.io): tyre force grows linearly with slip angle up to a peak, then
-    fades gently to 85% grip, so slides are progressive and never snap. Keyboard steering is limited to roughly the
-    angle the tyres can use at the current speed, so full lock turns hardest instead of scrubbing the front.
-    Simple acceleration curve to a top speed, and smoothed steering with countersteer once the car really slides.
-    All tunables live in the `ARCADE` object at the top of the script.
-  - **Sim**: the model described below.
-- **Physics (Sim)**: Rapier rigid body (fixed 120 Hz step, interpolated rendering). Custom raycast suspension with
+- **Physics**: Rapier rigid body (fixed 120 Hz step, interpolated rendering). Custom raycast suspension with
   anti-roll bars, simplified Pacejka lateral curve with load sensitivity, friction circle, downforce and drag ∝ v²,
-  torque curve + 8-speed auto box, per-surface grip and drag. Walls are static cuboid colliders.
+  torque curve + 8-speed auto box, per-surface grip. Walls are static cuboid colliders.
+  Grass and gravel add a ploughing deceleration (grass ~0.15 g, gravel ~1 g) that's applied mostly at the centre of
+  mass, so dropping two wheels off doesn't yank the car round, and it fades at low speed so you can drive out.
+  Grip eases between surfaces over ~0.1 s instead of switching instantly at the track edge.
 - **Timing**: start/finish + two sector lines as segments; crossings are detected per tick and interpolated within
   the tick. A lap is deleted if all four wheels pass the kerb (or white line where there's no kerb), on reset, or when
   crossing a line backwards. Best lap, best sectors, and the best-lap trace (for the live delta) persist in localStorage.

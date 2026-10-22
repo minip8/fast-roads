@@ -116,8 +116,7 @@
     <div><kbd>A</kbd> <kbd>D</kbd> <kbd>←</kbd> <kbd>→</kbd> steer</div>
     <div><kbd>R</kbd> reset to track · <kbd>Enter</kbd> restart session</div>
     <div><kbd>C</kbd> camera · <kbd>T</kbd> traction control · <kbd>M</kbd> mute</div>
-    <div><kbd>G</kbd> arcade / sim handling · <kbd>O</kbd> autopilot</div>
-    <div><kbd>P</kbd> pause · <kbd>H</kbd> hide help</div>
+    <div><kbd>P</kbd> pause · <kbd>O</kbd> autopilot · <kbd>H</kbd> hide help</div>
     <div style="color:var(--muted)">Gamepad: RT throttle, LT brake, left stick steer</div>
   </div>
 </div>
@@ -1244,27 +1243,6 @@ const CAR = {
   redline: 12500, idle: 4500,
 };
 
-// Arcade handling (default): relaxed, forgiving, slides progressively instead of snapping.
-// Tyre force grows linearly with slip angle up to slipPeak, then fades gently to slipMod of the grip.
-// Keyboard steering is limited to roughly what the tyres can use at the current speed. Acceleration is a simple curve to a top speed.
-const ARCADE = {
-  accel: 12,            // m/s^2 at standstill
-  topSpeed: 100,        // m/s, acceleration fades to zero here
-  coast: 0.8,           // m/s^2 engine braking off throttle
-  brake: 22,            // m/s^2 requested at full brake (grip still limits it)
-  grip: 1.75,           // lateral grip coefficient on asphalt
-  gripFront: 0.95, gripRear: 1.12,
-  slipPeak: 0.09,       // slip angle (rad) where front grip peaks
-  slipPeakRear: 0.06,   // rear peaks sooner: a stiffer rear damps the yaw wobble after turn-in
-  slipMod: 0.85,        // share of grip kept while fully sliding
-  steerAssist: 1.25,    // keyboard steer limit, as a multiple of the angle the tyres can use
-  aero: 2.2, drag: 0.55,
-  maxSteer: 0.42, steerFalloff: 16,   // max steer angle and how fast it shrinks with speed (m/s)
-  steerSpeed: 7, steerAccel: 30,      // steering follow rate (1/s) and acceleration limit (rad/s^2)
-  countersteer: 0.55,   // automatic countersteer when the car slides
-  angularDamping: 3.0,
-};
-const MODES = ['arcade', 'sim'];
 
 // ============================================================================
 // Small helpers
@@ -1758,9 +1736,9 @@ function mulberry32(a) {
 }
 
 // Brake markers: 300/200/100 m boards before every big braking zone, counting down to where braking ends
-// (the turn-in point). Zones come from the arcade speed plan, so the boards are the same in both modes.
+// (the turn-in point). Zones come from the autopilot's speed plan.
 function findBrakeZones(tr) {
-  const v = buildSpeedProfile(tr, 'arcade'), N = tr.N, zones = [];
+  const v = buildSpeedProfile(tr), N = tr.N, zones = [];
   const braking = (i) => v[(i + 1) % N] < v[i] - 1e-3;
   let start = 0;
   while (braking(start)) start++;                 // begin outside a braking run
@@ -1889,8 +1867,7 @@ class Car {
 
     this.ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
     this.gear = 1; this.rpm = CAR.idle; this.shiftTimer = 0; this.revTimer = 0;
-    this.steer = 0; this.steerVel = 0; this.tc = true;
-    this.mode = 'arcade';
+    this.steer = 0; this.tc = true;
     this.throttle = 0; this.brake = 0;
     this.proj = { i: -1, lat: 0, s: 0 };
     this.pos = new THREE.Vector3(); this.quat = new THREE.Quaternion(); this.vel = new THREE.Vector3(); this.angv = new THREE.Vector3();
@@ -1900,12 +1877,6 @@ class Car {
 
     this.mesh = buildCarMesh();
     scene.add(this.mesh.root);
-    this.setMode('arcade');
-  }
-
-  setMode(mode) {
-    this.mode = mode;
-    this.body.setAngularDamping(mode === 'arcade' ? ARCADE.angularDamping : 0.4);
   }
 
   placeAt(s, lat = 0) {
@@ -1916,7 +1887,7 @@ class Car {
     this.body.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true);
     this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
-    this.gear = 1; this.steer = 0; this.steerVel = 0; this.shiftTimer = 0;
+    this.gear = 1; this.steer = 0; this.shiftTimer = 0;
     for (const w of this.wheels) { w.comp = w.prevComp = 0.025; w.omega = 0; w.muBlend = SURF[S_ASPHALT].mu; w.rrBlend = SURF[S_ASPHALT].rr; w.decelBlend = 0; }
     this.proj.i = -1;
     this.readState();
@@ -1940,35 +1911,15 @@ class Car {
     const v = this.vel.length(), vF = this.speedF;
 
     // --- steering (speed-sensitive for keyboard)
-    const arc = this.mode === 'arcade';
     let target;
-    const vs = Math.max(0, vF);
-    // Arcade: steering angle the tyres can actually use at this speed (geometric angle for a max-grip turn + peak slip).
-    const frontSurf = (this.wheels[0].muBlend + this.wheels[1].muBlend) / (2 * SURF[S_ASPHALT].mu);
-    const aMax = frontSurf * ARCADE.grip * ARCADE.gripFront * 9.81 * (1 + (0.5 * CAR.rho * ARCADE.aero * vs * vs) / (CAR.mass * 9.81));
-    const usable = ((CAR.zFront - CAR.zRear) * aMax) / Math.max(vs * vs, 1) + ARCADE.slipPeak;
-    if (inp.steerAngle != null) target = arc ? clamp(inp.steerAngle, -usable * ARCADE.steerAssist, usable * ARCADE.steerAssist) : inp.steerAngle;
-    else if (arc) {
-      const maxSteer = Math.min(ARCADE.maxSteer / (1 + vs / ARCADE.steerFalloff), usable * ARCADE.steerAssist) * (inp.analog ? 1.15 : 1);
-      // sideslip: positive when the car is travelling to the left of where it points
-      const beta = vs > 4 ? Math.atan2(this.vel.dot(this.left), vs) : 0;
-      // countersteer only once the car is properly sliding (normal cornering has a few degrees of sideslip)
-      const slideBeta = Math.sign(beta) * Math.max(0, Math.abs(beta) - 0.1);
-      target = inp.steer * maxSteer + slideBeta * ARCADE.countersteer;
-    } else {
+    if (inp.steerAngle != null) target = inp.steerAngle;
+    else {
       const maxSteer = inp.analog ? 0.36 / (1 + Math.max(0, vF) / 45) : 0.34 / (1 + Math.max(0, vF) / 22);
       target = inp.steer * maxSteer;
     }
-    target = clamp(target, -0.45, 0.45);
-    if (arc && inp.steerAngle == null) {
-      const want = (target - this.steer) * ARCADE.steerSpeed;
-      this.steerVel += clamp(want - this.steerVel, -ARCADE.steerAccel * dt, ARCADE.steerAccel * dt);
-      this.steer += this.steerVel * dt;
-    } else {
+    target = clamp(target, -0.4, 0.4);
     const rate = inp.analog || inp.steerAngle != null ? 6 : (Math.abs(target) < Math.abs(this.steer) ? 3.2 : 2.2) / (1 + Math.max(0, vF) / 30);
     this.steer += clamp(target - this.steer, -rate * dt, rate * dt);
-    this.steerVel = 0;
-    }
 
     // --- gearbox
     let throttle = inp.throttle, brake = inp.brake;
@@ -1996,10 +1947,7 @@ class Car {
       const launch = clamp(1 - vF / 10, 0, 1);       // pseudo clutch slip at low speed
       rpm = Math.max(rpm, CAR.idle + throttle * 6500 * launch, CAR.idle);
       this.rpm = rpm;
-      if (arc) drive = throttle > 0.02
-        ? throttle * CAR.mass * ARCADE.accel * Math.max(0, 1 - (Math.max(vF, 0) / ARCADE.topSpeed) ** 2)
-        : vF > 2 ? -CAR.mass * ARCADE.coast : 0;
-      else if (this.shiftTimer > 0) drive = 0;
+      if (this.shiftTimer > 0) drive = 0;
       else if (throttle > 0.02) drive = throttle * engineTorque(rpm) * (CAR.redline * 2 * Math.PI / 60) / top;
       else if (vF > 2) drive = -1100 * (rpm / CAR.redline);    // engine braking
     }
@@ -2072,25 +2020,6 @@ class Car {
       const wPlough = w.decelBlend * mc * Math.min(1, (vx / PLOUGH_FADE_V) ** 2);
       plough += wPlough * (1 - PLOUGH_WHEEL_SHARE);
       const alpha = Math.atan2(vy, Math.max(Math.abs(vx), 7));
-      if (arc) {
-        // Arcade tyre: force linear in slip angle up to slipPeak, then fades gently to slipMod of grip.
-        const Fmax = (w.muBlend / SURF[S_ASPHALT].mu) * ARCADE.grip * w.Fz * (w.front ? ARCADE.gripFront : ARCADE.gripRear);
-        const aSlip = Math.atan2(vy, Math.max(Math.abs(vx), 5));
-        const x = Math.abs(aSlip) / (w.front ? ARCADE.slipPeak : ARCADE.slipPeakRear);
-        let Fy = -Math.sign(aSlip) * Fmax * (x <= 1 ? x : 1 - (1 - ARCADE.slipMod) * Math.min(1, (x - 1) / 2));
-        Fy = clamp(Fy, -(mc * Math.abs(vy)) / dt, (mc * Math.abs(vy)) / dt);   // no overshoot at low speed
-        const longCap = Math.max(Math.sqrt(Math.max(0, Fmax * Fmax - Fy * Fy)), 0.5 * Fmax);
-        const Fdrive = (drive * (w.front ? 0.3 : 0.7)) / 2;
-        const brakeF = (brake * CAR.mass * ARCADE.brake * (w.front ? 0.55 : 0.45)) / 2;
-        const resist = Math.min(brakeF, longCap) + w.rrBlend * w.Fz + wPlough * PLOUGH_WHEEL_SHARE;
-        let Fx = clamp(Fdrive, -longCap, longCap) - Math.sign(vx) * Math.min(resist, (mc * Math.abs(vx)) / dt);
-        const ax = (wf.x * Fx + ws.x * Fy) * dt, ay = (wf.y * Fx + ws.y * Fy) * dt, az = (wf.z * Fx + ws.z * Fy) * dt;
-        b.applyImpulseAtPoint({ x: ax, y: ay, z: az }, { x: w.contact.x + up.x * 0.2, y: w.contact.y + up.y * 0.2, z: w.contact.z + up.z * 0.2 }, true);
-        w.slip = Math.max(Math.abs(alpha) / 0.12, (x - 1) * 1.5); w.slipA = alpha; w.overGrip = x;
-        w.omega = vx / CAR.wheelRadius;
-        maxSlip = Math.max(maxSlip, w.slip);
-        continue;
-      }
       const loadSens = clamp(1.08 - 0.08 * (w.Fz / 2000), 0.72, 1.1);
       const Fmax = w.muBlend * loadSens * w.Fz * (w.front ? CAR.gripFront : CAR.gripRear);
       let Fy = -Fmax * pacejka(alpha);
@@ -2135,14 +2064,14 @@ class Car {
 
     // --- aero
     const vf = Math.max(0, vF);
-    const DF = 0.5 * CAR.rho * (arc ? ARCADE.aero : CAR.ClA) * vf * vf;
+    const DF = 0.5 * CAR.rho * CAR.ClA * vf * vf;
     const frontPt = _v1.copy(this.pos).addScaledVector(this.fwd, CAR.zFront);
     const dfF = DF * CAR.aeroFront * dt, dfR = DF * (1 - CAR.aeroFront) * dt;
     b.applyImpulseAtPoint({ x: -up.x * dfF, y: -up.y * dfF, z: -up.z * dfF }, frontPt, true);
     const rearPt = _v1.copy(this.pos).addScaledVector(this.fwd, CAR.zRear);
     b.applyImpulseAtPoint({ x: -up.x * dfR, y: -up.y * dfR, z: -up.z * dfR }, rearPt, true);
     if (v > 0.1) {
-      const drag = 0.5 * CAR.rho * (arc ? ARCADE.drag : CAR.CdA) * v * v * dt;
+      const drag = 0.5 * CAR.rho * CAR.CdA * v * v * dt;
       b.applyImpulse({ x: (-this.vel.x / v) * drag, y: (-this.vel.y / v) * drag, z: (-this.vel.z / v) * drag }, true);
     }
     this.downforce = DF;
@@ -2243,12 +2172,6 @@ class Timing {
     this.events = [];
     this.reset();
   }
-  setMode(mode) {
-    storeKey = mode === 'sim' ? STORE_KEY : STORE_KEY + '.' + mode;    // sim keeps the original key
-    this.store = loadStore();
-    this.sessionBestSectors = [null, null, null]; this.sessionBest = null; this.laps = []; this.lastLap = null;
-    this.reset();
-  }
   reset() {
     this.lapStart = null; this.next = 0; this.valid = true; this.sectorStart = 0;
     this.cur = [null, null, null]; this.trace = []; this.invalidReason = '';
@@ -2340,13 +2263,12 @@ class Timing {
     return el - lerp(bt[b], bt[b + 1], f - b);
   }
 }
-let storeKey = STORE_KEY + '.arcade';
 function loadStore() {
   const empty = { bestLap: null, bestSectors: [null, null, null], bestTrace: null, bestLapSectors: null };
-  try { const s = JSON.parse(localStorage.getItem(storeKey)); if (s && Array.isArray(s.bestSectors)) return { ...empty, ...s }; } catch (e) { /* storage unavailable */ }
+  try { const s = JSON.parse(localStorage.getItem(STORE_KEY)); if (s && Array.isArray(s.bestSectors)) return { ...empty, ...s }; } catch (e) { /* storage unavailable */ }
   return empty;
 }
-function saveStore(s) { try { localStorage.setItem(storeKey, JSON.stringify(s)); } catch (e) { /* storage unavailable */ } }
+function saveStore(s) { try { localStorage.setItem(STORE_KEY, JSON.stringify(s)); } catch (e) { /* storage unavailable */ } }
 
 // ============================================================================
 // Input
@@ -2437,10 +2359,10 @@ class EngineAudio {
 // ============================================================================
 // Autopilot (demo / testing): pure pursuit on the centerline + precomputed speed profile
 // ============================================================================
-function buildSpeedProfile(tr, mode) {
-  const N = tr.N, k = smoothClosed(tr.K, 3, 1), arc = mode === 'arcade';
-  const c = (0.5 * CAR.rho * (arc ? ARCADE.aero : CAR.ClA)) / (CAR.mass * 9.81);   // downforce per (m/s)^2, as a fraction of weight
-  const muLat = (arc ? 0.75 * ARCADE.grip * ARCADE.gripFront : 0.68 * 1.65) * 9.81, muLong = 0.8 * 1.5 * 9.81;
+function buildSpeedProfile(tr) {
+  const N = tr.N, k = smoothClosed(tr.K, 3, 1);
+  const c = (0.5 * CAR.rho * CAR.ClA) / (CAR.mass * 9.81);       // downforce per (m/s)^2, as a fraction of weight
+  const muLat = 0.68 * 1.65 * 9.81, muLong = 0.8 * 1.5 * 9.81;
   const v = new Float64Array(N);
   for (let i = 0; i < N; i++) {
     const den = Math.abs(k[i]) - muLat * c;
@@ -2466,8 +2388,7 @@ function autopilot(car, tr, lat = 0) {
   const a = Math.atan2(xl, zf);
   const wb = CAR.zFront - CAR.zRear;
   const steerAngle = Math.atan((2 * wb * Math.sin(a)) / Ld);
-  const profs = tr.speedProfiles || (tr.speedProfiles = {});
-  const prof = profs[car.mode] || (profs[car.mode] = buildSpeedProfile(tr, car.mode));
+  const prof = tr.speedProfile || (tr.speedProfile = buildSpeedProfile(tr));
   const vt = prof[pointAt(tr, s + 4 + v * 0.12).i];
   return { throttle: clamp((vt - v) * 0.5, 0, 1), brake: clamp((v - vt) * 0.4, 0, 1), steer: 0, analog: true, steerAngle };
 }
@@ -2522,14 +2443,6 @@ async function main() {
   const spawnS = track.L - 160;
   car.placeAt(spawnS, 0);
   const timing = new Timing(track);
-  let mode = 'arcade';
-  try { if (MODES.includes(localStorage.getItem('fastroads.mode'))) mode = localStorage.getItem('fastroads.mode'); } catch (e) { /* storage unavailable */ }
-  if (params.get('mode') && MODES.includes(params.get('mode'))) mode = params.get('mode');
-  const setMode = (m) => {
-    mode = m; car.setMode(m); timing.setMode(m);
-    try { localStorage.setItem('fastroads.mode', m); } catch (e) { /* storage unavailable */ }
-  };
-  setMode(mode);
   const input = new Input();
   const audio = new EngineAudio();
 
@@ -2651,7 +2564,7 @@ async function main() {
     return log;
   };
 
-  window.__game = { brakeMarkers, simulate, autopilot, setMode, get mode() { return mode; }, track, car, timing, world, wallCount, get simTime() { return simTime; }, setAutopilot: (v) => (autoOn = v) };
+  window.__game = { brakeMarkers, simulate, autopilot, track, car, timing, world, wallCount, get simTime() { return simTime; }, setAutopilot: (v) => (autoOn = v) };
 
   const frame = (now) => {
     requestAnimationFrame(frame);
@@ -2663,12 +2576,6 @@ async function main() {
     if (input.takePressed('KeyM')) { audio.setMuted(!audio.muted); showMsg(audio.muted ? 'Sound off' : 'Sound on', 1); }
     if (input.takePressed('KeyP')) paused = !paused;
     if (input.takePressed('KeyH')) hud.help.classList.toggle('hidden');
-    if (input.takePressed('KeyG')) {
-      setMode(MODES[(MODES.indexOf(mode) + 1) % MODES.length]);
-      restart();
-      hud.list.innerHTML = '';
-      showMsg(`${mode === 'arcade' ? 'Arcade' : 'Sim'} handling<small>${mode === 'arcade' ? 'Relaxed, forgiving, slides gently' : 'Tyre model, downforce, ABS'} · best times kept per mode</small>`, 2.5);
-    }
     if (input.takePressed('KeyO')) { autoOn = !autoOn; showMsg(`Autopilot ${autoOn ? 'ON' : 'OFF'}`, 1.2); }
     if (input.takePressed('KeyR')) resetToTrack();
     if (input.takePressed('Enter')) restart();
@@ -2726,7 +2633,7 @@ async function main() {
       hud.gear.textContent = car.gear === 0 ? 'R' : Math.abs(car.speedF) < 0.5 && car.throttle < 0.05 ? 'N' : car.gear;
       hud.rpm.style.width = clamp((car.rpm - 4000) / (CAR.redline - 4000), 0, 1) * 100 + '%';
       const surfName = SURF[Math.max(...car.wheels.map((w) => w.surf))].name;
-      hud.flags.textContent = `${mode.toUpperCase()} · TC ${car.tc ? 'ON' : 'OFF'}${autoOn ? ' · AUTOPILOT' : ''}${paused ? ' · PAUSED' : ''}${surfName !== 'asphalt' ? ' · ' + surfName.toUpperCase() : ''}`;
+      hud.flags.textContent = `TC ${car.tc ? 'ON' : 'OFF'}${autoOn ? ' · AUTOPILOT' : ''}${paused ? ' · PAUSED' : ''}${surfName !== 'asphalt' ? ' · ' + surfName.toUpperCase() : ''}`;
       if (msgTimer > 0 && (msgTimer -= fdt) <= 0) hud.msg.classList.remove('show');
       if (helpTimer > 0 && (helpTimer -= fdt) <= 0) hud.help.classList.add('hidden');
 
