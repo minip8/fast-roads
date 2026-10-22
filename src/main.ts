@@ -1,34 +1,72 @@
 import * as THREE from 'three';
 import trackCsv from '../tracks/melbourne.csv?raw';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { EngineAudio } from './audio.js';
-import { autopilot } from './autopilot.js';
-import { buildBrakeMarkers } from './brakeMarkers.js';
-import { Car, _v1, _v2, _v3 } from './car.js';
-import { CARS } from './cars.js';
-import { DT, MAX_STEPS_PER_FRAME, SURF } from './config.js';
-import { Dust } from './dust.js';
-import { Input, MOUSE_DEADZONE, MOUSE_RANGE } from './input.js';
-import { buildScenery, buildSky } from './scenery.js';
-import { Timing } from './timing.js';
-import { buildTrack, buildTrackColliders, parseCSV } from './track.js';
-import { buildTrackMeshes } from './trackMeshes.js';
-import { clamp, fmtDelta, fmtSec, fmtTime, wrapI } from './util.js';
+import { EngineAudio } from './audio';
+import { autopilot } from './autopilot';
+import { buildBrakeMarkers } from './brakeMarkers';
+import { Car, _v1, _v2, _v3, type DriveInput } from './car';
+import { CARS, type CarId } from './cars';
+import { DT, MAX_STEPS_PER_FRAME, SURF } from './config';
+import { Dust } from './dust';
+import { Input, MOUSE_DEADZONE, MOUSE_RANGE, type MouseDeadzone, type MouseSensitivity } from './input';
+import { buildScenery, buildSky } from './scenery';
+import { needsReset, stepPhysics } from './sim';
+import { Timing } from './timing';
+import { buildTrack, buildTrackColliders, parseCSV } from './track';
+import { buildTrackMeshes } from './trackMeshes';
+import { clamp, fmtDelta, fmtSec, fmtTime, wrapI } from './util';
 
 // ============================================================================
 // Main
 // ============================================================================
+// Page elements always exist (see index.html), so a missing one is a bug worth failing loudly on.
+function $<T extends HTMLElement = HTMLElement>(id: string): T {
+  const el = document.getElementById(id);
+  if (!el) throw new Error(`#${id} missing from index.html`);
+  return el as T;
+}
+
+const CAM_MODES = ['onboard', 'chase', 'far'] as const;   // first is the default; C cycles
+type CamMode = (typeof CAM_MODES)[number];
+type OnOff = 'on' | 'off';
+
+interface Settings {
+  car: CarId; gearbox: 'auto' | 'manual'; steering: 'keyboard' | 'mouse';
+  mouseSens: MouseSensitivity; mouseDeadzone: MouseDeadzone; camera: CamMode; tc: OnOff; sound: OnOff;
+}
+type SettingKey = keyof Settings;
+interface SettingDef<K extends SettingKey> { label: string; options: [value: Settings[K], text: string][] }
+
+// Menu rows, in display order.
+const SETTING_DEFS: { [K in SettingKey]: SettingDef<K> } = {
+  car: { label: 'Car', options: Object.values(CARS).map((c) => [c.id, c.name]) },
+  gearbox: { label: 'Gears', options: [['auto', 'Automatic'], ['manual', 'Manual']] },
+  steering: { label: 'Steering', options: [['keyboard', 'Keyboard'], ['mouse', 'Mouse']] },
+  mouseSens: { label: 'Mouse sensitivity', options: [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']] },
+  mouseDeadzone: { label: 'Mouse deadzone', options: [['off', 'Off'], ['small', 'Small'], ['medium', 'Medium'], ['large', 'Large']] },
+  camera: { label: 'Camera', options: [['onboard', 'Onboard'], ['chase', 'Chase'], ['far', 'Far']] },
+  tc: { label: 'Traction control', options: [['on', 'On'], ['off', 'Off']] },
+  sound: { label: 'Sound', options: [['on', 'On'], ['off', 'Off']] },
+};
+const SETTING_KEYS = Object.keys(SETTING_DEFS) as SettingKey[];
+const DEFAULT_SETTINGS: Settings = {
+  car: 'f1', gearbox: 'auto', steering: 'keyboard', mouseSens: 'medium', mouseDeadzone: 'small', camera: 'onboard', tc: 'on', sound: 'on',
+};
+
+// Test hook (see CLAUDE.md); set in main().
+declare global { interface Window { __game?: unknown } }
+
 async function main() {
   const params = new URLSearchParams(location.search);
-  const overlay = document.getElementById('overlay'), loadState = document.getElementById('loadState');
-  await RAPIER.init({});
+  const overlay = $('overlay'), loadState = $('loadState');
+  await RAPIER.init();
   loadState.textContent = 'Building circuit…';
-  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setTimeout(r, 0));   // let the loading text paint
 
   const track = buildTrack(parseCSV(trackCsv));
 
   // Renderer / scene
-  const canvas = document.getElementById('view');
+  const canvas = $<HTMLCanvasElement>('view');
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.setSize(innerWidth, innerHeight);
@@ -65,18 +103,17 @@ async function main() {
   const spawnS = track.L - 160;
   car.placeAt(spawnS, 0);
   const timing = new Timing(track, car.spec.storeKey);
-  const input = new Input(canvas);
+  const input = new Input();
   const audio = new EngineAudio();
   const dust = new Dust(scene);
 
   // HUD
-  const $ = (id) => document.getElementById(id);
   $('trkLen').textContent = (track.L / 1000).toFixed(2) + ' km';
   const hud = { lap: $('lapTime'), state: $('lapState'), delta: $('delta'), last: $('lastLap'), best: $('bestLap'), opt: $('optLap'),
     list: $('lapList'), speed: $('speed'), gear: $('gear'), flags: $('flags'), msg: $('msg'), help: $('help'),
     sec: [0, 1, 2].map((k) => $('sec' + k)) };
   // Shift lights light up from the car's shiftLightsFrom to its auto-upshift point, then all flash.
-  const lights = [];
+  const lights: HTMLElement[] = [];
   for (let k = 0; k < 15; k++) { const d = document.createElement('i'); d.className = k < 5 ? 'g' : k < 10 ? 'r' : 'b'; $('shiftLights').append(d); lights.push(d); }
   let litCount = -1;
   const updateDash = () => {
@@ -89,21 +126,21 @@ async function main() {
     $('brkFill').style.height = Math.round(clamp(car.brake, 0, 1) * 100) + '%';
   };
   let msgTimer = 0;
-  const showMsg = (html, secs = 2.5) => { hud.msg.innerHTML = html; hud.msg.classList.add('show'); msgTimer = secs; };
+  const showMsg = (html: string, secs = 2.5) => { hud.msg.innerHTML = html; hud.msg.classList.add('show'); msgTimer = secs; };
   const renderLapList = () => {
     hud.list.innerHTML = timing.laps.slice(0, 6).map((l, k) =>
       `<div class="${l.valid ? (l.pb ? 'pb' : '') : 'inv'}"><span>L${timing.laps.length - k}</span><span>${fmtTime(l.time)}</span></div>`).join('');
   };
 
   // Minimap
-  const mm = $('minimap'), mctx = mm.getContext('2d');
+  const mm = $<HTMLCanvasElement>('minimap'), mctx = mm.getContext('2d')!;
   const mmBase = document.createElement('canvas'); mmBase.width = mm.width; mmBase.height = mm.height;
   const pad = 30, span = Math.max(bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ);
   const mmScale = (mm.width - pad * 2) / span;
-  const mmX = (x) => pad + (x - bounds.minX) * mmScale + ((span - (bounds.maxX - bounds.minX)) * mmScale) / 2;
-  const mmY = (z) => pad + (z - bounds.minZ) * mmScale + ((span - (bounds.maxZ - bounds.minZ)) * mmScale) / 2;
+  const mmX = (x: number) => pad + (x - bounds.minX) * mmScale + ((span - (bounds.maxX - bounds.minX)) * mmScale) / 2;
+  const mmY = (z: number) => pad + (z - bounds.minZ) * mmScale + ((span - (bounds.maxZ - bounds.minZ)) * mmScale) / 2;
   {
-    const g = mmBase.getContext('2d');
+    const g = mmBase.getContext('2d')!;
     g.lineJoin = 'round'; g.lineCap = 'round';
     const path = () => { g.beginPath(); for (let i = 0; i <= track.N; i++) { const k = i % track.N; i ? g.lineTo(mmX(track.X[k]), mmY(track.Z[k])) : g.moveTo(mmX(track.X[k]), mmY(track.Z[k])); } };
     path(); g.strokeStyle = 'rgba(0,0,0,.6)'; g.lineWidth = 12; g.stroke();
@@ -116,14 +153,13 @@ async function main() {
   }
 
   // Camera rig
-  const camModes = ['onboard', 'chase', 'far'];   // first is the default; C cycles
   let camMode = 0;
   const camPos = new THREE.Vector3(), camLook = new THREE.Vector3(), camFwd = new THREE.Vector3(0, 0, 1);
   let camInit = false;
-  const updateCamera = (dt) => {
+  const updateCamera = (dt: number) => {
     const root = car.mesh.root, p = root.position;
     const fwd = _v1.set(0, 0, 1).applyQuaternion(root.quaternion);
-    const mode = camModes[camMode];
+    const mode = CAM_MODES[camMode];
     if (mode === 'onboard') {
       const upv = _v2.set(0, 1, 0).applyQuaternion(root.quaternion);
       const cam = car.spec.cam;
@@ -153,7 +189,6 @@ async function main() {
   // The autopilot is a development/testing tool: only ?autopilot in the URL (or the __game test hook) turns it on.
   let started = params.has('autopilot'), paused = false, autoOn = params.has('autopilot');
   let autoStuck = 0, simTime = 0, acc = 0, last = performance.now(), helpTimer = 14;
-  const prevXZ = { x: 0, z: 0 }, currXZ = { x: 0, z: 0 };
 
   const restart = () => { car.placeAt(spawnS, 0); timing.reset(); camInit = false; camPos.set(0, 0, 0); showMsg('Session restarted<small>Cross the line to start a lap</small>'); };
   const resetToTrack = () => {
@@ -167,69 +202,71 @@ async function main() {
 
   // ---------------- Settings (persisted) ----------------
   const SETTINGS_KEY = 'fastroads.settings';
-  const SETTING_DEFS = [
-    { key: 'car', label: 'Car', options: Object.values(CARS).map((c) => [c.id, c.name]) },
-    { key: 'gearbox', label: 'Gears', options: [['auto', 'Automatic'], ['manual', 'Manual']] },
-    { key: 'steering', label: 'Steering', options: [['keyboard', 'Keyboard'], ['mouse', 'Mouse']] },
-    { key: 'mouseSens', label: 'Mouse sensitivity', options: [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']] },
-    { key: 'mouseDeadzone', label: 'Mouse deadzone', options: [['off', 'Off'], ['small', 'Small'], ['medium', 'Medium'], ['large', 'Large']] },
-    { key: 'camera', label: 'Camera', options: [['onboard', 'Onboard'], ['chase', 'Chase'], ['far', 'Far']] },
-    { key: 'tc', label: 'Traction control', options: [['on', 'On'], ['off', 'Off']] },
-    { key: 'sound', label: 'Sound', options: [['on', 'On'], ['off', 'Off']] },
-  ];
-  const settings = { car: 'f1', gearbox: 'auto', steering: 'keyboard', mouseSens: 'medium', mouseDeadzone: 'small', camera: 'onboard', tc: 'on', sound: 'on' };
+  const settings: Settings = { ...DEFAULT_SETTINGS };
   try {
-    // carry over choices saved by earlier versions
+    // carry over choices saved by earlier versions (validated below)
     const g = localStorage.getItem('fastroads.gearbox'), st = localStorage.getItem('fastroads.steering');
-    if (g) settings.gearbox = g;
-    if (st) settings.steering = st;
+    if (g) settings.gearbox = g as Settings['gearbox'];
+    if (st) settings.steering = st as Settings['steering'];
     Object.assign(settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'));
-  } catch (e) { /* storage unavailable */ }
-  for (const d of SETTING_DEFS) if (!d.options.some(([v]) => v === settings[d.key])) settings[d.key] = d.options[0][0];
-  const setSetting = (key, value) => {
-    settings[key] = value;
-    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) { /* storage unavailable */ }
-    if (key === 'car' && car.spec.id !== value) {
+  } catch { /* storage unavailable */ }
+  const validate = <K extends SettingKey>(k: K) => {
+    const opts = SETTING_DEFS[k].options;
+    if (!opts.some(([v]) => v === settings[k])) settings[k] = opts[0][0];
+  };
+  SETTING_KEYS.forEach(validate);
+
+  // What changing each setting does.
+  const applySetting: { [K in SettingKey]: (v: Settings[K]) => void } = {
+    car: (id) => {
+      if (car.spec.id === id) return;
       car.destroy();
-      car = new Car(world, track, scene, CARS[value]);
+      car = new Car(world, track, scene, CARS[id]);
       car.manual = settings.gearbox === 'manual'; car.tc = settings.tc === 'on';
       car.placeAt(spawnS, 0);
       timing.useStore(car.spec.storeKey); timing.reset(); hud.list.innerHTML = '';
       camInit = false; camPos.set(0, 0, 0); acc = 0;
-      if (value === 'drift') showMsg(`${car.spec.name}<small>Loose rear: brake while turning to kick it out · TC off (T) for big slides</small>`, 3);
-    }
-    if (key === 'gearbox') car.manual = value === 'manual';
-    if (key === 'steering') { input.setMouse(value === 'mouse'); $('mouseSteer').hidden = value !== 'mouse'; }
-    if (key === 'mouseSens') input.mouse.range = MOUSE_RANGE[value];
-    if (key === 'mouseDeadzone') input.mouse.deadzone = MOUSE_DEADZONE[value];
-    if (key === 'camera') camMode = Math.max(0, camModes.indexOf(value));
-    if (key === 'tc') car.tc = value === 'on';
-    if (key === 'sound') audio.setMuted(value === 'off');
+      if (id === 'drift') showMsg(`${car.spec.name}<small>Loose rear: brake while turning to kick it out · TC off (T) for big slides</small>`, 3);
+    },
+    gearbox: (v) => { car.manual = v === 'manual'; },
+    steering: (v) => { input.setMouse(v === 'mouse'); $('mouseSteer').hidden = v !== 'mouse'; },
+    mouseSens: (v) => { input.mouse.range = MOUSE_RANGE[v]; },
+    mouseDeadzone: (v) => { input.mouse.deadzone = MOUSE_DEADZONE[v]; },
+    camera: (v) => { camMode = Math.max(0, CAM_MODES.indexOf(v)); },
+    tc: (v) => { car.tc = v === 'on'; },
+    sound: (v) => { audio.setMuted(v === 'off'); },
+  };
+  const setSetting = <K extends SettingKey>(key: K, value: Settings[K]) => {
+    settings[key] = value;
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* storage unavailable */ }
+    applySetting[key](value);
     menu.refresh();
   };
-  const cycleSetting = (key, dir = 1) => {
-    const opts = SETTING_DEFS.find((d) => d.key === key).options, i = opts.findIndex(([v]) => v === settings[key]);
+  const cycleSetting = <K extends SettingKey>(key: K, dir = 1) => {
+    const opts = SETTING_DEFS[key].options, i = opts.findIndex(([v]) => v === settings[key]);
     setSetting(key, opts[wrapI(i + dir, opts.length)][0]);
     return settings[key];
   };
   const resetBestTimes = () => {
-    try { localStorage.removeItem(timing.storeKey); } catch (e) { /* storage unavailable */ }
+    try { localStorage.removeItem(timing.storeKey); } catch { /* storage unavailable */ }
     timing.useStore(timing.storeKey);
     hud.list.innerHTML = '';
   };
 
   // ---------------- Main / pause menu ----------------
-  const menu = (() => {
+  interface MenuItem { el: HTMLElement; run?: () => void; setting?: SettingKey }
+  interface Menu { isOpen: boolean; keyboardUsed: boolean; refresh(): void; open(): void; show(): void }
+  const menu = ((): Menu => {
     const actionsEl = $('menuActions'), settingsEl = $('menuSettings'), resetEl = $('resetBest');
-    let items = [], focus = 0, resetArmed = false;
-    const api = { isOpen: true };
+    let items: MenuItem[] = [], focus = 0, resetArmed = false;
+    const api: Menu = { isOpen: true, keyboardUsed: false, refresh: () => {}, open: () => {}, show: () => {} };
     const close = () => {
       api.isOpen = false; overlay.classList.add('hidden');
       started = true; paused = false; $('hud').hidden = false; audio.start();
       input.pressed.clear();                       // the key that closed the menu shouldn't also act in-game
       input.mouse.lmb = input.mouse.rmb = false;   // the click that closed the menu isn't throttle
     };
-    const actions = () => !started
+    const actions = (): [label: string, run: () => void, primary?: boolean][] => !started
       ? [['Drive', () => close(), true]]
       : [['Resume', () => close(), true],
          ['Restart session', () => { restart(); close(); }]];
@@ -244,19 +281,21 @@ async function main() {
         items.push({ el: bt, run });
       }
       settingsEl.innerHTML = '';
-      for (const d of SETTING_DEFS) {
+      const addRow = <K extends SettingKey>(key: K) => {
+        const d = SETTING_DEFS[key];
         const row = document.createElement('div'); row.className = 'mrow';
         const lab = document.createElement('span'); lab.textContent = d.label;
         const seg = document.createElement('div'); seg.className = 'seg';
         for (const [v, text] of d.options) {
           const bt = document.createElement('button');
-          bt.type = 'button'; bt.textContent = text; bt.className = settings[d.key] === v ? 'on' : '';
-          bt.addEventListener('click', () => setSetting(d.key, v));
+          bt.type = 'button'; bt.textContent = text; bt.className = settings[key] === v ? 'on' : '';
+          bt.addEventListener('click', () => setSetting(key, v));
           seg.append(bt);
         }
         row.append(lab, seg); settingsEl.append(row);
-        items.push({ el: row, setting: d.key });
-      }
+        items.push({ el: row, setting: key });
+      };
+      SETTING_KEYS.forEach(addRow);
       items.push({ el: resetEl, run: () => onReset() });
       focus = clamp(focus, 0, items.length - 1);
       items.forEach((it, k) => it.el.classList.toggle('focus', k === focus && api.keyboardUsed));
@@ -282,7 +321,7 @@ async function main() {
     addEventListener('keydown', (e) => {
       if (!api.isOpen || $('menuBody').hidden) return;
       const it = items[focus];
-      const nav = { ArrowUp: -1, ArrowDown: 1 }[e.code];
+      const nav = ({ ArrowUp: -1, ArrowDown: 1 } as Record<string, number>)[e.code];
       if (nav) { api.keyboardUsed = true; do { focus = wrapI(focus + nav, items.length); } while (items[focus].el.hidden); render(); e.preventDefault(); return; }
       if ((e.code === 'ArrowLeft' || e.code === 'ArrowRight') && it?.setting) { api.keyboardUsed = true; cycleSetting(it.setting, e.code === 'ArrowLeft' ? -1 : 1); e.preventDefault(); return; }
       if (e.code === 'Enter' || e.code === 'Space') {
@@ -295,28 +334,22 @@ async function main() {
     return api;
   })();
 
-  for (const d of SETTING_DEFS) setSetting(d.key, settings[d.key]);   // apply saved choices
+  for (const k of SETTING_KEYS) setSetting(k, settings[k]);   // apply saved choices
   if (started) { menu.isOpen = false; overlay.classList.add('hidden'); $('hud').hidden = false; }   // ?autopilot skips the menu
   else menu.show();
 
-  function physicsTick(inp) {
-    car.prevPos.copy(car.pos); car.prevQuat.copy(car.quat);
-    prevXZ.x = car.pos.x; prevXZ.z = car.pos.z;
-    car.step(DT, inp);
-    world.step();
-    car.readState();
-    currXZ.x = car.pos.x; currXZ.z = car.pos.z;
-    timing.tick(prevXZ, currXZ, simTime, DT, car);
+  function physicsTick(inp: DriveInput) {
+    stepPhysics(world, car, timing, inp, simTime);
     simTime += DT;
     // autopilot gets stuck against a wall: put it back on track
     autoStuck = autoOn && Math.abs(car.speedF) < 1 ? autoStuck + DT : 0;
     if (autoStuck > 3) { autoStuck = 0; resetToTrack(); }
-    // fell through the world or flipped: auto reset
-    if (car.pos.y < -5 || (car.up.y < -0.3 && car.speedF < 2)) resetToTrack();
+    if (needsReset(car)) resetToTrack();
   }
 
   // Test hook: run the simulation headless (no rendering), e.g. __game.simulate(90, true)
-  const simulate = (seconds, auto = true, probe = null) => {
+  type Driver = boolean | ((car: Car, simTime: number) => DriveInput);   // true = autopilot, false = live input
+  const simulate = (seconds: number, auto: Driver = true, probe: number | null = null) => {
     const wasAuto = autoOn; autoOn = auto === true;
     const n = Math.round(seconds / DT), log = [];
     for (let k = 0; k < n; k++) {
@@ -327,9 +360,9 @@ async function main() {
     return log;
   };
 
-  window.__game = { brakeMarkers, simulate, autopilot, input, track, get car() { return car; }, timing, world, wallCount, get simTime() { return simTime; }, setAutopilot: (v) => (autoOn = v), setSetting };
+  window.__game = { brakeMarkers, simulate, autopilot, input, track, get car() { return car; }, timing, world, wallCount, get simTime() { return simTime; }, setAutopilot: (v: boolean) => (autoOn = v), setSetting };
 
-  const frame = (now) => {
+  const frame = (now: number) => {
     requestAnimationFrame(frame);
     let fdt = Math.min((now - last) / 1000, 0.1); last = now;
 
@@ -384,8 +417,8 @@ async function main() {
 
     // HUD
     if (!$('hud').hidden) {
-      const lapRunning = timing.lapStart != null;
-      hud.lap.textContent = lapRunning ? fmtTime(simTime + alpha * DT - timing.lapStart) : '-:--.---';
+      const lapStart = timing.lapStart, lapRunning = lapStart != null;
+      hud.lap.textContent = lapRunning ? fmtTime(simTime + alpha * DT - lapStart) : '-:--.---';
       hud.lap.classList.toggle('invalid', lapRunning && !timing.valid);
       hud.state.textContent = !lapRunning ? 'OUT LAP' : timing.valid ? `LAP ${timing.laps.length + 1}` : `LAP ${timing.laps.length + 1} · INVALID (${timing.invalidReason})`;
       const dl = timing.valid ? timing.liveDelta(simTime, car.proj.s) : null;
@@ -399,14 +432,14 @@ async function main() {
         else if (!lapRunning && timing.lastLap) { txt = fmtSec(timing.lastLap.sectors[k]); cls = timing.lastLap.classes[k]; }
         else { txt = '—'; cls = ''; }
         hud.sec[k].className = 'sec ' + cls;
-        hud.sec[k].lastChild.textContent = txt;
+        hud.sec[k].lastChild!.textContent = txt;
       }
       hud.last.textContent = timing.lastLap ? fmtTime(timing.lastLap.time) + (timing.lastLap.valid ? '' : ' ✕') : '—';
       hud.best.textContent = fmtTime(timing.store.bestLap);
-      const bs = timing.store.bestSectors;
-      hud.opt.textContent = bs.every((x) => x != null) ? fmtTime(bs[0] + bs[1] + bs[2]) : '—';
-      hud.speed.textContent = Math.round(Math.abs(car.speedF) * 3.6);
-      hud.gear.textContent = car.gear === 0 ? 'R' : !car.manual && Math.abs(car.speedF) < 0.5 && car.throttle < 0.05 ? 'N' : car.gear;
+      const [b0, b1, b2] = timing.store.bestSectors;
+      hud.opt.textContent = b0 != null && b1 != null && b2 != null ? fmtTime(b0 + b1 + b2) : '—';
+      hud.speed.textContent = String(Math.round(Math.abs(car.speedF) * 3.6));
+      hud.gear.textContent = car.gear === 0 ? 'R' : !car.manual && Math.abs(car.speedF) < 0.5 && car.throttle < 0.05 ? 'N' : String(car.gear);
       updateDash();
       const surfName = SURF[Math.max(...car.wheels.map((w) => w.surf))].name;
       hud.flags.textContent = `${car.manual ? 'MANUAL' : 'AUTO'} · TC ${car.tc ? 'ON' : 'OFF'}${autoOn ? ' · AUTOPILOT' : ''}${paused ? ' · PAUSED' : ''}${surfName !== 'asphalt' ? ' · ' + surfName.toUpperCase() : ''}`;
@@ -430,6 +463,7 @@ async function main() {
 main().catch((err) => {
   console.error(err);
   const ls = document.getElementById('loadState');
+  if (!ls) return;
   ls.className = 'err';
-  ls.textContent = 'Failed to start: ' + (err && err.message ? err.message : err) + ' (needs WebGL)';
+  ls.textContent = 'Failed to start: ' + (err instanceof Error ? err.message : String(err)) + ' (needs WebGL)';
 });

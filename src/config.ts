@@ -9,7 +9,8 @@ export const LIMIT_TOL_NO_KERB = 0.3;      // track-limit tolerance where there 
 
 // Surface properties: mu = peak grip, rr = rolling resistance coeff (x load),
 // decel = ploughing resistance (m/s^2) when the whole car is on that surface.
-export const SURF = [
+export interface Surface { name: string; mu: number; rr: number; decel: number }
+export const SURF: Surface[] = [
   { name: 'asphalt', mu: 1.65, rr: 0.012, decel: 0 },
   { name: 'kerb',    mu: 1.45, rr: 0.02,  decel: 0 },
   { name: 'grass',   mu: 0.62, rr: 0.03,  decel: 1.5 },
@@ -22,4 +23,4 @@ export const S_ASPHALT = 0, S_KERB = 1, S_GRASS = 2, S_GRAVEL = 3;
 
 // Collision groups: (membership << 16) | filter
 export const G_GROUND = 0x1, G_WALL = 0x2, G_CAR = 0x4, G_CARPART = 0x8, G_RAY = 0x10;
-export const groups = (member, filter) => (member << 16) | filter;
+export const groups = (member: number, filter: number) => (member << 16) | filter;

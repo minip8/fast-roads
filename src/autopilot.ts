@@ -1,10 +1,12 @@
-import { pointAt } from './track.js';
-import { clamp, smoothClosed } from './util.js';
+import type { Car, DriveInput } from './car';
+import type { CarSpec } from './cars';
+import { pointAt, type Track } from './track';
+import { clamp, smoothClosed } from './util';
 
 // ============================================================================
 // Autopilot (demo / testing): pure pursuit on the centerline + precomputed speed profile
 // ============================================================================
-export function buildSpeedProfile(tr, spec) {
+export function buildSpeedProfile(tr: Track, spec: CarSpec): Float64Array {
   const N = tr.N, k = smoothClosed(tr.K, 3, 1);
   const c = (0.5 * spec.rho * spec.ClA) / (spec.mass * 9.81);       // downforce per (m/s)^2, as a fraction of weight
   const muLat = spec.autoGrip * 1.65 * Math.min(spec.gripFront, spec.gripRear) * 9.81, muLong = spec.autoLong * 9.81;
@@ -24,7 +26,7 @@ export function buildSpeedProfile(tr, spec) {
   return v;
 }
 
-export function autopilot(car, tr, lat = 0) {
+export function autopilot(car: Car, tr: Track, lat = 0): DriveInput {
   const v = Math.max(0, car.speedF), s = car.proj.s;
   const Ld = 8 + v * 0.3;
   const tgt = pointAt(tr, s + Ld, lat);

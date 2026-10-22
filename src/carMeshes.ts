@@ -1,17 +1,30 @@
 import * as THREE from 'three';
+import type { CarSpec } from './cars';
 
-export function buildCarMesh(spec) {
+export interface CarMesh {
+  root: THREE.Group;                 // follows the physics body
+  body: THREE.Group;
+  wheels: { pivot: THREE.Group; spinner: THREE.Group }[];   // pivot: steer + suspension; spinner: rolling
+  brakeLight: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
+}
+
+// Returns add(geometry, material, position, rotation): a shadow-casting mesh added to the group.
+function adder(group: THREE.Group) {
+  return <M extends THREE.Material>(geo: THREE.BufferGeometry, mat: M, x: number, y: number, z: number, rx = 0, ry = 0, rz = 0) => {
+    const me = new THREE.Mesh(geo, mat); me.position.set(x, y, z); me.rotation.set(rx, ry, rz);
+    me.castShadow = true; group.add(me); return me;
+  };
+}
+
+export function buildCarMesh(spec: CarSpec): CarMesh {
   const root = new THREE.Group(), bodyGroup = new THREE.Group();
   root.add(bodyGroup);
   const body = new THREE.MeshStandardMaterial({ color: 0xff6a13, roughness: 0.35, metalness: 0.4 });
   const dark = new THREE.MeshStandardMaterial({ color: 0x16181c, roughness: 0.5, metalness: 0.3 });
   const carbon = new THREE.MeshStandardMaterial({ color: 0x24272c, roughness: 0.35, metalness: 0.5 });
   const accent = new THREE.MeshStandardMaterial({ color: 0x1fa6ff, roughness: 0.4, metalness: 0.3 });
-  const add = (geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) => {
-    const me = new THREE.Mesh(geo, mat); me.position.set(x, y, z); me.rotation.set(rx, ry, rz);
-    me.castShadow = true; bodyGroup.add(me); return me;
-  };
-  const B = (w, h, l) => new THREE.BoxGeometry(w, h, l);
+  const add = adder(bodyGroup);
+  const B = (w: number, h: number, l: number) => new THREE.BoxGeometry(w, h, l);
   add(B(1.35, 0.04, 3.4), carbon, 0, -0.2, -0.05);                       // floor
   add(B(0.66, 0.42, 2.2), body, 0, 0.0, 0.25);                            // tub
   add(B(0.36, 0.2, 1.6), body, 0, -0.06, 1.95, 0.07);                     // nose
@@ -45,12 +58,12 @@ export function buildCarMesh(spec) {
 }
 
 // Four wheels (pivot for steer/suspension, spinner for rolling) shared by every car body.
-export function buildWheels(root, spec, dark) {
+export function buildWheels(root: THREE.Group, spec: CarSpec, dark: THREE.Material): CarMesh['wheels'] {
   const tyreMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.85 });
   const rimMat = new THREE.MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.3, metalness: 0.8 });
   const stripeMat = new THREE.MeshStandardMaterial({ color: 0xffd23f, roughness: 0.6 });
-  const wheels = [];
-  for (const [x, z, front] of [[spec.trackHalf, spec.zFront, 1], [-spec.trackHalf, spec.zFront, 1], [spec.trackHalf, spec.zRear, 0], [-spec.trackHalf, spec.zRear, 0]]) {
+  const wheels: CarMesh['wheels'] = [];
+  for (const [x, , front] of [[spec.trackHalf, spec.zFront, 1], [-spec.trackHalf, spec.zFront, 1], [spec.trackHalf, spec.zRear, 0], [-spec.trackHalf, spec.zRear, 0]]) {
     const pivot = new THREE.Group(), spinner = new THREE.Group();
     const w = spec.tyreW[front ? 0 : 1], r = spec.wheelRadius;
     const tyre = new THREE.Mesh(new THREE.CylinderGeometry(r, r, w, 28), tyreMat); tyre.rotation.z = Math.PI / 2; tyre.castShadow = true;
@@ -66,18 +79,15 @@ export function buildWheels(root, spec, dark) {
 }
 
 // Boxy rear-drive coupe. Origin is the centre of mass (about 0.45 m above the road).
-export function buildDriftMesh(spec) {
+export function buildDriftMesh(spec: CarSpec): CarMesh {
   const root = new THREE.Group(), bodyGroup = new THREE.Group();
   root.add(bodyGroup);
   const body = new THREE.MeshStandardMaterial({ color: 0xf2f4f7, roughness: 0.3, metalness: 0.35 });
   const dark = new THREE.MeshStandardMaterial({ color: 0x16181c, roughness: 0.5, metalness: 0.3 });
   const glass = new THREE.MeshStandardMaterial({ color: 0x1b2633, roughness: 0.1, metalness: 0.6, transparent: true, opacity: 0.45, depthWrite: false });   // see-through for the onboard camera
   const accent = new THREE.MeshStandardMaterial({ color: 0xff6a13, roughness: 0.4, metalness: 0.3 });
-  const add = (geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) => {
-    const me = new THREE.Mesh(geo, mat); me.position.set(x, y, z); me.rotation.set(rx, ry, rz);
-    me.castShadow = true; bodyGroup.add(me); return me;
-  };
-  const B = (w, h, l) => new THREE.BoxGeometry(w, h, l);
+  const add = adder(bodyGroup);
+  const B = (w: number, h: number, l: number) => new THREE.BoxGeometry(w, h, l);
   add(B(1.64, 0.36, 4.3), body, 0, 0.1, 0);                                // main body (narrower than the track so tyres show)
   add(B(1.58, 0.08, 1.35), body, 0, 0.31, 1.42, 0.05);                     // bonnet
   add(B(1.4, 0.42, 1.75), glass, 0, 0.49, -0.35);                          // cabin glass
@@ -92,8 +102,8 @@ export function buildDriftMesh(spec) {
   const headMat = new THREE.MeshStandardMaterial({ color: 0x777766, emissive: 0xfff4d0, emissiveIntensity: 0.6 });
   for (const s of [-1, 1]) add(B(0.34, 0.08, 0.03), headMat, s * 0.56, 0.18, 2.16);
   const tailMat = new THREE.MeshStandardMaterial({ color: 0x400000, emissive: 0xff1010, emissiveIntensity: 0.4 });
-  let brakeLight;
-  for (const s of [-1, 1]) brakeLight = add(B(0.4, 0.08, 0.03), tailMat, s * 0.54, 0.18, -2.16);   // both share tailMat
+  const tails = [-1, 1].map((s) => add(B(0.4, 0.08, 0.03), tailMat, s * 0.54, 0.18, -2.16));
+  const brakeLight = tails[1];   // both lights share tailMat, so lighting one lights both
   const wheels = buildWheels(root, spec, dark);
   return { root, body: bodyGroup, wheels, brakeLight };
 }

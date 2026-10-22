@@ -1,11 +1,11 @@
 // ============================================================================
 // Small helpers
 // ============================================================================
-export const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
-export const lerp = (a, b, t) => a + (b - a) * t;
-export const wrapI = (i, n) => ((i % n) + n) % n;
+export const clamp = (x: number, a: number, b: number) => (x < a ? a : x > b ? b : x);
+export const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+export const wrapI = (i: number, n: number) => ((i % n) + n) % n;
 
-export function smoothClosed(arr, r, passes = 1) {
+export function smoothClosed(arr: ArrayLike<number>, r: number, passes = 1): Float64Array<ArrayBuffer> {
   const n = arr.length;
   let src = Float64Array.from(arr);
   for (let p = 0; p < passes; p++) {
@@ -22,18 +22,18 @@ export function smoothClosed(arr, r, passes = 1) {
 }
 
 // Grow true regions: a true at j becomes true over [j - back, j + fwd].
-export function dilate(mask, back, fwd) {
+export function dilate(mask: ArrayLike<number>, back: number, fwd: number): Uint8Array<ArrayBuffer> {
   const n = mask.length, out = new Uint8Array(n);
   for (let j = 0; j < n; j++) if (mask[j]) for (let k = -back; k <= fwd; k++) out[wrapI(j + k, n)] = 1;
   return out;
 }
 
-export function removeShortRuns(mask, minLen) {
+export function removeShortRuns<T extends Uint8Array>(mask: T, minLen: number): T {
   const n = mask.length;
   let start = -1;
   for (let i = 0; i < n; i++) if (!mask[i]) { start = i; break; }
   if (start < 0) return mask;
-  let run = [];
+  let run: number[] = [];
   for (let k = 1; k <= n; k++) {
     const i = wrapI(start + k, n);
     if (mask[i] && k < n) run.push(i);
@@ -42,10 +42,10 @@ export function removeShortRuns(mask, minLen) {
   return mask;
 }
 
-export const fmtTime = (t) => {
+export const fmtTime = (t: number | null | undefined) => {
   if (t == null || !isFinite(t)) return '—';
   const m = Math.floor(t / 60), s = t - m * 60;
   return `${m}:${s.toFixed(3).padStart(6, '0')}`;
 };
-export const fmtSec = (t) => (t == null ? '—' : t.toFixed(3));
-export const fmtDelta = (d) => (d >= 0 ? '+' : '−') + Math.abs(d).toFixed(3);
+export const fmtSec = (t: number | null | undefined) => (t == null ? '—' : t.toFixed(3));
+export const fmtDelta = (d: number) => (d >= 0 ? '+' : '−') + Math.abs(d).toFixed(3);

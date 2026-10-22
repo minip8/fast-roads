@@ -1,13 +1,24 @@
 import * as THREE from 'three';
-import { S_GRASS, S_GRAVEL } from './config.js';
-import { clamp, lerp } from './util.js';
+import { S_GRASS, S_GRAVEL } from './config';
+import type { Car } from './car';
+import { clamp, lerp } from './util';
 
 // ============================================================================
 // Dust kicked up by wheels on grass / gravel (purely visual)
 // ============================================================================
 export class Dust {
-  constructor(scene, max = 600) {
-    this.max = max; this.next = 0; this.carry = [0, 0, 0, 0];
+  private next = 0;
+  private readonly carry = [0, 0, 0, 0];   // fractional particles owed per wheel
+  // per-particle buffers: position/velocity/colour (xyz), plus alpha, size, age, lifetime, start alpha, start/end size
+  private readonly pos: Float32Array<ArrayBuffer>; private readonly vel: Float32Array<ArrayBuffer>; private readonly col: Float32Array<ArrayBuffer>;
+  private readonly alpha: Float32Array<ArrayBuffer>; private readonly size: Float32Array<ArrayBuffer>;
+  private readonly age: Float32Array<ArrayBuffer>; private readonly life: Float32Array<ArrayBuffer>;
+  private readonly a0: Float32Array<ArrayBuffer>; private readonly s0: Float32Array<ArrayBuffer>; private readonly s1: Float32Array<ArrayBuffer>;
+  private readonly geo: THREE.BufferGeometry;
+  private readonly mat: THREE.ShaderMaterial;
+  private readonly points: THREE.Points;
+
+  constructor(scene: THREE.Scene, private readonly max = 600) {
     this.pos = new Float32Array(max * 3); this.vel = new Float32Array(max * 3);
     this.col = new Float32Array(max * 3); this.alpha = new Float32Array(max); this.size = new Float32Array(max);
     this.age = new Float32Array(max); this.life = new Float32Array(max); this.a0 = new Float32Array(max); this.s0 = new Float32Array(max); this.s1 = new Float32Array(max);
@@ -46,7 +57,7 @@ export class Dust {
     this.points.frustumCulled = false;
     scene.add(this.points);
   }
-  spawn(x, y, z, vx, vy, vz, gravel) {
+  spawn(x: number, y: number, z: number, vx: number, vy: number, vz: number, gravel: boolean) {
     const k = this.next; this.next = (this.next + 1) % this.max;
     this.pos[k * 3] = x; this.pos[k * 3 + 1] = y; this.pos[k * 3 + 2] = z;
     this.vel[k * 3] = vx; this.vel[k * 3 + 1] = vy; this.vel[k * 3 + 2] = vz;
@@ -56,7 +67,7 @@ export class Dust {
     this.age[k] = 0; this.life[k] = 0.7 + Math.random() * 0.6;
     this.a0[k] = gravel ? 0.26 : 0.18; this.s0[k] = 0.35; this.s1[k] = gravel ? 1.8 : 1.3;
   }
-  update(dt, car, camera, renderer) {
+  update(dt: number, car: Car, camera: THREE.PerspectiveCamera, renderer: THREE.WebGLRenderer) {
     this.mat.uniforms.uScale.value = (renderer.domElement.height * 0.5) / Math.tan((camera.fov * Math.PI) / 360);
     if (dt <= 0) return;
     const v = car.vel, speed = Math.hypot(v.x, v.z);

@@ -10,43 +10,49 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Running
 
-Vite project, plain JavaScript ES modules (no framework). three.js and Rapier (`@dimforge/rapier3d-compat`) are npm
-dependencies pinned to exact versions.
+Vite + TypeScript (strict), no framework. three.js and Rapier (`@dimforge/rapier3d-compat`) are npm dependencies
+pinned to exact versions.
 
     npm install
-    npm run dev       # dev server; ?autopilot in the URL skips the menu and lets the built-in driver lap
-    npm run build     # static build in dist/ (base './'); npm run preview serves it
+    npm run dev         # dev server; ?autopilot in the URL skips the menu and lets the built-in driver lap
+    npm run typecheck   # tsc for src/, then for test/ (only test/ gets Node types)
+    npm test            # Vitest, headless physics (~30 s)
+    npx vitest run test/handling.test.ts -t 'F1'   # one file / one test by name
+    npm run build       # typecheck + static build in dist/ (base './'); npm run preview serves it
 
-`npm run build` fails on imports of names that don't exist, but not on names used without an import; those only
-fail at runtime, so exercise the changed code path in the browser.
+Run `npm run typecheck` and `npm test` before committing.
 
 ## Testing
 
-Use the test hook `window.__game`, from the browser console or headless Chromium (e.g. Playwright):
-- `simulate(seconds, auto, probeSecs)` runs physics without rendering. `auto` is `true` (autopilot), `false`
-  (live input), or a function `(car, simTime) => inputs` returning `{ throttle, brake, steer, analog, steerAngle?, autoGears? }`.
-  With `probeSecs` it returns a log of position/speed/gear samples.
-- `car` (a getter: the car object is replaced when you switch cars), `timing` (`timing.laps`), `track`, `autopilot`,
-  `setSetting(key, value)`, `setAutopilot`.
-- Simulation is deterministic: the same build gives the same autopilot lap time to the millisecond, so an unchanged
-  autopilot lap time is a reliable regression check (F1: 1:59.659; drift car: 3:02.57 with TC on, 3:07.42 off).
-- `car.forceSurface = 0` forces asphalt under every wheel for synthetic handling tests. Keep such tests short
-  (about 1–2 s after the manoeuvre): the start straight is walled, and longer runs hit the walls.
+- Tests run the real simulation in Node: `test/harness.ts` `session(carId, { tc })` builds the track, Rapier world,
+  car and timing with no rendering. `drive(seconds, driver?)` steps physics with the autopilot or a
+  `(car, simTime) => DriveInput` function. Each tick goes through `stepPhysics` in `src/sim.ts`, the same function
+  the game loop uses.
+- The simulation is deterministic, and Node and the browser agree to the millisecond. `test/laps.test.ts` pins
+  autopilot lap times (F1 1:59.659, drift car 182.572 s with TC on, 187.424 s off), so any physics or tuning change
+  shows up there. When a change is intended, check the handling still makes sense, then update the expected times.
+- `test/handling.test.ts` holds loose-bound checks of tuning intent: the drift car's brake-and-turn kick, a stable
+  F1. `car.forceSurface = S_ASPHALT` keeps manoeuvres off grass. Keep them short (about 1–2 s after the manoeuvre):
+  the start straight is walled.
+- In the browser, `window.__game` exposes `simulate(seconds, driver, probeSecs)`, `car` (a getter: the car object is
+  replaced when you switch cars), `timing`, `track`, `setSetting(key, value)` and `setAutopilot`. Use it for
+  checks that need the page (menu, HUD, settings), e.g. from headless Chromium.
 
 ## Architecture (`src/`)
 
 `index.html` is just the page markup (HUD, menu); styles are in `src/style.css`. Modules:
-- `config.js`: constants, surfaces, collision groups
-- `util.js`: math and formatting helpers
-- `cars.js`: car specs
-- `car.js`: car physics
-- `carMeshes.js`: car bodies
-- `track.js`: track geometry and colliders
-- `trackMeshes.js`, `textures.js`, `scenery.js`, `brakeMarkers.js`: visuals
-- `timing.js`, `input.js`, `audio.js`, `dust.js`, `autopilot.js`
-- `main.js`: scene setup, camera, settings, menu, HUD and the game loop, all as closures inside `main()`
+- `config.ts`: constants, surfaces, collision groups
+- `util.ts`: math and formatting helpers
+- `cars.ts`: car specs (`CarSpec`)
+- `car.ts`: car physics (`Car`, `DriveInput`)
+- `sim.ts`: one physics tick
+- `carMeshes.ts`: car bodies
+- `track.ts`: track geometry and colliders (`Track`)
+- `trackMeshes.ts`, `textures.ts`, `scenery.ts`, `brakeMarkers.ts`: visuals
+- `timing.ts`, `input.ts`, `audio.ts`, `dust.ts`, `autopilot.ts`
+- `main.ts`: scene setup, camera, settings, menu, HUD and the game loop, all as closures inside `main()`
 
-- **Track data**: `tracks/melbourne.csv` (TUM racetrack-database centreline + widths), imported into `main.js` with
+- **Track data**: `tracks/melbourne.csv` (TUM racetrack-database centreline + widths), imported into `main.ts` with
   Vite's `?raw` suffix; `parseCSV` skips `#` comment lines.
   `buildTrack` turns it into a closed spline sampled every ~2 m (arrays `X, Z, TX, TZ, NX, NZ, K, S, WL, WR`, kerb/
   gravel/barrier offsets). Almost everything works in track coordinates `(s, lat)` via `projectOnTrack` / `pointAt`.
@@ -69,10 +75,10 @@ Use the test hook `window.__game`, from the browser console or headless Chromium
 - **Switching cars**: `setSetting('car', id)` in `main()` destroys the old `Car` (body + mesh), builds a new one,
   re-applies gearbox/TC settings, swaps the timing store and resets to the grid. `car` in `main()` is a `let`;
   closures must read it at call time, never cache it.
-- **Settings and menu**: `SETTING_DEFS` drives both the menu rows and persistence (`localStorage`
-  `fastroads.settings`); `setSetting` is the single place side effects happen, and in-game hotkeys go through
-  `cycleSetting` so the menu stays in sync. Adding a setting = a `SETTING_DEFS` entry, a default in `settings`, and a
-  branch in `setSetting`.
+- **Settings and menu** (top of `main.ts`): the `Settings` type, `SETTING_DEFS` (menu rows and their order),
+  `DEFAULT_SETTINGS`, and inside `main()` the `applySetting` table (what each setting does). `setSetting` saves to
+  `localStorage` `fastroads.settings` and calls `applySetting`; in-game hotkeys go through `cycleSetting` so the menu
+  stays in sync. Adding a setting means adding it to all four; the compiler flags any you miss.
 - **Timing**: start/finish and two sector lines as segments, with crossings interpolated within a tick; track-limit
   invalidation; best lap/sectors/trace stored per car under `spec.storeKey` (`useStore` switches).
 - **Input**: keyboard, gamepad and visible-cursor mouse steering (cursor x relative to screen centre, with

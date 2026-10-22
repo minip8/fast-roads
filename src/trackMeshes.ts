@@ -1,13 +1,19 @@
 import * as THREE from 'three';
-import { GRAVEL_W, KERB_W } from './config.js';
-import { canvasTex, noiseFill } from './textures.js';
+import { GRAVEL_W, KERB_W } from './config';
+import { canvasTex, noiseFill } from './textures';
+import type { Track } from './track';
 
 // ============================================================================
 // Track meshes
 // ============================================================================
-// cols: [{ o: i => lateral offset, y: number | i => number, u: number | i => number }], ordered by increasing offset.
-// A column with `cut: true` emits no face between it and the next column.
-export function ribbon(tr, cols, { mask = null, vScale = 1, material }) {
+// Columns are ordered by increasing lateral offset. A column with `cut: true` emits no face between it and the next.
+export interface RibbonCol {
+  o: (i: number) => number;               // lateral offset at sample i
+  y: number | ((i: number) => number);    // height
+  u: number | ((i: number) => number);    // texture u
+  cut?: boolean;
+}
+export function ribbon(tr: Track, cols: RibbonCol[], { mask = null, vScale = 1, material }: { mask?: Uint8Array | null; vScale?: number; material: THREE.Material }) {
   const N = tr.N, C = cols.length;
   const pos = new Float32Array((N + 1) * C * 3), uv = new Float32Array((N + 1) * C * 2);
   for (let i = 0; i <= N; i++) {
@@ -21,7 +27,7 @@ export function ribbon(tr, cols, { mask = null, vScale = 1, material }) {
       uv[v * 2] = u; uv[v * 2 + 1] = s * vScale;
     }
   }
-  const index = [];
+  const index: number[] = [];
   for (let i = 0; i < N; i++) {
     if (mask && !(mask[i] && mask[(i + 1) % N])) continue;
     for (let c = 0; c < C - 1; c++) {
@@ -40,7 +46,7 @@ export function ribbon(tr, cols, { mask = null, vScale = 1, material }) {
   return mesh;
 }
 
-export function buildTrackMeshes(tr, scene) {
+export function buildTrackMeshes(tr: Track, scene: THREE.Scene) {
   const asphaltTex = canvasTex(512, 512, (g, w, h) => noiseFill(g, w, h, [58, 60, 64], 26, 0.02));
   const roadMat = new THREE.MeshStandardMaterial({ map: asphaltTex, roughness: 0.92, metalness: 0, side: THREE.DoubleSide });
   scene.add(ribbon(tr, [
@@ -91,7 +97,7 @@ export function buildTrackMeshes(tr, scene) {
   const capMat = new THREE.MeshStandardMaterial({ color: 0x9a9a94, roughness: 0.9, side: THREE.DoubleSide });
   for (const side of [1, -1]) {
     const off = side > 0 ? tr.barL : tr.barR, valid = side > 0 ? tr.barLValid : tr.barRValid;
-    const o = (d) => (i) => side * (off[i] + d);
+    const o = (d: number) => (i: number) => side * (off[i] + d);
     const wall = ribbon(tr, [{ o: o(0), y: 0, u: 0 }, { o: o(0), y: 1.0, u: 1 }], { mask: valid, vScale: 1 / 6, material: wallMat });
     const cap = ribbon(tr, [{ o: o(0), y: 1.0, u: 0 }, { o: o(0.5), y: 1.0, u: 1, cut: true }, { o: o(0.5), y: 1.0, u: 0 }, { o: o(0.5), y: 0, u: 1 }],
       { mask: valid, material: capMat });

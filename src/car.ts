@@ -1,19 +1,44 @@
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { G_CAR, G_CARPART, G_GROUND, G_RAY, G_WALL, PLOUGH_FADE_V, PLOUGH_WHEEL_SHARE, SURF, SURF_BLEND_T, S_ASPHALT, S_GRASS, S_GRAVEL, groups } from './config.js';
-import { pointAt, projectOnTrack, surfaceAt, trackLimitOut } from './track.js';
-import { clamp, lerp } from './util.js';
+import { G_CAR, G_CARPART, G_GROUND, G_RAY, G_WALL, PLOUGH_FADE_V, PLOUGH_WHEEL_SHARE, SURF, SURF_BLEND_T, S_ASPHALT, S_GRASS, S_GRAVEL, groups } from './config';
+import type { CarMesh } from './carMeshes';
+import type { CarSpec } from './cars';
+import { pointAt, projectOnTrack, surfaceAt, trackLimitOut, type SurfaceRes, type Track, type TrackPos } from './track';
+import { clamp, lerp } from './util';
 
 // ============================================================================
 // Car
 // ============================================================================
 export const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
 
-export function pacejka(spec, alpha, front) {
+// What a driver (keyboard/mouse/gamepad, or the autopilot) asks of the car each physics tick.
+export interface DriveInput {
+  throttle: number; brake: number;   // 0..1
+  steer: number;                     // -1 (right) .. 1 (left), scaled by the car's speed-sensitive lock
+  analog: boolean;                   // analog input: faster steering, different lock curve
+  steerAngle?: number | null;        // direct wheel angle (rad), overrides steer (autopilot)
+  autoGears?: boolean;               // force the automatic gearbox (autopilot)
+}
+
+export interface Wheel {
+  name: string; front: boolean;
+  local: THREE.Vector3;              // suspension mount, body space
+  k: number;                         // spring rate
+  comp: number; prevComp: number; L: number;   // compression, last tick's compression, current length
+  Fz: number; grounded: boolean;
+  muBlend: number; rrBlend: number; decelBlend: number;   // surface properties, eased between surfaces
+  surf: number; out: boolean;        // surface index; past the track limits
+  slip: number; slipA: number;       // slip amount (for effects) and slip angle (rad)
+  spin: number; omega: number;       // visual rotation and angular speed
+  proj: TrackPos; sres: SurfaceRes;
+  contact: THREE.Vector3; normal: THREE.Vector3;
+}
+
+export function pacejka(spec: CarSpec, alpha: number, front: boolean) {
   const { B, C, E } = (front && spec.pacFront) || spec.pac, x = B * alpha;
   return Math.sin(C * Math.atan(x - E * (x - Math.atan(x))));
 }
-export function engineTorque(spec, rpm) {
+export function engineTorque(spec: CarSpec, rpm: number) {
   const T = spec.torque;
   if (rpm <= T[0][0]) return T[0][1];
   for (let k = 1; k < T.length; k++) if (rpm <= T[k][0]) return lerp(T[k - 1][1], T[k][1], (rpm - T[k - 1][0]) / (T[k][0] - T[k - 1][0]));
@@ -21,16 +46,37 @@ export function engineTorque(spec, rpm) {
 }
 
 export class Car {
-  constructor(world, track, scene, spec) {
+  readonly world: RAPIER.World; readonly track: Track; readonly scene: THREE.Scene; readonly spec: CarSpec;
+  readonly wheels: Wheel[];
+  readonly body: RAPIER.RigidBody;
+  readonly mesh: CarMesh;
+  private readonly mountY: number;
+  private readonly ray: RAPIER.Ray;
+  // driver-facing state
+  gear: number; rpm: number; steer = 0; throttle = 0; brake = 0;
+  tc = true; manual = false;                // gearbox is automatic unless manual
+  pendingShift = 0; shiftDenied = false;    // queued manual shifts; set when a downshift would over-rev
+  shiftTimer = 0; private revTimer = 0;
+  forceSurface?: number;                    // testing: pretend every wheel is on this surface
+  // physics state, refreshed by readState()
+  proj: TrackPos = { i: -1, lat: 0, s: 0 };
+  pos = new THREE.Vector3(); quat = new THREE.Quaternion(); vel = new THREE.Vector3(); angv = new THREE.Vector3();
+  up = new THREE.Vector3(); fwd = new THREE.Vector3(); left = new THREE.Vector3();
+  prevPos = new THREE.Vector3(); prevQuat = new THREE.Quaternion();
+  speedF = 0;
+  // per-step results for HUD, audio and effects
+  maxSlip = 0; rearSpin = 0; offCount = 0; groundedCount = 0; offGrass = 0; offGravel = 0; downforce = 0;
+
+  constructor(world: RAPIER.World, track: Track, scene: THREE.Scene, spec: CarSpec) {
     this.world = world; this.track = track; this.scene = scene; this.spec = spec;
     const r = this.spec.wheelRadius;
     const staticComp = 0.025;
     this.mountY = (r - this.spec.comHeight) + (this.spec.suspLen - staticComp);
-    const mk = (x, z, front, name) => ({
+    const mk = (x: number, z: number, front: boolean, name: string): Wheel => ({
       name, front, local: new THREE.Vector3(x, this.mountY, z), k: front ? this.spec.kFront : this.spec.kRear,
       comp: staticComp, prevComp: staticComp, Fz: 0, grounded: false, L: this.spec.suspLen - staticComp,
       muBlend: SURF[S_ASPHALT].mu, rrBlend: SURF[S_ASPHALT].rr, decelBlend: 0,
-      surf: S_ASPHALT, slip: 0, spin: 0, omega: 0, out: false, proj: { i: 0, lat: 0, s: 0 }, sres: { surf: 0, h: 0 },
+      surf: S_ASPHALT, slip: 0, slipA: 0, spin: 0, omega: 0, out: false, proj: { i: 0, lat: 0, s: 0 }, sres: { surf: 0, h: 0 },
       contact: new THREE.Vector3(), normal: new THREE.Vector3(0, 1, 0),
     });
     this.wheels = [
@@ -42,22 +88,14 @@ export class Car {
       .setAdditionalMassProperties(this.spec.mass, { x: 0, y: 0, z: 0 }, this.spec.inertia, { x: 0, y: 0, z: 0, w: 1 })
       .setCanSleep(false).setCcdEnabled(true).setAngularDamping(spec.angDamp).setLinearDamping(0.0);
     this.body = world.createRigidBody(bd);
-    const col = (desc, member, filter) => world.createCollider(desc.setDensity(0).setCollisionGroups(groups(member, filter)), this.body);
+    const col = (desc: RAPIER.ColliderDesc, member: number, filter: number) => world.createCollider(desc.setDensity(0).setCollisionGroups(groups(member, filter)), this.body);
     const [hx, hy, hz, ox, oy, oz] = spec.hull;
     col(RAPIER.ColliderDesc.cuboid(hx, hy, hz).setTranslation(ox, oy, oz).setFriction(0.3).setRestitution(0.1), G_CAR, G_GROUND | G_WALL);
     for (const [px, py, pz, qx, qy, qz] of spec.parts) col(RAPIER.ColliderDesc.cuboid(px, py, pz).setTranslation(qx, qy, qz).setFriction(0.2), G_CARPART, G_WALL);
     for (const w of this.wheels) col(RAPIER.ColliderDesc.ball(r).setTranslation(w.local.x * 1.05, w.local.y - w.L, w.local.z).setFriction(0.2).setRestitution(0.2), G_CARPART, G_WALL);
 
     this.ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
-    this.gear = 1; this.rpm = this.spec.idle; this.shiftTimer = 0; this.revTimer = 0;
-    this.steer = 0; this.tc = true;
-    this.manual = false; this.pendingShift = 0; this.shiftDenied = false;   // gearbox: automatic unless manual
-    this.throttle = 0; this.brake = 0;
-    this.proj = { i: -1, lat: 0, s: 0 };
-    this.pos = new THREE.Vector3(); this.quat = new THREE.Quaternion(); this.vel = new THREE.Vector3(); this.angv = new THREE.Vector3();
-    this.up = new THREE.Vector3(); this.fwd = new THREE.Vector3(); this.left = new THREE.Vector3();
-    this.prevPos = new THREE.Vector3(); this.prevQuat = new THREE.Quaternion();
-    this.speedF = 0; this.maxSlip = 0; this.surfaceMsg = '';
+    this.gear = 1; this.rpm = this.spec.idle;
 
     this.mesh = spec.mesh(spec);
     scene.add(this.mesh.root);
@@ -68,7 +106,7 @@ export class Car {
     this.scene.remove(this.mesh.root);
   }
 
-  placeAt(s, lat = 0) {
+  placeAt(s: number, lat = 0) {
     const tr = this.track, p = pointAt(tr, s, lat), i = p.i;
     const yaw = Math.atan2(tr.TX[i], tr.TZ[i]);
     const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
@@ -93,7 +131,7 @@ export class Car {
     this.speedF = this.vel.dot(this.fwd);
   }
 
-  step(dt, inp) {
+  step(dt: number, inp: DriveInput) {
     const tr = this.track, b = this.body;
     this.readState();
     projectOnTrack(tr, this.pos.x, this.pos.z, this.proj.i, this.proj);
@@ -192,7 +230,7 @@ export class Car {
       w.Fz = w.grounded ? Math.max(0, F) : 0;
     }
     // anti-roll bars
-    const arb = (a, c, k) => {
+    const arb = (a: Wheel, c: Wheel, k: number) => {
       if (!a.grounded || !c.grounded) return;
       const f = k * (a.comp - c.comp);
       a.Fz = Math.max(0, a.Fz + f); c.Fz = Math.max(0, c.Fz - f);
@@ -287,7 +325,7 @@ export class Car {
   }
 
   // Interpolated visual update
-  render(alpha, dt) {
+  render(alpha: number, dt: number) {
     const m = this.mesh;
     m.root.position.lerpVectors(this.prevPos, this.pos, alpha);
     m.root.quaternion.slerpQuaternions(this.prevQuat, this.quat, alpha);

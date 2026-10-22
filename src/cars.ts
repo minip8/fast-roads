@@ -1,7 +1,54 @@
-import { buildCarMesh, buildDriftMesh } from './carMeshes.js';
+import { buildCarMesh, buildDriftMesh, type CarMesh } from './carMeshes';
+
+export interface PacejkaCoeffs { B: number; C: number; E: number }
+type Box = [hx: number, hy: number, hz: number, x: number, y: number, z: number];
 
 // Car specs. Every physics/engine number the Car class uses lives here, so cars can differ.
-export const CARS = {
+// Values that only one car uses are neutral on the others (e.g. brakeKick 0), so behaviour stays per-car.
+export interface CarSpec {
+  id: CarId; name: string;
+  storeKey: string;                         // localStorage key for this car's best times
+  mesh: (spec: CarSpec) => CarMesh;
+  // body
+  mass: number;
+  inertia: { x: number; y: number; z: number };   // pitch, yaw, roll (body axes)
+  comHeight: number; wheelRadius: number; trackHalf: number;
+  zFront: number; zRear: number;            // axle positions relative to the centre of mass (m)
+  hull: Box;                                // main collider (hits ground and walls)
+  parts: Box[];                             // wall-only colliders
+  // suspension
+  suspLen: number; kFront: number; kRear: number; damp: number; arbFront: number; arbRear: number;
+  // aero
+  ClA: number; CdA: number; aeroFront: number; rho: number;
+  // brakes and grip
+  brakeMax: number; brakeFront: number;
+  gripFront: number; gripRear: number;
+  absMin: number;                           // brakes always get at least this share of a tyre's grip
+  brakeKick: number;                        // rear grip lost when braking while turning
+  tcSlack: number;                          // wheelspin traction control still allows (share of tyre grip)
+  rearLoose: [share: number, fadedBy: number];   // rear grip lost at low speed, faded out by this speed (m/s)
+  pac: PacejkaCoeffs;                       // lateral tyre curve (rear, and front unless pacFront is set)
+  pacFront?: PacejkaCoeffs;
+  // engine and gearbox
+  gearTop: number[];                        // m/s at redline per gear (index 0 unused)
+  redline: number; idle: number;
+  torque: [rpm: number, nm: number][];
+  shiftPoint: number; overRev: number; shiftLightsFrom: number;
+  launchRpm: number; engineBrake: number; reverseForce: number;
+  // steering: [lock (rad), speed (m/s) at which the lock halves]
+  steerLock: number; steerAnalog: [number, number]; steerKeys: [number, number]; steerRateKeys: number;
+  angDamp: number;
+  firingDiv: number;                        // rpm / this = engine sound frequency
+  // autopilot
+  autoGrip: number; autoLong: number; autoCounter: number; autoLift: number;
+  // visuals
+  tyreW: [front: number, rear: number];
+  cam: { up: number; back: number; down: number };   // onboard camera offset
+}
+
+export type CarId = 'f1' | 'drift';
+
+export const CARS: Record<CarId, CarSpec> = {
   f1: {
     id: 'f1', name: 'F1', storeKey: 'fastroads.v1.melbourne', mesh: buildCarMesh,
     mass: 798,

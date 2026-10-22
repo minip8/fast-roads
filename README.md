@@ -10,7 +10,8 @@ Needs Node.js. Install once, then start the dev server and open the URL it print
 
     npm install
     npm run dev        # dev server with live reload
-    npm run build      # static build in dist/ (host anywhere; `npm run preview` serves it locally)
+    npm test           # headless physics tests (lap times, handling)
+    npm run build      # type-check + static build in dist/ (host anywhere; `npm run preview` serves it locally)
 
 For development, append `?autopilot` to the URL to skip the menu and watch the built-in driver lap the circuit.
 The autopilot isn't part of the game itself.
@@ -64,7 +65,7 @@ you need to go, and Mouse deadzone (Off / Small / Medium / Large) sets how wide 
 centre is. Left click is throttle, right click is brake, scroll shifts gears in manual. Steering keys still work
 and override the mouse while held.
 
-## How it works (code in `src/`, one module per area)
+## How it works (TypeScript in `src/`, one module per area)
 
 - **Track**: TUM centerline + widths (`tracks/melbourne.csv`, bundled at build time) → Catmull-Rom → resampled every ~2 m.
   Kerbs, gravel traps, and barrier offsets are derived from curvature; barriers are shrunk/dropped where they'd
@@ -90,7 +91,8 @@ distribution, so the car understeers gently at the limit instead of spinning.
 Measured car performance: 0–100 km/h 2.5 s, 0–200 km/h 4.8 s, top speed ~325 km/h, ~3.6 g average braking from top speed,
 steady-state lateral grip 1.3 g at 60 km/h rising to 3.5 g at 260 km/h.
 
-For testing, `window.__game.simulate(seconds, true)` runs the physics headless with the autopilot.
+Tests (`npm test`) run the same physics headless in Node and check autopilot lap times to the millisecond, so any
+change to handling shows up. In the browser, `window.__game.simulate(seconds, true)` does the same with the autopilot.
 
 ## Not yet
 

@@ -1,11 +1,41 @@
-import { lerp } from './util.js';
+import type { Car } from './car';
+import type { Track } from './track';
+import { lerp } from './util';
 
 // ============================================================================
 // Lap timing
 // ============================================================================
+type SectorTimes = (number | null)[];            // 3 sectors; null = not reached yet
+
+// Saved per car in localStorage.
+export interface BestStore {
+  bestLap: number | null;
+  bestSectors: SectorTimes;                      // best of each sector across all valid laps
+  bestTrace: number[] | null;                    // elapsed time at every 10 m of the best lap (for the live delta)
+  bestLapSectors: SectorTimes | null;            // sector times of the best lap itself
+}
+
+export interface Lap { time: number; sectors: SectorTimes; classes: string[]; valid: boolean; pb: boolean; reason: string }
+
+export type TimingEvent =
+  | { type: 'invalid'; reason: string }
+  | { type: 'sector'; k: number; t: number }
+  | { type: 'lap'; lap: Lap; deltaToBest: number | null };
+
+interface TimingLine { i: number; s: number; tx: number; tz: number; ax: number; az: number; bx: number; bz: number }
+
 export class Timing {
-  constructor(track, storeKey) {
-    this.track = track;
+  readonly lines: TimingLine[];                  // start/finish, then the two sector lines
+  events: TimingEvent[] = [];                    // drained by the HUD each frame
+  storeKey!: string; store!: BestStore;
+  sessionBestSectors!: SectorTimes; sessionBest!: number | null;
+  laps!: Lap[]; lastLap!: Lap | null;
+  // current lap
+  lapStart!: number | null; valid!: boolean; invalidReason!: string;
+  cur!: SectorTimes; trace!: number[];
+  next!: number; sectorStart!: number;           // next line expected (-1 after wrong-way); current sector start
+
+  constructor(private readonly track: Track, storeKey: string) {
     const N = track.N;
     this.lines = [0, Math.round(N / 3), Math.round((2 * N) / 3)].map((i) => {
       const l = Math.max(track.barL[i], track.WL[i] + 30) + 2, r = Math.max(track.barR[i], track.WR[i] + 30) + 2;
@@ -14,11 +44,10 @@ export class Timing {
         bx: track.X[i] + track.NX[i] * l, bz: track.Z[i] + track.NZ[i] * l };
     });
     this.useStore(storeKey);
-    this.events = [];
     this.reset();
   }
   // Best times are kept per car; switching store also clears this session's laps.
-  useStore(key) {
+  useStore(key: string) {
     this.storeKey = key; this.store = loadStore(key);
     this.sessionBestSectors = [null, null, null]; this.sessionBest = null;
     this.laps = []; this.lastLap = null;
@@ -27,11 +56,11 @@ export class Timing {
     this.lapStart = null; this.next = 0; this.valid = true; this.sectorStart = 0;
     this.cur = [null, null, null]; this.trace = []; this.invalidReason = '';
   }
-  invalidate(reason) {
+  invalidate(reason: string) {
     if (this.lapStart != null && this.valid) { this.valid = false; this.invalidReason = reason; this.events.push({ type: 'invalid', reason }); }
   }
   // Called once per physics tick. t0 = sim time at start of tick.
-  tick(prev, curr, t0, dt, car) {
+  tick(prev: { x: number; z: number }, curr: { x: number; z: number }, t0: number, dt: number, car: Car) {
     const rx = curr.x - prev.x, rz = curr.z - prev.z;
     for (let k = 0; k < 3; k++) {
       const ln = this.lines[k];
@@ -56,7 +85,7 @@ export class Timing {
       }
     }
   }
-  cross(k, tc) {
+  private cross(k: number, tc: number) {
     if (k === 0) {
       if (this.lapStart != null && this.next === 0) {
         this.cur[2] = tc - this.sectorStart;
@@ -70,10 +99,10 @@ export class Timing {
       this.cur[k - 1] = tc - this.sectorStart;
       this.sectorStart = tc;
       this.next = (k + 1) % 3;
-      this.events.push({ type: 'sector', k: k - 1, t: this.cur[k - 1] });
+      this.events.push({ type: 'sector', k: k - 1, t: this.cur[k - 1]! });
     }
   }
-  sectorClass(k, t) {
+  sectorClass(k: number, t: number | null) {
     if (t == null) return '';
     if (!this.valid) return 'yellow';
     const pb = this.store.bestSectors[k];
@@ -82,13 +111,14 @@ export class Timing {
     if (sb == null || t <= sb + 1e-6) return 'green';
     return 'yellow';
   }
-  completeLap(lapTime) {
+  private completeLap(lapTime: number) {
     const sectors = this.cur.slice();
     const valid = this.valid;
     const classes = sectors.map((t, k) => this.sectorClass(k, t));
     let pb = false;
     if (valid) {
-      sectors.forEach((t, k) => {
+      sectors.forEach((st, k) => {
+        const t = st!;   // a valid lap crossed every sector line, so all three are set
         if (this.sessionBestSectors[k] == null || t < this.sessionBestSectors[k]) this.sessionBestSectors[k] = t;
         if (this.store.bestSectors[k] == null || t < this.store.bestSectors[k]) this.store.bestSectors[k] = t;
       });
@@ -104,7 +134,7 @@ export class Timing {
     this.laps.unshift(this.lastLap);
     this.events.push({ type: 'lap', lap: this.lastLap, deltaToBest: prevBest != null ? lapTime - prevBest : null });
   }
-  liveDelta(simTime, s) {
+  liveDelta(simTime: number, s: number) {
     const bt = this.store.bestTrace;
     if (this.lapStart == null || !bt || !bt.length) return null;
     const el = simTime - this.lapStart;
@@ -114,9 +144,9 @@ export class Timing {
     return el - lerp(bt[b], bt[b + 1], f - b);
   }
 }
-export function loadStore(key) {
-  const empty = { bestLap: null, bestSectors: [null, null, null], bestTrace: null, bestLapSectors: null };
-  try { const s = JSON.parse(localStorage.getItem(key)); if (s && Array.isArray(s.bestSectors)) return { ...empty, ...s }; } catch (e) { /* storage unavailable */ }
+export function loadStore(key: string): BestStore {
+  const empty: BestStore = { bestLap: null, bestSectors: [null, null, null], bestTrace: null, bestLapSectors: null };
+  try { const s = JSON.parse(localStorage.getItem(key) ?? 'null'); if (s && Array.isArray(s.bestSectors)) return { ...empty, ...s }; } catch (e) { /* storage unavailable */ }
   return empty;
 }
-export function saveStore(key, s) { try { localStorage.setItem(key, JSON.stringify(s)); } catch (e) { /* storage unavailable */ } }
+export function saveStore(key: string, s: BestStore) { try { localStorage.setItem(key, JSON.stringify(s)); } catch (e) { /* storage unavailable */ } }

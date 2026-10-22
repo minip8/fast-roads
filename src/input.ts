@@ -1,4 +1,5 @@
-import { clamp } from './util.js';
+import type { DriveInput } from './car';
+import { clamp } from './util';
 
 // ============================================================================
 // Input
@@ -9,13 +10,25 @@ export const MOUSE_CURVE = 1.7;      // >1 keeps small movements near the centre
 // Dead zone: fraction of half the width around the centre that does nothing.
 export const MOUSE_DEADZONE = { off: 0, small: 0.03, medium: 0.08, large: 0.15 };
 
+export type MouseSensitivity = keyof typeof MOUSE_RANGE;
+export type MouseDeadzone = keyof typeof MOUSE_DEADZONE;
+
 export class Input {
-  constructor(canvas) {
-    this.keys = new Set(); this.pressed = new Set();
-    // Mouse driving: the cursor stays visible; its distance left/right of the screen centre sets the wheel.
-    // Left button = throttle, right = brake, scroll = shift. `active` is set by the game while driving.
-    this.canvas = canvas;
-    this.mouse = { enabled: false, active: false, steer: 0, x: null, range: MOUSE_RANGE.medium, deadzone: MOUSE_DEADZONE.small, lmb: false, rmb: false };
+  readonly keys = new Set<string>();             // KeyboardEvent.code values held now
+  readonly pressed = new Set<string>();          // codes pressed since last cleared (one-shot actions)
+  // Mouse driving: the cursor stays visible; its distance left/right of the screen centre sets the wheel.
+  // Left button = throttle, right = brake, scroll = shift. `active` is set by the game while driving.
+  readonly mouse = {
+    enabled: false, active: false, steer: 0,
+    x: null as number | null,                    // last cursor x; null until the mouse moves over the page
+    range: MOUSE_RANGE.medium, deadzone: MOUSE_DEADZONE.small,
+    lmb: false, rmb: false,
+  };
+  private readonly state: DriveInput = { throttle: 0, brake: 0, steer: 0, analog: false, steerAngle: null };
+  private kThrottle = 0; private kBrake = 0;     // keyboard pedals ramp in and out
+  private readonly padPrev: boolean[] = [];
+
+  constructor() {
     addEventListener('mousedown', (e) => {
       const m = this.mouse;
       if (!m.enabled || !m.active) return;
@@ -39,12 +52,9 @@ export class Input {
     });
     addEventListener('keyup', (e) => this.keys.delete(e.code));
     addEventListener('blur', () => this.keys.clear());
-    this.state = { throttle: 0, brake: 0, steer: 0, analog: false, steerAngle: null };
-    this.kThrottle = 0; this.kBrake = 0;
-    this.padPrev = [];
   }
-  takePressed(code) { const h = this.pressed.has(code); this.pressed.delete(code); return h; }
-  setMouse(on) { this.mouse.enabled = on; this.mouse.steer = 0; this.mouse.lmb = this.mouse.rmb = false; }
+  takePressed(code: string) { const h = this.pressed.has(code); this.pressed.delete(code); return h; }
+  setMouse(on: boolean) { this.mouse.enabled = on; this.mouse.steer = 0; this.mouse.lmb = this.mouse.rmb = false; }
   mouseSteer() {
     const m = this.mouse;
     if (m.x == null) return 0;   // cursor hasn't moved over the page yet
@@ -52,7 +62,7 @@ export class Input {
     const t = clamp((Math.abs(d) - m.deadzone) / (m.range - m.deadzone), 0, 1);
     return -Math.sign(d) * Math.pow(t, MOUSE_CURVE);
   }
-  poll(dt) {
+  poll(dt: number): DriveInput {
     const k = this.keys, st = this.state;
     const up = k.has('KeyW') || k.has('ArrowUp'), dn = k.has('KeyS') || k.has('ArrowDown');
     const lf = k.has('KeyA') || k.has('ArrowLeft'), rt = k.has('KeyD') || k.has('ArrowRight');
@@ -70,8 +80,8 @@ export class Input {
         st.steer = -Math.sign(ax) * Math.pow((Math.abs(ax) - 0.08) / 0.92, 1.4) * (Math.abs(ax) > 0.08 ? 1 : 0);
         st.throttle = Math.max(st.throttle, rtv); st.brake = Math.max(st.brake, ltv); st.analog = true;
       }
-      const map = { 3: 'KeyC', 2: 'KeyR', 8: 'Enter', 9: 'KeyP', 5: 'KeyE', 4: 'KeyQ' };
-      for (const [bi, code] of Object.entries(map)) {
+      const map: [number, string][] = [[3, 'KeyC'], [2, 'KeyR'], [8, 'Enter'], [9, 'KeyP'], [5, 'KeyE'], [4, 'KeyQ']];
+      for (const [bi, code] of map) {
         const down = !!p.buttons[bi]?.pressed;
         if (down && !this.padPrev[bi]) this.pressed.add(code);
         this.padPrev[bi] = down;

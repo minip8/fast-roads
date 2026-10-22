@@ -1,11 +1,12 @@
 import * as THREE from 'three';
-import { canvasTex, noiseFill } from './textures.js';
-import { clamp, wrapI } from './util.js';
+import { canvasTex, noiseFill } from './textures';
+import { clamp, wrapI } from './util';
+import type { Track } from './track';
 
 // ============================================================================
 // Scenery: sky, terrain, trees, grandstands, skyline, gantry
 // ============================================================================
-export function buildScenery(tr, scene) {
+export function buildScenery(tr: Track, scene: THREE.Scene) {
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
   for (let i = 0; i < tr.N; i++) { minX = Math.min(minX, tr.X[i]); maxX = Math.max(maxX, tr.X[i]); minZ = Math.min(minZ, tr.Z[i]); maxZ = Math.max(maxZ, tr.Z[i]); }
   const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
@@ -133,11 +134,11 @@ export function buildScenery(tr, scene) {
   return { cx, cz, minX, maxX, minZ, maxZ };
 }
 
-export function mulberry32(a) {
+export function mulberry32(a: number): () => number {
   return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 }
 
-export function buildSky(scene, sunDir) {
+export function buildSky(scene: THREE.Scene, sunDir: THREE.Vector3) {
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, fog: false, toneMapped: false,
     uniforms: { sunDir: { value: sunDir } },

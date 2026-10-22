@@ -1,13 +1,36 @@
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { GRAVEL_W, G_GROUND, G_WALL, KERB_W, LIMIT_TOL_NO_KERB, S_ASPHALT, S_GRASS, S_GRAVEL, S_KERB, groups } from './config.js';
-import { dilate, lerp, removeShortRuns, smoothClosed, wrapI } from './util.js';
+import { GRAVEL_W, G_GROUND, G_WALL, KERB_W, LIMIT_TOL_NO_KERB, S_ASPHALT, S_GRASS, S_GRAVEL, S_KERB, groups } from './config';
+import type { CarId } from './cars';
+import { dilate, lerp, removeShortRuns, smoothClosed, wrapI } from './util';
 
 // ============================================================================
 // Track: CSV -> smoothed closed spline sampled every ~2 m, with kerbs/gravel/barriers
 // ============================================================================
-export function parseCSV(text) {
-  const pts = [];
+export interface RawPoint { x: number; z: number; wl: number; wr: number }
+
+// Per-sample arrays (index 0..N-1); S has N+1 entries (S[N] = L, the lap length).
+export interface Track {
+  N: number; L: number;
+  X: Float64Array; Z: Float64Array;          // centreline
+  S: Float64Array;                           // arc length at each sample
+  TX: Float64Array; TZ: Float64Array;        // unit tangent
+  NX: Float64Array; NZ: Float64Array;        // unit normal, pointing left
+  WL: Float64Array; WR: Float64Array;        // half-widths to the left/right track edge
+  K: Float64Array; KS: Float64Array;         // signed curvature (positive = left), and smoothed
+  kerbL: Uint8Array; kerbR: Uint8Array; gravelL: Uint8Array; gravelR: Uint8Array;
+  barL: Float64Array; barR: Float64Array;    // barrier offset from the centreline
+  barLValid: Uint8Array; barRValid: Uint8Array;
+  nearestDist: (x: number, z: number) => number;
+  speedProfiles?: Partial<Record<CarId, Float64Array>>;   // autopilot cache
+}
+
+// Where a point is on the track: nearest sample i, arc length s, lateral offset lat (positive = left).
+export interface TrackPos { i: number; s: number; lat: number }
+export interface SurfaceRes { surf: number; h: number }
+
+export function parseCSV(text: string): RawPoint[] {
+  const pts: RawPoint[] = [];
   for (const line of text.split('\n')) {
     const t = line.trim();
     if (!t || t[0] === '#' || t[0] === '/') continue;
@@ -18,13 +41,13 @@ export function parseCSV(text) {
   return pts;
 }
 
-export function buildTrack(raw) {
-  const n = raw.length, SUB = 5, dense = [];
+export function buildTrack(raw: RawPoint[]): Track {
+  const n = raw.length, SUB = 5, dense: RawPoint[] = [];
   for (let i = 0; i < n; i++) {
     const p0 = raw[wrapI(i - 1, n)], p1 = raw[i], p2 = raw[(i + 1) % n], p3 = raw[(i + 2) % n];
     for (let j = 0; j < SUB; j++) {
       const t = j / SUB, t2 = t * t, t3 = t2 * t;
-      const cr = (a, b, c, d) => 0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3);
+      const cr = (a: number, b: number, c: number, d: number) => 0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3);
       dense.push({ x: cr(p0.x, p1.x, p2.x, p3.x), z: cr(p0.z, p1.z, p2.z, p3.z), wl: lerp(p1.wl, p2.wl, t), wr: lerp(p1.wr, p2.wr, t) });
     }
   }
@@ -67,23 +90,21 @@ export function buildTrack(raw) {
   }
   const KS = smoothClosed(K, 8, 2);
 
-  const track = { N, L, X, Z, S, TX, TZ, NX, NZ, WL, WR, K, KS };
-
   // --- kerbs & gravel (side +1 = left, -1 = right)
-  const mk = (fn) => { const a = new Uint8Array(N); for (let i = 0; i < N; i++) a[i] = fn(i) ? 1 : 0; return a; };
-  track.kerbL = removeShortRuns(dilate(mk((i) => KS[i] > 1 / 220 || KS[i] < -1 / 120), 6, 6), 8);
-  track.kerbR = removeShortRuns(dilate(mk((i) => -KS[i] > 1 / 220 || -KS[i] < -1 / 120), 6, 6), 8);
-  track.gravelL = removeShortRuns(dilate(mk((i) => KS[i] < -1 / 130), 8, 25), 10);
-  track.gravelR = removeShortRuns(dilate(mk((i) => -KS[i] < -1 / 130), 8, 25), 10);
+  const mk = (fn: (i: number) => boolean) => { const a = new Uint8Array(N); for (let i = 0; i < N; i++) a[i] = fn(i) ? 1 : 0; return a; };
+  const kerbL = removeShortRuns(dilate(mk((i) => KS[i] > 1 / 220 || KS[i] < -1 / 120), 6, 6), 8);
+  const kerbR = removeShortRuns(dilate(mk((i) => -KS[i] > 1 / 220 || -KS[i] < -1 / 120), 6, 6), 8);
+  const gravelL = removeShortRuns(dilate(mk((i) => KS[i] < -1 / 130), 8, 25), 10);
+  const gravelR = removeShortRuns(dilate(mk((i) => -KS[i] < -1 / 130), 8, 25), 10);
 
   // --- barriers: lateral offset from centerline per side, plus validity mask
-  const nearestDist = (x, z) => {
+  const nearestDist = (x: number, z: number) => {
     let bd = Infinity;
     for (let j = 0; j < N; j++) { const dx = x - X[j], dz = z - Z[j]; const d = dx * dx + dz * dz; if (d < bd) bd = d; }
     return Math.sqrt(bd);
   };
-  for (const side of [1, -1]) {
-    const edge = side > 0 ? WL : WR, gravel = side > 0 ? track.gravelL : track.gravelR;
+  const barrier = (side: number) => {
+    const edge = side > 0 ? WL : WR, gravel = side > 0 ? gravelL : gravelR;
     let off = new Float64Array(N);
     for (let i = 0; i < N; i++) off[i] = edge[i] + (gravel[i] ? KERB_W + GRAVEL_W + 3 : 7);
     off = smoothClosed(off, 12, 3);
@@ -100,15 +121,18 @@ export function buildTrack(raw) {
       }
     }
     removeShortRuns(valid, 4);
-    if (side > 0) { track.barL = off; track.barLValid = valid; } else { track.barR = off; track.barRValid = valid; }
-  }
-  track.nearestDist = nearestDist;
-  return track;
+    return { off, valid };
+  };
+  const left = barrier(1), right = barrier(-1);
+  return {
+    N, L, X, Z, S, TX, TZ, NX, NZ, WL, WR, K, KS, kerbL, kerbR, gravelL, gravelR,
+    barL: left.off, barLValid: left.valid, barR: right.off, barRValid: right.valid, nearestDist,
+  };
 }
 
 // Projection of a world point onto the track. Uses a local search around `hint` (sample index),
 // falling back to a global search if the point is far away (teleport/reset).
-export function projectOnTrack(tr, x, z, hint, out) {
+export function projectOnTrack(tr: Track, x: number, z: number, hint: number, out: TrackPos): TrackPos {
   const N = tr.N;
   let best = -1, bd = Infinity;
   if (hint >= 0) {
@@ -132,7 +156,7 @@ export function projectOnTrack(tr, x, z, hint, out) {
 }
 
 // Track-relative point at arc length s and lateral offset lat.
-export function pointAt(tr, s, lat = 0) {
+export function pointAt(tr: Track, s: number, lat = 0): { x: number; z: number; i: number } {
   s = ((s % tr.L) + tr.L) % tr.L;
   let i = Math.min(tr.N - 1, Math.floor((s / tr.L) * tr.N));
   while (i > 0 && tr.S[i] > s) i--;
@@ -143,11 +167,11 @@ export function pointAt(tr, s, lat = 0) {
 }
 
 // Surface classification. Returns surface index; writes kerb height into res.h.
-export function kerbHeight(e, s) {
+export function kerbHeight(e: number, s: number) {
   const base = e < 0.35 ? 0.006 + 0.039 * (e / 0.35) : lerp(0.045, 0.03, (e - 0.35) / (KERB_W - 0.35));
   return base + 0.006 * (Math.sin(s * 4.19) > 0 ? 1 : 0);    // rumble strips
 }
-export function surfaceAt(tr, i, lat, s, res) {
+export function surfaceAt(tr: Track, i: number, lat: number, s: number, res: SurfaceRes): number {
   const wl = tr.WL[i], wr = tr.WR[i];
   res.h = 0;
   if (lat <= wl && lat >= -wr) return (res.surf = S_ASPHALT);
@@ -157,13 +181,13 @@ export function surfaceAt(tr, i, lat, s, res) {
   if ((left ? tr.gravelL[i] : tr.gravelR[i]) && e <= KERB_W + GRAVEL_W && lat * (left ? 1 : -1) < bar) return (res.surf = S_GRAVEL);
   return (res.surf = S_GRASS);
 }
-export function trackLimitOut(tr, i, lat) {
+export function trackLimitOut(tr: Track, i: number, lat: number): boolean {
   if (lat > 0) return lat > tr.WL[i] + (tr.kerbL[i] ? KERB_W : LIMIT_TOL_NO_KERB);
   return -lat > tr.WR[i] + (tr.kerbR[i] ? KERB_W : LIMIT_TOL_NO_KERB);
 }
 
 // Walls as static cuboid colliders, one per spline segment per side.
-export function buildTrackColliders(tr, world) {
+export function buildTrackColliders(tr: Track, world: RAPIER.World): number {
   world.createCollider(RAPIER.ColliderDesc.cuboid(5000, 1, 5000).setTranslation(0, -1, 0)
     .setFriction(0.6).setCollisionGroups(groups(G_GROUND, 0xffff)));
   let count = 0;
