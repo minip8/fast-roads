@@ -11,14 +11,15 @@ so it needs an internet connection. To serve it locally instead:
 
     python3 -m http.server 8000   # then open http://localhost:8000
 
-Append `?autopilot` to the URL to watch the built-in driver lap the circuit.
+For development, append `?autopilot` to the URL to skip the menu and watch the built-in driver lap the circuit.
+The autopilot isn't part of the game itself.
 
 ## Main menu
 
-The game opens on a menu: **Drive** or **Watch autopilot**, plus settings for car, gears (automatic/manual),
+The game opens on a menu: **Drive**, plus settings for car, gears (automatic/manual),
 steering (keyboard/mouse), camera, traction control, and sound. Settings are remembered. Your best lap for the chosen car is shown, with a
 **Reset best times** option (click twice to confirm). While driving, **Esc** or **P** opens it as a pause menu
-(Resume / Restart session / Watch autopilot). Mouse or keyboard (↑ ↓ ← → Enter) both work in the menu.
+(Resume / Restart session). Mouse or keyboard (↑ ↓ ← → Enter) both work in the menu.
 
 ## Cars
 
@@ -53,7 +54,6 @@ applied; then the gear and speed.
 | T | Traction control on/off |
 | Esc / P | Open the menu (pauses) |
 | M / H | Mute / hide help |
-| O | Autopilot on/off |
 
 Gamepad: RT throttle, LT brake, left stick steer, RB/LB shift up/down, Y camera, X reset.
 
