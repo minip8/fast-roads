@@ -39,6 +39,7 @@ Gamepad: RT throttle, LT brake, left stick steer, Y camera, X reset.
   Grass and gravel add a ploughing deceleration (grass ~0.15 g, gravel ~1 g) that's applied mostly at the centre of
   mass, so dropping two wheels off doesn't yank the car round, and it fades at low speed so you can drive out.
   Grip eases between surfaces over ~0.1 s instead of switching instantly at the track edge.
+  Off-track you get a grass rumble or gravel crunch and dust behind the wheels (visual only; the body stays steady).
 - **Timing**: start/finish + two sector lines as segments; crossings are detected per tick and interpolated within
   the tick. A lap is deleted if all four wheels pass the kerb (or white line where there's no kerb), on reset, or when
   crossing a line backwards. Best lap, best sectors, and the best-lap trace (for the live delta) persist in localStorage.
