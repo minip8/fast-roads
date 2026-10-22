@@ -1259,7 +1259,7 @@ const ARCADE = {
   maxSteer: 0.42, steerFalloff: 16,   // max steer angle and how fast it shrinks with speed (m/s)
   steerSpeed: 7, steerAccel: 30,      // steering follow rate (1/s) and acceleration limit (rad/s^2)
   countersteer: 0.55,   // automatic countersteer when the car slides
-  rock: 0.016,          // visual body lean per m/s^2
+  rock: 0.016,          // visual body roll per m/s^2 of cornering
   angularDamping: 3.0,
 };
 const MODES = ['arcade', 'sim'];
@@ -1823,7 +1823,7 @@ class Car {
     this.gear = 1; this.rpm = CAR.idle; this.shiftTimer = 0; this.revTimer = 0;
     this.steer = 0; this.steerVel = 0; this.tc = true;
     this.mode = 'arcade'; this.accLat = 0; this.accLong = 0; this.prevVel = new THREE.Vector3();
-    this.lean = { roll: 0, pitch: 0, rollV: 0, pitchV: 0 };
+    this.lean = { roll: 0, rollV: 0 };
     this.throttle = 0; this.brake = 0;
     this.proj = { i: -1, lat: 0, s: 0 };
     this.pos = new THREE.Vector3(); this.quat = new THREE.Quaternion(); this.vel = new THREE.Vector3(); this.angv = new THREE.Vector3();
@@ -2071,7 +2071,6 @@ class Car {
     this.prevVel.copy(this.vel);
     const aLat = ax * this.left.x + az * this.left.z, aLong = ax * this.fwd.x + az * this.fwd.z;
     if (Math.abs(aLat) < 80 && Math.abs(aLong) < 80) {
-      // ~0.25 s smoothing so throttle blips and gear shifts don't make the body nod
       this.accLat = lerp(this.accLat, aLat, 0.04); this.accLong = lerp(this.accLong, aLong, 0.03);
     }
   }
@@ -2089,14 +2088,12 @@ class Car {
       wm.spinner.rotation.x = w.spin;
     });
     m.brakeLight.material.emissiveIntensity = this.brake > 0.1 ? 3 : 0.4;
-    // Visual body lean: rolls away from the turn, pitches a little under braking/acceleration.
-    // Critically damped spring (no overshoot), so the body settles instead of bobbing.
+    // Visual body roll in corners (no pitch: the body never nods up and down).
     const L = this.lean, k = this.mode === 'arcade' ? ARCADE.rock : ARCADE.rock * 0.25;
-    const tRoll = clamp(this.accLat * k, -0.08, 0.08), tPitch = clamp(-this.accLong * k * 0.25, -0.025, 0.025);
+    const tRoll = clamp(this.accLat * k, -0.08, 0.08);
     const sdt = Math.min(dt, 0.05), K = 60, D = 2 * Math.sqrt(K);
     L.rollV += ((tRoll - L.roll) * K - L.rollV * D) * sdt; L.roll += L.rollV * sdt;
-    L.pitchV += ((tPitch - L.pitch) * K - L.pitchV * D) * sdt; L.pitch += L.pitchV * sdt;
-    m.body.rotation.set(L.pitch, 0, L.roll);
+    m.body.rotation.set(0, 0, L.roll);
   }
 }
 
