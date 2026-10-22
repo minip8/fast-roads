@@ -22,11 +22,13 @@ Append `?autopilot` to the URL to watch the built-in driver lap the circuit.
 | R | Reset to track (invalidates the lap) |
 | Enter | Restart session at the grid |
 | C | Cycle camera (onboard / chase / far) |
+| G | Automatic / manual gears (choice is remembered; also on the start screen) |
+| E / Q | Shift up / down (manual) |
 | T | Traction control on/off |
 | M / P / H | Mute / pause / hide help |
 | O | Autopilot on/off |
 
-Gamepad: RT throttle, LT brake, left stick steer, Y camera, X reset.
+Gamepad: RT throttle, LT brake, left stick steer, RB/LB shift up/down, Y camera, X reset.
 
 ## How it works (all in `index.html`)
 
@@ -35,7 +37,7 @@ Gamepad: RT throttle, LT brake, left stick steer, Y camera, X reset.
   intrude on another part of the circuit. Road, kerbs, gravel, and walls are ribbon meshes built from the samples.
 - **Physics**: Rapier rigid body (fixed 120 Hz step, interpolated rendering). Custom raycast suspension with
   anti-roll bars, simplified Pacejka lateral curve with load sensitivity, friction circle, downforce and drag ∝ v²,
-  torque curve + 8-speed auto box, per-surface grip. Walls are static cuboid colliders.
+  torque curve + 8-speed gearbox (automatic, or manual with over-rev-protected downshifts), per-surface grip. Walls are static cuboid colliders.
   Grass and gravel add a ploughing deceleration (grass ~0.15 g, gravel ~1 g) that's applied mostly at the centre of
   mass, so dropping two wheels off doesn't yank the car round, and it fades at low speed so you can drive out.
   Grip eases between surfaces over ~0.1 s instead of switching instantly at the track edge.

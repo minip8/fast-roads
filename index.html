@@ -58,7 +58,7 @@
   #msg small { display: block; font-size: 14px; font-weight: 500; color: var(--muted); }
 
   #help { position: fixed; left: 16px; bottom: 16px; padding: 10px 14px; font-size: 12px; line-height: 1.6; color: #d6dbe0; }
-  #help kbd { font: inherit; font-weight: 700; color: var(--text); background: rgba(255,255,255,.1); border-radius: 4px; padding: 0 5px; }
+  #help kbd, #overlay kbd { font: inherit; font-weight: 700; color: var(--text); background: rgba(255,255,255,.1); border-radius: 4px; padding: 0 5px; }
   #help.hidden { display: none; }
 
   #overlay { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -115,6 +115,7 @@
     <div><kbd>W</kbd> <kbd>↑</kbd> throttle · <kbd>S</kbd> <kbd>↓</kbd> brake / reverse</div>
     <div><kbd>A</kbd> <kbd>D</kbd> <kbd>←</kbd> <kbd>→</kbd> steer</div>
     <div><kbd>R</kbd> reset to track · <kbd>Enter</kbd> restart session</div>
+    <div><kbd>G</kbd> auto / manual gears · <kbd>E</kbd> <kbd>Q</kbd> shift up / down</div>
     <div><kbd>C</kbd> camera · <kbd>T</kbd> traction control · <kbd>M</kbd> mute</div>
     <div><kbd>P</kbd> pause · <kbd>O</kbd> autopilot · <kbd>H</kbd> hide help</div>
     <div style="color:var(--muted)">Gamepad: RT throttle, LT brake, left stick steer</div>
@@ -125,6 +126,7 @@
   <h1>FAST ROADS</h1>
   <p>Time trial · Albert Park, Melbourne</p>
   <p id="loadState">Loading physics…</p>
+  <p>Gears: <b id="gearChoice">Automatic</b> · press <kbd>G</kbd> to switch</p>
 </div>
 
 <!-- Centerline + track widths. Source: TUMFTM/racetrack-database, tracks/Melbourne.csv (LGPL-3.0).
@@ -1868,6 +1870,7 @@ class Car {
     this.ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
     this.gear = 1; this.rpm = CAR.idle; this.shiftTimer = 0; this.revTimer = 0;
     this.steer = 0; this.tc = true;
+    this.manual = false; this.pendingShift = 0; this.shiftDenied = false;   // gearbox: automatic unless manual
     this.throttle = 0; this.brake = 0;
     this.proj = { i: -1, lat: 0, s: 0 };
     this.pos = new THREE.Vector3(); this.quat = new THREE.Quaternion(); this.vel = new THREE.Vector3(); this.angv = new THREE.Vector3();
@@ -1929,12 +1932,27 @@ class Car {
       this.revTimer += dt;
       if (this.revTimer > 0.35) { this.gear = 0; this.revTimer = 0; }
     } else this.revTimer = 0;
-    if (this.gear > 0) {
+    const autoBox = !this.manual || inp.autoGears;
+    if (autoBox && this.gear > 0) {
       const g = this.gear;
       const rpmHere = (CAR.redline * Math.max(vF, 0)) / CAR.gearTop[g];
       if (rpmHere > 12250 && g < 8 && this.shiftTimer <= 0) { this.gear++; this.shiftTimer = 0.06; }
       else if (g > 1 && vF < CAR.gearTop[g - 1] * 0.82) { this.gear--; this.shiftTimer = 0.04; }
     }
+    // manual: one queued shift per tick (E/Q or paddles)
+    if (!autoBox && this.pendingShift !== 0) {
+      const dir = Math.sign(this.pendingShift); this.pendingShift -= dir;
+      const g = this.gear;
+      if (dir > 0) {
+        if (g === 0) this.gear = 1;
+        else if (g < 8) { this.gear++; this.shiftTimer = 0.06; }
+      } else if (g > 1) {
+        // block downshifts that would over-rev the engine
+        if ((CAR.redline * Math.max(vF, 0)) / CAR.gearTop[g - 1] < 13000) { this.gear--; this.shiftTimer = 0.04; }
+        else this.shiftDenied = true;
+      } else if (g === 1 && Math.abs(vF) < 1) this.gear = 0;
+    }
+    if (autoBox) this.pendingShift = 0;
     this.shiftTimer -= dt;
 
     let drive = 0;
@@ -2388,7 +2406,7 @@ class Input {
         st.steer = -Math.sign(ax) * Math.pow((Math.abs(ax) - 0.08) / 0.92, 1.4) * (Math.abs(ax) > 0.08 ? 1 : 0);
         st.throttle = Math.max(st.throttle, rtv); st.brake = Math.max(st.brake, ltv); st.analog = true;
       }
-      const map = { 3: 'KeyC', 2: 'KeyR', 8: 'Enter', 9: 'KeyP' };
+      const map = { 3: 'KeyC', 2: 'KeyR', 8: 'Enter', 9: 'KeyP', 5: 'KeyE', 4: 'KeyQ' };
       for (const [bi, code] of Object.entries(map)) {
         const down = !!p.buttons[bi]?.pressed;
         if (down && !this.padPrev[bi]) this.pressed.add(code);
@@ -2489,7 +2507,7 @@ function autopilot(car, tr, lat = 0) {
   const steerAngle = Math.atan((2 * wb * Math.sin(a)) / Ld);
   const prof = tr.speedProfile || (tr.speedProfile = buildSpeedProfile(tr));
   const vt = prof[pointAt(tr, s + 4 + v * 0.12).i];
-  return { throttle: clamp((vt - v) * 0.5, 0, 1), brake: clamp((v - vt) * 0.4, 0, 1), steer: 0, analog: true, steerAngle };
+  return { throttle: clamp((vt - v) * 0.5, 0, 1), brake: clamp((v - vt) * 0.4, 0, 1), steer: 0, analog: true, steerAngle, autoGears: true };
 }
 
 // ============================================================================
@@ -2630,9 +2648,21 @@ async function main() {
     started = true; overlay.classList.add('hidden'); $('hud').hidden = false; audio.start();
   };
   overlay.addEventListener('click', begin);
-  addEventListener('keydown', () => { if (!started || !overlay.classList.contains('hidden')) begin(); else audio.start(); });
+  addEventListener('keydown', (e) => {
+    if (e.code === 'KeyG') return;          // G toggles the gearbox, including on the start screen
+    if (!started || !overlay.classList.contains('hidden')) begin(); else audio.start();
+  });
   addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });
 
+  const setGearbox = (manual) => {
+    car.manual = manual;
+    try { localStorage.setItem('fastroads.gearbox', manual ? 'manual' : 'auto'); } catch (e) { /* storage unavailable */ }
+    const el = document.getElementById('gearChoice');
+    if (el) el.textContent = manual ? 'Manual' : 'Automatic';
+  };
+  let savedBox = 'auto';
+  try { savedBox = localStorage.getItem('fastroads.gearbox') || 'auto'; } catch (e) { /* storage unavailable */ }
+  setGearbox(savedBox === 'manual');
   loadState.innerHTML = `<span class="go">Press any key or click to drive</span>`;
   if (started) { overlay.classList.add('hidden'); $('hud').hidden = false; }
 
@@ -2672,6 +2702,13 @@ async function main() {
 
     // discrete actions
     if (input.takePressed('KeyC')) camMode = (camMode + 1) % camModes.length;
+    if (input.takePressed('KeyG')) {
+      setGearbox(!car.manual);
+      showMsg(`${car.manual ? 'Manual' : 'Automatic'} gears<small>${car.manual ? 'E / Q (or RB / LB) to shift' : 'Shifts for you'}</small>`, 1.8);
+    }
+    if (input.takePressed('KeyE')) car.pendingShift = Math.min(car.pendingShift + 1, 2);
+    if (input.takePressed('KeyQ')) car.pendingShift = Math.max(car.pendingShift - 1, -2);
+    if (car.shiftDenied) { car.shiftDenied = false; showMsg('Downshift blocked<small>Engine would over-rev</small>', 1); }
     if (input.takePressed('KeyT')) { car.tc = !car.tc; showMsg(`Traction control ${car.tc ? 'ON' : 'OFF'}`, 1.2); }
     if (input.takePressed('KeyM')) { audio.setMuted(!audio.muted); showMsg(audio.muted ? 'Sound off' : 'Sound on', 1); }
     if (input.takePressed('KeyP')) paused = !paused;
@@ -2731,10 +2768,10 @@ async function main() {
       const bs = timing.store.bestSectors;
       hud.opt.textContent = bs.every((x) => x != null) ? fmtTime(bs[0] + bs[1] + bs[2]) : '—';
       hud.speed.textContent = Math.round(Math.abs(car.speedF) * 3.6);
-      hud.gear.textContent = car.gear === 0 ? 'R' : Math.abs(car.speedF) < 0.5 && car.throttle < 0.05 ? 'N' : car.gear;
+      hud.gear.textContent = car.gear === 0 ? 'R' : !car.manual && Math.abs(car.speedF) < 0.5 && car.throttle < 0.05 ? 'N' : car.gear;
       hud.rpm.style.width = clamp((car.rpm - 4000) / (CAR.redline - 4000), 0, 1) * 100 + '%';
       const surfName = SURF[Math.max(...car.wheels.map((w) => w.surf))].name;
-      hud.flags.textContent = `TC ${car.tc ? 'ON' : 'OFF'}${autoOn ? ' · AUTOPILOT' : ''}${paused ? ' · PAUSED' : ''}${surfName !== 'asphalt' ? ' · ' + surfName.toUpperCase() : ''}`;
+      hud.flags.textContent = `${car.manual ? 'MANUAL' : 'AUTO'} · TC ${car.tc ? 'ON' : 'OFF'}${autoOn ? ' · AUTOPILOT' : ''}${paused ? ' · PAUSED' : ''}${surfName !== 'asphalt' ? ' · ' + surfName.toUpperCase() : ''}`;
       if (msgTimer > 0 && (msgTimer -= fdt) <= 0) hud.msg.classList.remove('show');
       if (helpTimer > 0 && (helpTimer -= fdt) <= 0) hud.help.classList.add('hidden');
 
