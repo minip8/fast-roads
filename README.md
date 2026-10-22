@@ -12,6 +12,13 @@ so it needs an internet connection. To serve it locally instead:
 
 Append `?autopilot` to the URL to watch the built-in driver lap the circuit.
 
+## Main menu
+
+The game opens on a menu: **Drive** or **Watch autopilot**, plus settings for gears (automatic/manual), steering
+(keyboard/mouse), camera, traction control, and sound. Settings are remembered. Your best lap is shown, with a
+**Reset best times** option (click twice to confirm). While driving, **Esc** or **P** opens it as a pause menu
+(Resume / Restart session / Watch autopilot). Mouse or keyboard (↑ ↓ ← → Enter) both work in the menu.
+
 ## Controls
 
 | Key | Action |
@@ -21,12 +28,13 @@ Append `?autopilot` to the URL to watch the built-in driver lap the circuit.
 | A D / ← → | Steer |
 | R | Reset to track (invalidates the lap) |
 | Enter | Restart session at the grid |
-| V | Mouse steering on/off (remembered; also on the start screen) |
+| V | Mouse steering on/off (also in the menu) |
 | C | Cycle camera (onboard / chase / far) |
-| G | Automatic / manual gears (choice is remembered; also on the start screen) |
+| G | Automatic / manual gears (also in the menu) |
 | E / Q | Shift up / down (manual) |
 | T | Traction control on/off |
-| M / P / H | Mute / pause / hide help |
+| Esc / P | Open the menu (pauses) |
+| M / H | Mute / hide help |
 | O | Autopilot on/off |
 
 Gamepad: RT throttle, LT brake, left stick steer, RB/LB shift up/down, Y camera, X reset.

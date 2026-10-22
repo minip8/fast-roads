@@ -64,16 +64,36 @@
     border: 2px solid #111; left: 50%; }
   #mouseHint { position: absolute; left: 0; right: 0; top: -26px; text-align: center; font-size: 12px; color: var(--text); white-space: nowrap; }
   #help { position: fixed; left: 16px; bottom: 16px; padding: 10px 14px; font-size: 12px; line-height: 1.6; color: #d6dbe0; }
-  #help kbd, #overlay kbd { font: inherit; font-weight: 700; color: var(--text); background: rgba(255,255,255,.1); border-radius: 4px; padding: 0 5px; }
+  #help kbd { font: inherit; font-weight: 700; color: var(--text); background: rgba(255,255,255,.1); border-radius: 4px; padding: 0 5px; }
   #help.hidden { display: none; }
 
-  #overlay { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
-    background: radial-gradient(ellipse at center, rgba(10,12,16,.55), rgba(10,12,16,.9)); text-align: center; padding: 16px; cursor: pointer; }
-  #overlay h1 { margin: 0; font-size: 56px; letter-spacing: .08em; font-weight: 800; }
-  #overlay p { color: var(--muted); margin: 8px 0; }
-  #overlay .go { margin-top: 18px; font-size: 18px; color: var(--text); }
+  #overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; overflow-y: auto;
+    background: radial-gradient(ellipse at center, rgba(10,12,16,.55), rgba(10,12,16,.88)); padding: 16px; }
   #overlay.hidden { display: none; }
-  #overlay .err { color: var(--red); max-width: 640px; }
+  #menu { width: min(440px, 100%); margin: auto; }
+  #menu h1 { margin: 0; font-size: 52px; letter-spacing: .08em; font-weight: 800; text-align: center; }
+  #menu .sub, #loadState { color: var(--muted); margin: 6px 0; text-align: center; }
+  #loadState.err { color: var(--red); }
+  .menu-actions { display: flex; flex-direction: column; gap: 8px; margin: 22px 0 16px; }
+  .mbtn { appearance: none; border: 0; border-radius: 8px; padding: 12px 16px; font-family: inherit; font-size: 16px; font-weight: 600;
+    color: var(--text); background: rgba(32,35,41,.92); cursor: pointer; }
+  .mbtn:hover { background: rgba(48,52,60,.95); }
+  .mbtn.primary { background: #ff6a13; color: #111; }
+  .mbtn.primary:hover { background: #ff8133; }
+  .menu-settings { background: rgba(14,16,20,.9); border-radius: 10px; padding: 6px; }
+  .mrow { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 8px; border-radius: 7px; }
+  .mrow > span { color: #c9cfd6; font-size: 14px; }
+  .seg { display: flex; background: rgba(255,255,255,.06); border-radius: 7px; padding: 2px; flex-shrink: 0; }
+  .seg button { appearance: none; border: 0; background: transparent; color: var(--muted); font-family: inherit; font-size: 13px;
+    padding: 6px 10px; border-radius: 5px; cursor: pointer; }
+  .seg button:hover { color: var(--text); }
+  .seg button.on { background: rgba(255,255,255,.18); color: var(--text); font-weight: 600; }
+  #menu .focus { outline: 2px solid #ff6a13; outline-offset: 1px; }
+  .menu-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; font-size: 13px; color: var(--muted); }
+  .menu-foot b { color: var(--text); font-weight: 600; }
+  button.link { background: none; border: 0; padding: 0; color: var(--muted); text-decoration: underline; cursor: pointer; font: inherit; }
+  button.link.armed { color: var(--red); }
+  .menu-hint { text-align: center; font-size: 12px; color: var(--muted); margin: 14px 0 0; }
 
   @media (max-width: 700px) {
     #timing { width: calc(100vw - 32px); }
@@ -125,17 +145,23 @@
     <div><kbd>G</kbd> auto / manual gears · <kbd>E</kbd> <kbd>Q</kbd> shift up / down</div>
     <div><kbd>V</kbd> mouse steering (L/R click throttle/brake, scroll shift)</div>
     <div><kbd>C</kbd> camera · <kbd>T</kbd> traction control · <kbd>M</kbd> mute</div>
-    <div><kbd>P</kbd> pause · <kbd>O</kbd> autopilot · <kbd>H</kbd> hide help</div>
+    <div><kbd>Esc</kbd> <kbd>P</kbd> menu · <kbd>O</kbd> autopilot · <kbd>H</kbd> hide help</div>
     <div style="color:var(--muted)">Gamepad: RT throttle, LT brake, left stick steer</div>
   </div>
 </div>
 
 <div id="overlay">
-  <h1>FAST ROADS</h1>
-  <p>Time trial · Albert Park, Melbourne</p>
-  <p id="loadState">Loading physics…</p>
-  <p>Gears: <b id="gearChoice">Automatic</b> · press <kbd>G</kbd> to switch</p>
-  <p>Steering: <b id="steerChoice">Keyboard</b> · press <kbd>V</kbd> to switch</p>
+  <div id="menu">
+    <h1>FAST ROADS</h1>
+    <p class="sub">Time trial · Albert Park, Melbourne</p>
+    <p id="loadState">Loading physics…</p>
+    <div id="menuBody" hidden>
+      <div class="menu-actions" id="menuActions"></div>
+      <div class="menu-settings" id="menuSettings"></div>
+      <div class="menu-foot"><span id="menuBest"></span><button class="link" id="resetBest" type="button">Reset best times</button></div>
+      <p class="menu-hint">↑ ↓ move · ← → change · Enter select · Esc / P opens this menu while driving</p>
+    </div>
+  </div>
 </div>
 
 <!-- Centerline + track widths. Source: TUMFTM/racetrack-database, tracks/Melbourne.csv (LGPL-3.0).
@@ -2688,42 +2714,131 @@ async function main() {
     camInit = false; camPos.set(0, 0, 0);
   };
 
-  const begin = () => {
-    started = true; overlay.classList.add('hidden'); $('hud').hidden = false; audio.start();
-    if (input.mouse.enabled) input.lock();
-  };
-  overlay.addEventListener('click', begin);
-  addEventListener('keydown', (e) => {
-    if (e.code === 'KeyG' || e.code === 'KeyV') return;   // gearbox / steering toggles also work on the start screen
-    if (!started || !overlay.classList.contains('hidden')) begin(); else audio.start();
-  });
   addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });
 
-  const setGearbox = (manual) => {
-    car.manual = manual;
-    try { localStorage.setItem('fastroads.gearbox', manual ? 'manual' : 'auto'); } catch (e) { /* storage unavailable */ }
-    const el = document.getElementById('gearChoice');
-    if (el) el.textContent = manual ? 'Manual' : 'Automatic';
+  // ---------------- Settings (persisted) ----------------
+  const SETTINGS_KEY = 'fastroads.settings';
+  const SETTING_DEFS = [
+    { key: 'gearbox', label: 'Gears', options: [['auto', 'Automatic'], ['manual', 'Manual']] },
+    { key: 'steering', label: 'Steering', options: [['keyboard', 'Keyboard'], ['mouse', 'Mouse']] },
+    { key: 'camera', label: 'Camera', options: [['onboard', 'Onboard'], ['chase', 'Chase'], ['far', 'Far']] },
+    { key: 'tc', label: 'Traction control', options: [['on', 'On'], ['off', 'Off']] },
+    { key: 'sound', label: 'Sound', options: [['on', 'On'], ['off', 'Off']] },
+  ];
+  const settings = { gearbox: 'auto', steering: 'keyboard', camera: 'onboard', tc: 'on', sound: 'on' };
+  try {
+    // carry over choices saved by earlier versions
+    const g = localStorage.getItem('fastroads.gearbox'), st = localStorage.getItem('fastroads.steering');
+    if (g) settings.gearbox = g;
+    if (st) settings.steering = st;
+    Object.assign(settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'));
+  } catch (e) { /* storage unavailable */ }
+  for (const d of SETTING_DEFS) if (!d.options.some(([v]) => v === settings[d.key])) settings[d.key] = d.options[0][0];
+  const setSetting = (key, value) => {
+    settings[key] = value;
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) { /* storage unavailable */ }
+    if (key === 'gearbox') car.manual = value === 'manual';
+    if (key === 'steering') { input.setMouse(value === 'mouse'); $('mouseSteer').hidden = value !== 'mouse'; if (value === 'mouse' && started && !menu.isOpen) input.lock(); }
+    if (key === 'camera') camMode = Math.max(0, camModes.indexOf(value));
+    if (key === 'tc') car.tc = value === 'on';
+    if (key === 'sound') audio.setMuted(value === 'off');
+    menu.refresh();
   };
-  const setMouseSteering = (on) => {
-    input.setMouse(on);
-    try { localStorage.setItem('fastroads.steering', on ? 'mouse' : 'keyboard'); } catch (e) { /* storage unavailable */ }
-    $('steerChoice').textContent = on ? 'Mouse' : 'Keyboard';
-    $('mouseSteer').hidden = !on;
-    if (on && started) input.lock();
+  const cycleSetting = (key, dir = 1) => {
+    const opts = SETTING_DEFS.find((d) => d.key === key).options, i = opts.findIndex(([v]) => v === settings[key]);
+    setSetting(key, opts[wrapI(i + dir, opts.length)][0]);
+    return settings[key];
   };
-  try { setMouseSteering(localStorage.getItem('fastroads.steering') === 'mouse'); } catch (e) { setMouseSteering(false); }
-  // Losing the mouse (Esc) while driving pauses; clicking the game captures it again and resumes.
-  let pausedByMouse = false;
-  input.onLockChange = (locked) => {
-    if (!locked && input.mouse.enabled && started && !paused) { paused = true; pausedByMouse = true; showMsg('Paused<small>Click to capture the mouse and resume</small>', 3); }
-    if (locked && pausedByMouse) { paused = false; pausedByMouse = false; }
+  const resetBestTimes = () => {
+    try { localStorage.removeItem(STORE_KEY); } catch (e) { /* storage unavailable */ }
+    timing.store = loadStore(); timing.sessionBestSectors = [null, null, null]; timing.sessionBest = null;
+    timing.laps = []; timing.lastLap = null; hud.list.innerHTML = '';
   };
-  let savedBox = 'auto';
-  try { savedBox = localStorage.getItem('fastroads.gearbox') || 'auto'; } catch (e) { /* storage unavailable */ }
-  setGearbox(savedBox === 'manual');
-  loadState.innerHTML = `<span class="go">Press any key or click to drive</span>`;
-  if (started) { overlay.classList.add('hidden'); $('hud').hidden = false; }
+
+  // ---------------- Main / pause menu ----------------
+  const menu = (() => {
+    const actionsEl = $('menuActions'), settingsEl = $('menuSettings'), resetEl = $('resetBest');
+    let items = [], focus = 0, resetArmed = false;
+    const api = { isOpen: true };
+    const close = () => {
+      api.isOpen = false; overlay.classList.add('hidden');
+      started = true; paused = false; $('hud').hidden = false; audio.start();
+      input.pressed.clear();                       // the key that closed the menu shouldn't also act in-game
+      if (input.mouse.enabled && !autoOn) input.lock();
+    };
+    const actions = () => !started
+      ? [['Drive', () => { autoOn = false; close(); }, true], ['Watch autopilot', () => { autoOn = true; close(); }]]
+      : [['Resume', () => close(), true],
+         ['Restart session', () => { restart(); close(); }],
+         [autoOn ? 'Drive yourself' : 'Watch autopilot', () => { autoOn = !autoOn; close(); }]];
+    const render = () => {
+      items = [];
+      actionsEl.innerHTML = '';
+      for (const [label, run, primary] of actions()) {
+        const bt = document.createElement('button');
+        bt.type = 'button'; bt.className = 'mbtn' + (primary ? ' primary' : ''); bt.textContent = label;
+        bt.addEventListener('click', run);
+        actionsEl.append(bt);
+        items.push({ el: bt, run });
+      }
+      settingsEl.innerHTML = '';
+      for (const d of SETTING_DEFS) {
+        const row = document.createElement('div'); row.className = 'mrow';
+        const lab = document.createElement('span'); lab.textContent = d.label;
+        const seg = document.createElement('div'); seg.className = 'seg';
+        for (const [v, text] of d.options) {
+          const bt = document.createElement('button');
+          bt.type = 'button'; bt.textContent = text; bt.className = settings[d.key] === v ? 'on' : '';
+          bt.addEventListener('click', () => setSetting(d.key, v));
+          seg.append(bt);
+        }
+        row.append(lab, seg); settingsEl.append(row);
+        items.push({ el: row, setting: d.key });
+      }
+      items.push({ el: resetEl, run: () => onReset() });
+      focus = clamp(focus, 0, items.length - 1);
+      items.forEach((it, k) => it.el.classList.toggle('focus', k === focus && api.keyboardUsed));
+      const best = timing.store.bestLap;
+      $('menuBest').innerHTML = best != null ? `Best lap <b>${fmtTime(best)}</b>` : 'No best lap yet';
+      resetEl.textContent = resetArmed ? 'Click again to reset' : 'Reset best times';
+      resetEl.classList.toggle('armed', resetArmed);
+      resetEl.hidden = best == null && !resetArmed;
+    };
+    const onReset = () => {
+      if (!resetArmed) { resetArmed = true; render(); setTimeout(() => { resetArmed = false; if (api.isOpen) render(); }, 3000); return; }
+      resetArmed = false; resetBestTimes(); render();
+    };
+    resetEl.addEventListener('click', onReset);
+    api.refresh = () => { if (api.isOpen) render(); };
+    api.open = () => {
+      if (api.isOpen) return;
+      api.isOpen = true; paused = true; focus = 0; resetArmed = false;
+      overlay.classList.remove('hidden');
+      if (input.mouse.locked) document.exitPointerLock();
+      render();
+    };
+    api.show = () => { $('loadState').hidden = true; $('menuBody').hidden = false; render(); };
+    addEventListener('keydown', (e) => {
+      if (!api.isOpen || $('menuBody').hidden) return;
+      const it = items[focus];
+      const nav = { ArrowUp: -1, ArrowDown: 1 }[e.code];
+      if (nav) { api.keyboardUsed = true; do { focus = wrapI(focus + nav, items.length); } while (items[focus].el.hidden); render(); e.preventDefault(); return; }
+      if ((e.code === 'ArrowLeft' || e.code === 'ArrowRight') && it?.setting) { api.keyboardUsed = true; cycleSetting(it.setting, e.code === 'ArrowLeft' ? -1 : 1); e.preventDefault(); return; }
+      if (e.code === 'Enter' || e.code === 'Space') {
+        e.preventDefault();
+        if (it?.setting) cycleSetting(it.setting, 1); else if (it?.run) it.run();
+        return;
+      }
+      if (e.code === 'Escape' && started && !e.repeat) close();
+    });
+    return api;
+  })();
+
+  for (const d of SETTING_DEFS) setSetting(d.key, settings[d.key]);   // apply saved choices
+  // Losing the mouse capture (Esc) while driving opens the pause menu.
+  input.onLockChange = (locked) => { if (!locked && input.mouse.enabled && started && !menu.isOpen) menu.open(); };
+  if (started) { menu.isOpen = false; overlay.classList.add('hidden'); $('hud').hidden = false; }   // ?autopilot skips the menu
+  else menu.show();
 
   function physicsTick(inp) {
     car.prevPos.copy(car.pos); car.prevQuat.copy(car.quat);
@@ -2759,20 +2874,21 @@ async function main() {
     requestAnimationFrame(frame);
     let fdt = Math.min((now - last) / 1000, 0.1); last = now;
 
-    // discrete actions
-    if (input.takePressed('KeyC')) camMode = (camMode + 1) % camModes.length;
+    // discrete actions (ignored while the menu is open; it handles its own keys)
+    if (menu.isOpen) input.pressed.clear();
+    if (input.takePressed('KeyP') || input.takePressed('Escape')) menu.open();
+    if (input.takePressed('KeyC')) cycleSetting('camera');
     if (input.takePressed('KeyG')) {
-      setGearbox(!car.manual);
+      cycleSetting('gearbox');
       showMsg(`${car.manual ? 'Manual' : 'Automatic'} gears<small>${car.manual ? 'E / Q (or RB / LB) to shift' : 'Shifts for you'}</small>`, 1.8);
     }
     if (input.takePressed('KeyE')) car.pendingShift = Math.min(car.pendingShift + 1, 2);
     if (input.takePressed('KeyQ')) car.pendingShift = Math.max(car.pendingShift - 1, -2);
     if (car.shiftDenied) { car.shiftDenied = false; showMsg('Downshift blocked<small>Engine would over-rev</small>', 1); }
-    if (input.takePressed('KeyT')) { car.tc = !car.tc; showMsg(`Traction control ${car.tc ? 'ON' : 'OFF'}`, 1.2); }
-    if (input.takePressed('KeyM')) { audio.setMuted(!audio.muted); showMsg(audio.muted ? 'Sound off' : 'Sound on', 1); }
-    if (input.takePressed('KeyP')) paused = !paused;
+    if (input.takePressed('KeyT')) { cycleSetting('tc'); showMsg(`Traction control ${car.tc ? 'ON' : 'OFF'}`, 1.2); }
+    if (input.takePressed('KeyM')) { cycleSetting('sound'); showMsg(audio.muted ? 'Sound off' : 'Sound on', 1); }
     if (input.takePressed('KeyV')) {
-      setMouseSteering(!input.mouse.enabled);
+      cycleSetting('steering');
       showMsg(input.mouse.enabled ? 'Mouse steering<small>Move to steer · left click throttle · right click brake · scroll to shift</small>' : 'Keyboard steering', 2.2);
     }
     if (input.takePressed('KeyH')) hud.help.classList.toggle('hidden');
