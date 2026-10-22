@@ -10,16 +10,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Running
 
-No build, package manager, linter or test suite. The whole game is `index.html`; three.js and Rapier load from the
-jsDelivr CDN through an import map, so it needs a network connection.
+Vite project, plain JavaScript ES modules (no framework). three.js and Rapier (`@dimforge/rapier3d-compat`) are npm
+dependencies pinned to exact versions.
 
-    python3 -m http.server 8000   # then open http://localhost:8000
-    # ?autopilot in the URL skips the menu and lets the built-in driver lap
+    npm install
+    npm run dev       # dev server; ?autopilot in the URL skips the menu and lets the built-in driver lap
+    npm run build     # static build in dist/ (base './'); npm run preview serves it
 
-Quick syntax check of the game module (the import-map and CSV `<script>` blocks aren't JS, so check only the module):
-
-    L=$(grep -n '<script type="module">' index.html | cut -d: -f1)
-    awk -v L=$L 'NR>L && /<\/script>/{exit} NR>L' index.html > /tmp/game.mjs && node --check /tmp/game.mjs
+`npm run build` fails on imports of names that don't exist, but not on names used without an import; those only
+fail at runtime, so exercise the changed code path in the browser.
 
 ## Testing
 
@@ -29,19 +28,26 @@ Use the test hook `window.__game`, from the browser console or headless Chromium
   With `probeSecs` it returns a log of position/speed/gear samples.
 - `car` (a getter: the car object is replaced when you switch cars), `timing` (`timing.laps`), `track`, `autopilot`,
   `setSetting(key, value)`, `setAutopilot`.
-- Simulation is deterministic: the same build gives the same autopilot lap time to the millisecond, so comparing an
-  autopilot lap against `git show HEAD:index.html` served on another port is a reliable regression check
-  (F1: 1:59.659).
+- Simulation is deterministic: the same build gives the same autopilot lap time to the millisecond, so an unchanged
+  autopilot lap time is a reliable regression check (F1: 1:59.659; drift car: 3:02.57 with TC on, 3:07.42 off).
 - `car.forceSurface = 0` forces asphalt under every wheel for synthetic handling tests. Keep such tests short
   (about 1–2 s after the manoeuvre): the start straight is walled, and longer runs hit the walls.
 
-## Architecture (all in `index.html`)
+## Architecture (`src/`)
 
-The file is split into `// ====` banner sections, in this order: config, car specs, helpers, track, meshes,
-colliders, scenery, brake markers, Car, car meshes, dust, timing, input, audio, autopilot, `main()`.
+`index.html` is just the page markup (HUD, menu); styles are in `src/style.css`. Modules:
+- `config.js`: constants, surfaces, collision groups
+- `util.js`: math and formatting helpers
+- `cars.js`: car specs
+- `car.js`: car physics
+- `carMeshes.js`: car bodies
+- `track.js`: track geometry and colliders
+- `trackMeshes.js`, `textures.js`, `scenery.js`, `brakeMarkers.js`: visuals
+- `timing.js`, `input.js`, `audio.js`, `dust.js`, `autopilot.js`
+- `main.js`: scene setup, camera, settings, menu, HUD and the game loop, all as closures inside `main()`
 
-- **Track data**: `tracks/melbourne.csv` (TUM racetrack-database centreline + widths) is the source; a copy without
-  its two `#` header lines is embedded in the `<script id="track-csv">` block. Edit both together.
+- **Track data**: `tracks/melbourne.csv` (TUM racetrack-database centreline + widths), imported into `main.js` with
+  Vite's `?raw` suffix; `parseCSV` skips `#` comment lines.
   `buildTrack` turns it into a closed spline sampled every ~2 m (arrays `X, Z, TX, TZ, NX, NZ, K, S, WL, WR`, kerb/
   gravel/barrier offsets). Almost everything works in track coordinates `(s, lat)` via `projectOnTrack` / `pointAt`.
 - **Car specs (`CARS`)**: every physics, engine, gearbox, steering, collider, camera and autopilot number for each car

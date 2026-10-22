@@ -6,10 +6,11 @@ timing with track limits.
 
 ## Run
 
-Open `index.html` in a browser (Chrome/Firefox/Edge). It loads three.js and Rapier from the jsDelivr CDN,
-so it needs an internet connection. To serve it locally instead:
+Needs Node.js. Install once, then start the dev server and open the URL it prints:
 
-    python3 -m http.server 8000   # then open http://localhost:8000
+    npm install
+    npm run dev        # dev server with live reload
+    npm run build      # static build in dist/ (host anywhere; `npm run preview` serves it locally)
 
 For development, append `?autopilot` to the URL to skip the menu and watch the built-in driver lap the circuit.
 The autopilot isn't part of the game itself.
@@ -63,9 +64,9 @@ you need to go, and Mouse deadzone (Off / Small / Medium / Large) sets how wide 
 centre is. Left click is throttle, right click is brake, scroll shifts gears in manual. Steering keys still work
 and override the mouse while held.
 
-## How it works (all in `index.html`)
+## How it works (code in `src/`, one module per area)
 
-- **Track**: TUM centerline + widths (`tracks/melbourne.csv`, embedded in the page) → Catmull-Rom → resampled every ~2 m.
+- **Track**: TUM centerline + widths (`tracks/melbourne.csv`, bundled at build time) → Catmull-Rom → resampled every ~2 m.
   Kerbs, gravel traps, and barrier offsets are derived from curvature; barriers are shrunk/dropped where they'd
   intrude on another part of the circuit. Road, kerbs, gravel, and walls are ribbon meshes built from the samples.
 - **Physics**: Rapier rigid body (fixed 120 Hz step, interpolated rendering). Custom raycast suspension with

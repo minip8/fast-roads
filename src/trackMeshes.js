@@ -1,0 +1,101 @@
+import * as THREE from 'three';
+import { GRAVEL_W, KERB_W } from './config.js';
+import { canvasTex, noiseFill } from './textures.js';
+
+// ============================================================================
+// Track meshes
+// ============================================================================
+// cols: [{ o: i => lateral offset, y: number | i => number, u: number | i => number }], ordered by increasing offset.
+// A column with `cut: true` emits no face between it and the next column.
+export function ribbon(tr, cols, { mask = null, vScale = 1, material }) {
+  const N = tr.N, C = cols.length;
+  const pos = new Float32Array((N + 1) * C * 3), uv = new Float32Array((N + 1) * C * 2);
+  for (let i = 0; i <= N; i++) {
+    const k = i % N, s = i === N ? tr.L : tr.S[k];
+    for (let c = 0; c < C; c++) {
+      const col = cols[c], o = col.o(k);
+      const y = typeof col.y === 'function' ? col.y(k) : col.y;
+      const u = typeof col.u === 'function' ? col.u(k) : col.u;
+      const v = i * C + c;
+      pos[v * 3] = tr.X[k] + tr.NX[k] * o; pos[v * 3 + 1] = y; pos[v * 3 + 2] = tr.Z[k] + tr.NZ[k] * o;
+      uv[v * 2] = u; uv[v * 2 + 1] = s * vScale;
+    }
+  }
+  const index = [];
+  for (let i = 0; i < N; i++) {
+    if (mask && !(mask[i] && mask[(i + 1) % N])) continue;
+    for (let c = 0; c < C - 1; c++) {
+      if (cols[c].cut) continue;
+      const a = i * C + c, b = a + 1, a1 = a + C, b1 = b + C;
+      index.push(a, a1, b, b, a1, b1);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  geo.setIndex(index);
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+export function buildTrackMeshes(tr, scene) {
+  const asphaltTex = canvasTex(512, 512, (g, w, h) => noiseFill(g, w, h, [58, 60, 64], 26, 0.02));
+  const roadMat = new THREE.MeshStandardMaterial({ map: asphaltTex, roughness: 0.92, metalness: 0, side: THREE.DoubleSide });
+  scene.add(ribbon(tr, [
+    { o: (i) => -tr.WR[i], y: 0, u: (i) => -tr.WR[i] / 8 },
+    { o: () => 0, y: 0, u: 0 },
+    { o: (i) => tr.WL[i], y: 0, u: (i) => tr.WL[i] / 8 },
+  ], { vScale: 1 / 8, material: roadMat }));
+
+  const lineMat = new THREE.MeshStandardMaterial({ color: 0xf4f4f0, roughness: 0.7, side: THREE.DoubleSide });
+  scene.add(ribbon(tr, [{ o: (i) => tr.WL[i] - 0.22, y: 0.004, u: 0 }, { o: (i) => tr.WL[i] - 0.02, y: 0.004, u: 1 }], { material: lineMat }));
+  scene.add(ribbon(tr, [{ o: (i) => -tr.WR[i] + 0.02, y: 0.004, u: 0 }, { o: (i) => -tr.WR[i] + 0.22, y: 0.004, u: 1 }], { material: lineMat }));
+
+  const kerbTex = canvasTex(4, 64, (g) => { g.fillStyle = '#d8262b'; g.fillRect(0, 0, 4, 32); g.fillStyle = '#f5f5f2'; g.fillRect(0, 32, 4, 32); }, { nearest: true });
+  const kerbMat = new THREE.MeshStandardMaterial({ map: kerbTex, roughness: 0.6, side: THREE.DoubleSide });
+  const kv = 1 / 3;   // stripes 1.5 m
+  scene.add(ribbon(tr, [
+    { o: (i) => tr.WL[i], y: 0.006, u: 0 }, { o: (i) => tr.WL[i] + 0.35, y: 0.045, u: 0.3 }, { o: (i) => tr.WL[i] + KERB_W, y: 0.03, u: 1 },
+  ], { mask: tr.kerbL, vScale: kv, material: kerbMat }));
+  scene.add(ribbon(tr, [
+    { o: (i) => -tr.WR[i] - KERB_W, y: 0.03, u: 1 }, { o: (i) => -tr.WR[i] - 0.35, y: 0.045, u: 0.3 }, { o: (i) => -tr.WR[i], y: 0.006, u: 0 },
+  ], { mask: tr.kerbR, vScale: kv, material: kerbMat }));
+
+  const gravelTex = canvasTex(256, 256, (g, w, h) => noiseFill(g, w, h, [196, 178, 140], 50, 0.05));
+  const gravelMat = new THREE.MeshStandardMaterial({ map: gravelTex, roughness: 1, side: THREE.DoubleSide });
+  scene.add(ribbon(tr, [
+    { o: (i) => tr.WL[i] + 0.1, y: -0.012, u: 0 },
+    { o: (i) => Math.min(tr.WL[i] + KERB_W + GRAVEL_W, tr.barL[i] - 0.4), y: -0.012, u: 4 },
+  ], { mask: tr.gravelL, vScale: 1 / 6, material: gravelMat }));
+  scene.add(ribbon(tr, [
+    { o: (i) => -Math.min(tr.WR[i] + KERB_W + GRAVEL_W, tr.barR[i] - 0.4), y: -0.012, u: 4 },
+    { o: (i) => -tr.WR[i] - 0.1, y: -0.012, u: 0 },
+  ], { mask: tr.gravelR, vScale: 1 / 6, material: gravelMat }));
+
+  // Start/finish: chequered strip across the road at s = 0
+  const chkTex = canvasTex(16, 2, (g) => { for (let x = 0; x < 16; x++) for (let y = 0; y < 2; y++) { g.fillStyle = (x + y) % 2 ? '#111' : '#f4f4f4'; g.fillRect(x, y, 1, 1); } }, { nearest: true });
+  const chkMask = new Uint8Array(tr.N); chkMask[0] = 1; chkMask[1] = 1;
+  scene.add(ribbon(tr, [{ o: (i) => -tr.WR[i], y: 0.005, u: 0 }, { o: (i) => tr.WL[i], y: 0.005, u: 1 }],
+    { mask: chkMask, vScale: 1 / (tr.S[1] * 1), material: new THREE.MeshStandardMaterial({ map: chkTex, roughness: 0.7, side: THREE.DoubleSide }) }));
+
+  // Barriers: concrete wall with painted top band
+  const wallTex = canvasTex(64, 128, (g, w, h) => {
+    noiseFill(g, w, h, [178, 178, 172], 18);
+    g.fillStyle = '#1d4f9e'; g.fillRect(30, 0, 30, h);
+    g.fillStyle = '#e9eef5'; for (let y = 0; y < h; y += 32) g.fillRect(36, y + 6, 18, 18);
+    g.fillStyle = '#2a2a2a'; g.fillRect(60, 0, 4, h);
+  });
+  const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.85, side: THREE.DoubleSide });
+  const capMat = new THREE.MeshStandardMaterial({ color: 0x9a9a94, roughness: 0.9, side: THREE.DoubleSide });
+  for (const side of [1, -1]) {
+    const off = side > 0 ? tr.barL : tr.barR, valid = side > 0 ? tr.barLValid : tr.barRValid;
+    const o = (d) => (i) => side * (off[i] + d);
+    const wall = ribbon(tr, [{ o: o(0), y: 0, u: 0 }, { o: o(0), y: 1.0, u: 1 }], { mask: valid, vScale: 1 / 6, material: wallMat });
+    const cap = ribbon(tr, [{ o: o(0), y: 1.0, u: 0 }, { o: o(0.5), y: 1.0, u: 1, cut: true }, { o: o(0.5), y: 1.0, u: 0 }, { o: o(0.5), y: 0, u: 1 }],
+      { mask: valid, material: capMat });
+    wall.castShadow = true; cap.castShadow = true;
+    scene.add(wall, cap);
+  }
+}
