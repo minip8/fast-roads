@@ -1207,14 +1207,17 @@ const GRAVEL_W = 22;                // gravel trap depth beyond the kerb (m)
 const LIMIT_TOL_NO_KERB = 0.3;      // track-limit tolerance where there is no kerb (m)
 const STORE_KEY = 'fastroads.v1.melbourne';
 
-// Surface properties: mu = peak grip, rr = rolling resistance coeff (x load), drag = speed-proportional
-// resistance per wheel (N per m/s, scaled by load share).
+// Surface properties: mu = peak grip, rr = rolling resistance coeff (x load),
+// decel = ploughing resistance (m/s^2) when the whole car is on that surface.
 const SURF = [
-  { name: 'asphalt', mu: 1.65, rr: 0.012, drag: 0 },
-  { name: 'kerb',    mu: 1.45, rr: 0.02,  drag: 0 },
-  { name: 'grass',   mu: 0.62, rr: 0.05,  drag: 30 },
-  { name: 'gravel',  mu: 0.50, rr: 0.06,  drag: 80 },
+  { name: 'asphalt', mu: 1.65, rr: 0.012, decel: 0 },
+  { name: 'kerb',    mu: 1.45, rr: 0.02,  decel: 0 },
+  { name: 'grass',   mu: 0.62, rr: 0.03,  decel: 1.5 },
+  { name: 'gravel',  mu: 0.50, rr: 0.05,  decel: 10 },
 ];
+const SURF_BLEND_T = 0.1;       // s: grip/resistance ease between surfaces so the car doesn't snap at the edge
+const PLOUGH_FADE_V = 15;       // m/s: ploughing resistance fades (quadratically) below this so you can drive out
+const PLOUGH_WHEEL_SHARE = 0.15; // share applied at the wheels (mild tug toward the side that's off); rest at the CoM
 const S_ASPHALT = 0, S_KERB = 1, S_GRASS = 2, S_GRAVEL = 3;
 
 // Collision groups: (membership << 16) | filter
@@ -1865,6 +1868,7 @@ class Car {
     const mk = (x, z, front, name) => ({
       name, front, local: new THREE.Vector3(x, this.mountY, z), k: front ? CAR.kFront : CAR.kRear,
       comp: staticComp, prevComp: staticComp, Fz: 0, grounded: false, L: CAR.suspLen - staticComp,
+      muBlend: SURF[S_ASPHALT].mu, rrBlend: SURF[S_ASPHALT].rr, decelBlend: 0,
       surf: S_ASPHALT, slip: 0, spin: 0, omega: 0, out: false, proj: { i: 0, lat: 0, s: 0 }, sres: { surf: 0, h: 0 },
       contact: new THREE.Vector3(), normal: new THREE.Vector3(0, 1, 0),
     });
@@ -1913,7 +1917,7 @@ class Car {
     this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     this.gear = 1; this.steer = 0; this.steerVel = 0; this.shiftTimer = 0;
-    for (const w of this.wheels) { w.comp = w.prevComp = 0.025; w.omega = 0; }
+    for (const w of this.wheels) { w.comp = w.prevComp = 0.025; w.omega = 0; w.muBlend = SURF[S_ASPHALT].mu; w.rrBlend = SURF[S_ASPHALT].rr; w.decelBlend = 0; }
     this.proj.i = -1;
     this.readState();
     this.prevPos.copy(this.pos); this.prevQuat.copy(this.quat);
@@ -1940,7 +1944,8 @@ class Car {
     let target;
     const vs = Math.max(0, vF);
     // Arcade: steering angle the tyres can actually use at this speed (geometric angle for a max-grip turn + peak slip).
-    const aMax = ARCADE.grip * ARCADE.gripFront * 9.81 * (1 + (0.5 * CAR.rho * ARCADE.aero * vs * vs) / (CAR.mass * 9.81));
+    const frontSurf = (this.wheels[0].muBlend + this.wheels[1].muBlend) / (2 * SURF[S_ASPHALT].mu);
+    const aMax = frontSurf * ARCADE.grip * ARCADE.gripFront * 9.81 * (1 + (0.5 * CAR.rho * ARCADE.aero * vs * vs) / (CAR.mass * 9.81));
     const usable = ((CAR.zFront - CAR.zRear) * aMax) / Math.max(vs * vs, 1) + ARCADE.slipPeak;
     if (inp.steerAngle != null) target = arc ? clamp(inp.steerAngle, -usable * ARCADE.steerAssist, usable * ARCADE.steerAssist) : inp.steerAngle;
     else if (arc) {
@@ -2008,6 +2013,8 @@ class Car {
       projectOnTrack(tr, m.x, m.z, this.proj.i, w.proj);
       surfaceAt(tr, w.proj.i, w.proj.lat, w.proj.s, w.sres);
       w.surf = this.forceSurface ?? w.sres.surf;
+      const sf = SURF[w.surf], kb = 1 - Math.exp(-dt / SURF_BLEND_T);
+      w.muBlend += (sf.mu - w.muBlend) * kb; w.rrBlend += (sf.rr - w.rrBlend) * kb; w.decelBlend += (sf.decel - w.decelBlend) * kb;
       w.out = trackLimitOut(tr, w.proj.i, w.proj.lat);
       ray.origin.x = m.x; ray.origin.y = m.y; ray.origin.z = m.z;
       ray.dir.x = -up.x; ray.dir.y = -up.y; ray.dir.z = -up.z;
@@ -2043,7 +2050,7 @@ class Car {
 
     // --- tyres
     const mc = CAR.mass / 4;
-    let maxSlip = 0, offCount = 0, rearSpin = 0;
+    let maxSlip = 0, offCount = 0, rearSpin = 0, plough = 0, offGrass = 0, offGravel = 0;
     for (const w of this.wheels) {
       if (!w.grounded) { w.slip = 0; w.omega *= 0.99; continue; }
       const n = w.normal;
@@ -2059,12 +2066,15 @@ class Car {
       const pvx = this.vel.x + av.y * rz - av.z * ry, pvy = this.vel.y + av.z * rx - av.x * rz, pvz = this.vel.z + av.x * ry - av.y * rx;
       const vx = pvx * wf.x + pvy * wf.y + pvz * wf.z, vy = pvx * ws.x + pvy * ws.y + pvz * ws.z;
 
-      const surf = SURF[w.surf];
       if (w.surf >= S_GRASS) offCount++;
+      if (w.surf === S_GRASS) offGrass++; else if (w.surf === S_GRAVEL) offGravel++;
+      // Ploughing resistance from grass/gravel: most goes on the CoM (after this loop) so it can't yank the car round.
+      const wPlough = w.decelBlend * mc * Math.min(1, (vx / PLOUGH_FADE_V) ** 2);
+      plough += wPlough * (1 - PLOUGH_WHEEL_SHARE);
       const alpha = Math.atan2(vy, Math.max(Math.abs(vx), 7));
       if (arc) {
         // Arcade tyre: force linear in slip angle up to slipPeak, then fades gently to slipMod of grip.
-        const Fmax = (surf.mu / SURF[S_ASPHALT].mu) * ARCADE.grip * w.Fz * (w.front ? ARCADE.gripFront : ARCADE.gripRear);
+        const Fmax = (w.muBlend / SURF[S_ASPHALT].mu) * ARCADE.grip * w.Fz * (w.front ? ARCADE.gripFront : ARCADE.gripRear);
         const aSlip = Math.atan2(vy, Math.max(Math.abs(vx), 5));
         const x = Math.abs(aSlip) / (w.front ? ARCADE.slipPeak : ARCADE.slipPeakRear);
         let Fy = -Math.sign(aSlip) * Fmax * (x <= 1 ? x : 1 - (1 - ARCADE.slipMod) * Math.min(1, (x - 1) / 2));
@@ -2072,7 +2082,7 @@ class Car {
         const longCap = Math.max(Math.sqrt(Math.max(0, Fmax * Fmax - Fy * Fy)), 0.5 * Fmax);
         const Fdrive = (drive * (w.front ? 0.3 : 0.7)) / 2;
         const brakeF = (brake * CAR.mass * ARCADE.brake * (w.front ? 0.55 : 0.45)) / 2;
-        const resist = Math.min(brakeF, longCap) + surf.rr * w.Fz + surf.drag * Math.abs(vx) * (w.Fz / 2000);
+        const resist = Math.min(brakeF, longCap) + w.rrBlend * w.Fz + wPlough * PLOUGH_WHEEL_SHARE;
         let Fx = clamp(Fdrive, -longCap, longCap) - Math.sign(vx) * Math.min(resist, (mc * Math.abs(vx)) / dt);
         const ax = (wf.x * Fx + ws.x * Fy) * dt, ay = (wf.y * Fx + ws.y * Fy) * dt, az = (wf.z * Fx + ws.z * Fy) * dt;
         b.applyImpulseAtPoint({ x: ax, y: ay, z: az }, { x: w.contact.x + up.x * 0.2, y: w.contact.y + up.y * 0.2, z: w.contact.z + up.z * 0.2 }, true);
@@ -2082,7 +2092,7 @@ class Car {
         continue;
       }
       const loadSens = clamp(1.08 - 0.08 * (w.Fz / 2000), 0.72, 1.1);
-      const Fmax = surf.mu * loadSens * w.Fz * (w.front ? CAR.gripFront : CAR.gripRear);
+      const Fmax = w.muBlend * loadSens * w.Fz * (w.front ? CAR.gripFront : CAR.gripRear);
       let Fy = -Fmax * pacejka(alpha);
 
       // longitudinal: drive (rear), brakes, rolling + surface drag
@@ -2091,7 +2101,7 @@ class Car {
       // ABS: cornering force keeps priority; brakes get the grip that's left, but never less than absMin.
       const longAvail = Math.sqrt(Math.max(0, Fmax * Fmax - Fy * Fy));
       const brakeF = Math.min(brake * CAR.brakeMax * (w.front ? CAR.brakeFront : 1 - CAR.brakeFront) / 2, Math.max(longAvail, CAR.absMin * Fmax));
-      const resist = brakeF + surf.rr * w.Fz + surf.drag * Math.abs(vx) * (w.Fz / 2000);
+      const resist = brakeF + w.rrBlend * w.Fz + wPlough * PLOUGH_WHEEL_SHARE;
       const Fres = -Math.sign(vx) * Math.min(resist, (mc * Math.abs(vx)) / dt);
       let Fx = Fdrive + Fres;
 
@@ -2115,6 +2125,13 @@ class Car {
       maxSlip = Math.max(maxSlip, w.slip);
     }
     this.maxSlip = maxSlip; this.rearSpin = rearSpin; this.offCount = offCount; this.groundedCount = groundedCount;
+    this.offGrass = offGrass; this.offGravel = offGravel;
+    // CoM share of the ploughing resistance, along -velocity in the ground plane; never reverses the car in one tick
+    const vh = Math.hypot(this.vel.x, this.vel.z);
+    if (plough > 0 && vh > 0.05) {
+      const imp = Math.min(plough * dt, CAR.mass * vh * 0.5);
+      b.applyImpulse({ x: (-this.vel.x / vh) * imp, y: 0, z: (-this.vel.z / vh) * imp }, true);
+    }
 
     // --- aero
     const vf = Math.max(0, vF);
