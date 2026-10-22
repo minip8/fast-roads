@@ -154,14 +154,14 @@
   <div id="msg" class="panel"></div>
   <div id="mouseSteer" hidden><div id="mouseSteerKnob"></div></div>
   <div id="help" class="panel">
-    <div><kbd>W</kbd> <kbd>↑</kbd> throttle · <kbd>S</kbd> <kbd>↓</kbd> brake / reverse · <kbd>Space</kbd> handbrake</div>
+    <div><kbd>W</kbd> <kbd>↑</kbd> throttle · <kbd>S</kbd> <kbd>↓</kbd> brake / reverse</div>
     <div><kbd>A</kbd> <kbd>D</kbd> <kbd>←</kbd> <kbd>→</kbd> steer</div>
     <div><kbd>R</kbd> reset to track · <kbd>Enter</kbd> restart session</div>
     <div><kbd>G</kbd> auto / manual gears · <kbd>E</kbd> <kbd>Q</kbd> shift up / down</div>
     <div><kbd>V</kbd> mouse steering (L/R click throttle/brake, scroll shift)</div>
     <div><kbd>C</kbd> camera · <kbd>T</kbd> traction control · <kbd>M</kbd> mute</div>
     <div><kbd>Esc</kbd> <kbd>P</kbd> menu · <kbd>O</kbd> autopilot · <kbd>H</kbd> hide help</div>
-    <div style="color:var(--muted)">Gamepad: RT throttle, LT brake, left stick steer, B handbrake</div>
+    <div style="color:var(--muted)">Gamepad: RT throttle, LT brake, left stick steer</div>
   </div>
 </div>
 
@@ -1292,6 +1292,8 @@ const CARS = {
     brakeMax: 42000, brakeFront: 0.55,
     gripFront: 1.0, gripRear: 1.1,     // rear tyres are wider
     absMin: 0.45,                     // brakes always get at least this share of a tyre's grip
+    brakeKick: 0,                     // rear grip lost when braking while turning (see Car.step)
+    rearLoose: [0, 1],                // rear grip lost at low speed: [share, speed (m/s) it has faded out by]
     pac: { B: 11, C: 1.45, E: 0.15 },
     gearTop: [0, 26, 36, 45, 54, 63, 72, 81, 90],   // m/s at redline per gear
     redline: 12500, idle: 4500,
@@ -1302,6 +1304,8 @@ const CARS = {
     angDamp: 0.4,
     firingDiv: 20,                // rpm / this = engine sound frequency (V6)
     autoGrip: 0.68, autoLong: 1.2,   // autopilot's assumed lateral grip share / braking (g)
+    autoCounter: 0,                  // autopilot counter-steer per radian of slide
+    autoLift: 0,                     // autopilot throttle cut per radian of slide
     hull: [0.62, 0.14, 2.3, 0, 0.02, 0.2],                                // half extents + offset: [hx, hy, hz, x, y, z]
     parts: [[0.95, 0.1, 0.3, 0, -0.12, 2.75], [0.5, 0.25, 0.25, 0, 0.45, -2.0]],   // wall-only colliders
     tyreW: [0.32, 0.4],
@@ -1322,8 +1326,10 @@ const CARS = {
     arbFront: 14000, arbRear: 26000,   // stiffer rear bar: the rear lets go first in corners
     ClA: 0.3, CdA: 0.75, aeroFront: 0.45, rho: 1.225,
     brakeMax: 16000, brakeFront: 0.68,   // front-biased, so braking doesn't swap the ends
-    gripFront: 0.64, gripRear: 0.74,   // rear must out-grip the front or the car turns itself round at speed
+    gripFront: 0.66, gripRear: 0.74,   // the rear must out-grip the front at speed or the car turns itself round
+    rearLoose: [0.14, 50],             // ...but loses this share of grip at low speed, fading out by this speed (m/s)
     absMin: 0.3,
+    brakeKick: 0.25,
     pac: { B: 9, C: 1.6, E: 0.1 },     // grip drops off more past the peak, so slides keep going
     gearTop: [0, 14, 22, 30, 39, 49, 60],
     redline: 7500, idle: 1000,
@@ -1333,7 +1339,7 @@ const CARS = {
     steerLock: 0.6, steerAnalog: [0.6, 90], steerKeys: [0.5, 50], steerRateKeys: 1.8,
     angDamp: 0.25,
     firingDiv: 15,                // V8
-    autoGrip: 0.75, autoLong: 0.75,
+    autoGrip: 0.65, autoLong: 0.55, autoCounter: 0.9, autoLift: 6,
     hull: [0.82, 0.28, 2.15, 0, 0.18, 0],
     parts: [[0.7, 0.2, 0.95, 0, 0.53, -0.35]],
     tyreW: [0.25, 0.27],
@@ -2070,7 +2076,7 @@ class Car {
       else if (throttle > 0.02) drive = throttle * engineTorque(this.spec, rpm) * (this.spec.redline * 2 * Math.PI / 60) / top;
       else if (vF > 2) drive = -this.spec.engineBrake * (rpm / this.spec.redline);    // engine braking
     }
-    this.throttle = throttle; this.brake = brake; this.handbrake = !!inp.handbrake;
+    this.throttle = throttle; this.brake = brake;
 
     // --- suspension: raycasts
     const up = this.up, ray = this.ray;
@@ -2117,6 +2123,11 @@ class Car {
 
     // --- tyres
     const mc = this.spec.mass / 4;
+    // Braking while steering costs the rear some grip (brakeKick = share lost at full brake + ~9 deg of steer),
+    // so the tail steps out. Going straight it does nothing, so straight-line braking stays stable.
+    const [loose, looseV] = this.spec.rearLoose;
+    const rearGrip = (1 - this.spec.brakeKick * clamp(brake, 0, 1) * clamp(Math.abs(this.steer) / 0.15, 0, 1))
+      * (1 - loose * clamp(1 - Math.abs(vF) / looseV, 0, 1));   // loose rear at cornering speeds, firm at top speed
     let maxSlip = 0, offCount = 0, rearSpin = 0, plough = 0, offGrass = 0, offGravel = 0;
     for (const w of this.wheels) {
       if (!w.grounded) { w.slip = 0; w.omega *= 0.99; continue; }
@@ -2140,17 +2151,16 @@ class Car {
       plough += wPlough * (1 - PLOUGH_WHEEL_SHARE);
       const alpha = Math.atan2(vy, Math.max(Math.abs(vx), 7));
       const loadSens = clamp(1.08 - 0.08 * (w.Fz / 2000), 0.72, 1.1);
-      const Fmax = w.muBlend * loadSens * w.Fz * (w.front ? this.spec.gripFront : this.spec.gripRear);
+      const Fmax = w.muBlend * loadSens * w.Fz * (w.front ? this.spec.gripFront : this.spec.gripRear * rearGrip);
       let Fy = -Fmax * pacejka(this.spec, alpha);
 
       // longitudinal: drive (rear), brakes, rolling + surface drag
-      const hb = !w.front && inp.handbrake;          // handbrake locks the rears (and declutches them)
-      let Fdrive = w.front || hb ? 0 : drive / 2;
+      let Fdrive = w.front ? 0 : drive / 2;
       if (this.tc && Fdrive > 0) Fdrive = Math.min(Fdrive, Math.sqrt(Math.max(0, Fmax * Fmax - Fy * Fy)) * 0.97 + 0.04 * Fmax);
       // ABS: cornering force keeps priority; brakes get the grip that's left, but never less than absMin.
       const longAvail = Math.sqrt(Math.max(0, Fmax * Fmax - Fy * Fy));
       const brakeF = Math.min(brake * this.spec.brakeMax * (w.front ? this.spec.brakeFront : 1 - this.spec.brakeFront) / 2, Math.max(longAvail, this.spec.absMin * Fmax));
-      const resist = (hb ? 1.3 * Fmax : brakeF) + w.rrBlend * w.Fz + wPlough * PLOUGH_WHEEL_SHARE;
+      const resist = brakeF + w.rrBlend * w.Fz + wPlough * PLOUGH_WHEEL_SHARE;
       const Fres = -Math.sign(vx) * Math.min(resist, (mc * Math.abs(vx)) / dt);
       let Fx = Fdrive + Fres;
 
@@ -2170,7 +2180,7 @@ class Car {
 
       w.slip = Math.max(Math.abs(alpha) / 0.15, slide * 2); w.slipA = alpha;
       if (!w.front && slide > 0.05 && Fdrive > 0) rearSpin = Math.max(rearSpin, slide);
-      w.omega = vx / this.spec.wheelRadius * (1 + (!w.front && Fdrive > 0 ? slide * 0.8 : 0)) * (hb ? 0 : brake > 0.9 && slide > 0.3 ? 0.2 : 1);
+      w.omega = vx / this.spec.wheelRadius * (1 + (!w.front && Fdrive > 0 ? slide * 0.8 : 0)) * (brake > 0.9 && slide > 0.3 ? 0.2 : 1);
       maxSlip = Math.max(maxSlip, w.slip);
     }
     this.maxSlip = maxSlip; this.rearSpin = rearSpin; this.offCount = offCount; this.groundedCount = groundedCount;
@@ -2209,7 +2219,7 @@ class Car {
       w.spin += w.omega * dt;
       wm.spinner.rotation.x = w.spin;
     });
-    m.brakeLight.material.emissiveIntensity = this.brake > 0.1 || this.handbrake ? 3 : 0.4;
+    m.brakeLight.material.emissiveIntensity = this.brake > 0.1 ? 3 : 0.4;
   }
 }
 
@@ -2556,7 +2566,7 @@ class Input {
     });
     addEventListener('keyup', (e) => this.keys.delete(e.code));
     addEventListener('blur', () => this.keys.clear());
-    this.state = { throttle: 0, brake: 0, steer: 0, analog: false, steerAngle: null, handbrake: false };
+    this.state = { throttle: 0, brake: 0, steer: 0, analog: false, steerAngle: null };
     this.kThrottle = 0; this.kBrake = 0;
     this.padPrev = [];
   }
@@ -2577,7 +2587,7 @@ class Input {
     m.steer = mouseOn ? this.mouseSteer() : 0;
     this.kThrottle = clamp(this.kThrottle + (up || (mouseOn && m.lmb) ? 8 : -10) * dt, 0, 1);
     this.kBrake = clamp(this.kBrake + (dn || (mouseOn && m.rmb) ? 10 : -12) * dt, 0, 1);
-    st.throttle = this.kThrottle; st.brake = this.kBrake; st.steer = (lf ? 1 : 0) - (rt ? 1 : 0); st.analog = false; st.handbrake = k.has('Space');
+    st.throttle = this.kThrottle; st.brake = this.kBrake; st.steer = (lf ? 1 : 0) - (rt ? 1 : 0); st.analog = false;
     if (mouseOn && !lf && !rt) { st.steer = m.steer; st.analog = true; }   // steering keys still override
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     for (const p of pads) {
@@ -2587,7 +2597,6 @@ class Input {
         st.steer = -Math.sign(ax) * Math.pow((Math.abs(ax) - 0.08) / 0.92, 1.4) * (Math.abs(ax) > 0.08 ? 1 : 0);
         st.throttle = Math.max(st.throttle, rtv); st.brake = Math.max(st.brake, ltv); st.analog = true;
       }
-      if (p.buttons[1]?.pressed) st.handbrake = true;   // B = handbrake
       const map = { 3: 'KeyC', 2: 'KeyR', 8: 'Enter', 9: 'KeyP', 5: 'KeyE', 4: 'KeyQ' };
       for (const [bi, code] of Object.entries(map)) {
         const down = !!p.buttons[bi]?.pressed;
@@ -2686,11 +2695,14 @@ function autopilot(car, tr, lat = 0) {
   const xl = rx * car.left.x + rz * car.left.z, zf = rx * car.fwd.x + rz * car.fwd.z;
   const a = Math.atan2(xl, zf);
   const wb = car.spec.zFront - car.spec.zRear;
-  const steerAngle = Math.atan((2 * wb * Math.sin(a)) / Ld);
+  // counter-steer: point the wheels toward where the car is actually going when the tail is out
+  const beta = Math.atan2(car.vel.dot(car.left), Math.max(Math.abs(car.speedF), 3));
+  const slide = Math.sign(beta) * Math.max(0, Math.abs(beta) - 0.07);   // ignore the normal few degrees of slip
+  const steerAngle = Math.atan((2 * wb * Math.sin(a)) / Ld) + car.spec.autoCounter * slide;
   const profs = tr.speedProfiles || (tr.speedProfiles = {});
   const prof = profs[car.spec.id] || (profs[car.spec.id] = buildSpeedProfile(tr, car.spec));
   const vt = prof[pointAt(tr, s + 4 + v * 0.12).i];
-  return { throttle: clamp((vt - v) * 0.5, 0, 1), brake: clamp((v - vt) * 0.4, 0, 1), steer: 0, analog: true, steerAngle, autoGears: true };
+  return { throttle: clamp((vt - v) * 0.5, 0, 1) * clamp(1 - car.spec.autoLift * Math.abs(slide), 0, 1), brake: clamp((v - vt) * 0.4, 0, 1), steer: 0, analog: true, steerAngle, autoGears: true };
 }
 
 // ============================================================================
@@ -2873,7 +2885,7 @@ async function main() {
       car.placeAt(spawnS, 0);
       timing.useStore(car.spec.storeKey); timing.reset(); hud.list.innerHTML = '';
       camInit = false; camPos.set(0, 0, 0); acc = 0;
-      if (value === 'drift') showMsg(`${car.spec.name}<small>Space handbrake · turn TC off (T) for big slides</small>`, 3);
+      if (value === 'drift') showMsg(`${car.spec.name}<small>Loose rear: brake while turning to kick it out · TC off (T) for big slides</small>`, 3);
     }
     if (key === 'gearbox') car.manual = value === 'manual';
     if (key === 'steering') { input.setMouse(value === 'mouse'); $('mouseSteer').hidden = value !== 'mouse'; }

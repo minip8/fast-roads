@@ -24,8 +24,9 @@ steering (keyboard/mouse), camera, traction control, and sound. Settings are rem
 
 - **F1**: light, huge downforce and grip, 8 gears, 12,500 rpm. Stable and fast.
 - **Drift car**: a heavy rear-drive coupe with almost no downforce and a torquey 7,500 rpm V8 in 6 gears. The rear
-  breaks loose easily under power or with the handbrake (Space); turn traction control off (T) for big slides. It
-  uses a bonnet camera for the onboard view.
+  is loose at cornering speeds (it firms up towards top speed so the straights stay stable), breaks away under
+  power, and steps out when you brake while turning. Turn traction control off (T) for big slides. It uses a
+  bonnet camera for the onboard view.
 
 Each car keeps its own best lap and sector times. Switching car puts you back on the grid.
 
@@ -41,7 +42,6 @@ applied; then the gear and speed.
 | --- | --- |
 | W / ↑ | Throttle |
 | S / ↓ | Brake (hold when stopped to reverse) |
-| Space | Handbrake (locks the rear wheels) |
 | A D / ← → | Steer |
 | R | Reset to track (invalidates the lap) |
 | Enter | Restart session at the grid |
@@ -54,7 +54,7 @@ applied; then the gear and speed.
 | M / H | Mute / hide help |
 | O | Autopilot on/off |
 
-Gamepad: RT throttle, LT brake, left stick steer, B handbrake, RB/LB shift up/down, Y camera, X reset.
+Gamepad: RT throttle, LT brake, left stick steer, RB/LB shift up/down, Y camera, X reset.
 
 Mouse steering: the cursor stays visible, and how far it is left or right of the screen centre sets the wheel
 (gentle near the centre, full lock towards the edge). Mouse sensitivity (Low / Medium / High) in the menu sets how far
