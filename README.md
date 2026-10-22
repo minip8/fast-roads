@@ -73,8 +73,10 @@ and override the mouse while held.
 - **Physics**: Rapier rigid body (fixed 120 Hz step, interpolated rendering). Custom raycast suspension with
   anti-roll bars, simplified Pacejka lateral curve with load sensitivity, friction circle, downforce and drag ∝ v²,
   torque curve + 8-speed gearbox (automatic, or manual with over-rev-protected downshifts), per-surface grip. Walls are static cuboid colliders.
-  Grass and gravel add a ploughing deceleration (grass ~0.15 g, gravel ~1 g) that's applied mostly at the centre of
-  mass, so dropping two wheels off doesn't yank the car round, and it fades at low speed so you can drive out.
+  Grass has about 64% of the asphalt's grip and gravel about half. Both add a ploughing deceleration (grass ~0.08 g,
+  gravel ~0.6 g) that's applied mostly at the centre of mass, so dropping two wheels off doesn't yank the car round,
+  and it fades below ~90 km/h so you can drive out: flat out, the F1 still reaches ~200 km/h on grass and ~80 km/h
+  on gravel.
   Grip eases between surfaces over ~0.1 s instead of switching instantly at the track edge.
   Off-track you get a grass rumble or gravel crunch and dust behind the wheels (visual only; the body stays steady).
 - **Timing**: start/finish + two sector lines as segments; crossings are detected per tick and interpolated within

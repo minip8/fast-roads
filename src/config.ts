@@ -13,11 +13,11 @@ export interface Surface { name: string; mu: number; rr: number; decel: number }
 export const SURF: Surface[] = [
   { name: 'asphalt', mu: 1.65, rr: 0.012, decel: 0 },
   { name: 'kerb',    mu: 1.45, rr: 0.02,  decel: 0 },
-  { name: 'grass',   mu: 0.62, rr: 0.03,  decel: 1.5 },
-  { name: 'gravel',  mu: 0.50, rr: 0.05,  decel: 10 },
+  { name: 'grass',   mu: 1.05, rr: 0.02,  decel: 0.8 },
+  { name: 'gravel',  mu: 0.80, rr: 0.04,  decel: 6 },
 ];
 export const SURF_BLEND_T = 0.1;       // s: grip/resistance ease between surfaces so the car doesn't snap at the edge
-export const PLOUGH_FADE_V = 15;       // m/s: ploughing resistance fades (quadratically) below this so you can drive out
+export const PLOUGH_FADE_V = 25;       // m/s: ploughing resistance fades (quadratically) below this so you can drive out
 export const PLOUGH_WHEEL_SHARE = 0.15; // share applied at the wheels (mild tug toward the side that's off); rest at the CoM
 export const S_ASPHALT = 0, S_KERB = 1, S_GRASS = 2, S_GRAVEL = 3;
 
