@@ -45,9 +45,10 @@ applied; then the gear and speed.
 
 Gamepad: RT throttle, LT brake, left stick steer, RB/LB shift up/down, Y camera, X reset.
 
-Mouse steering: click the game to capture the mouse, then move left/right to turn the wheel (it stays where you
-leave it; ~350 px from centre is full lock). Left click is throttle, right click is brake, scroll shifts gears in
-manual, middle click centres the wheel. Esc releases the mouse and pauses; click to resume. Steering keys still work
+Mouse steering: the cursor stays visible, and how far it is left or right of the screen centre sets the wheel
+(gentle near the centre, full lock towards the edge). Mouse sensitivity (Low / Medium / High) in the menu sets how far
+you need to go, and Mouse deadzone (Off / Small / Medium / Large) sets how wide the do-nothing zone around the
+centre is. Left click is throttle, right click is brake, scroll shifts gears in manual. Steering keys still work
 and override the mouse while held.
 
 ## How it works (all in `index.html`)

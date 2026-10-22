@@ -74,7 +74,6 @@
   #mouseSteer::after { content: ''; position: absolute; left: 50%; top: -3px; width: 2px; height: 14px; background: rgba(255,255,255,.35); }
   #mouseSteerKnob { position: absolute; top: -4px; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%; background: #ff6a13;
     border: 2px solid #111; left: 50%; }
-  #mouseHint { position: absolute; left: 0; right: 0; top: -26px; text-align: center; font-size: 12px; color: var(--text); white-space: nowrap; }
   #help { position: fixed; left: 16px; bottom: 16px; padding: 10px 14px; font-size: 12px; line-height: 1.6; color: #d6dbe0; }
   #help kbd { font: inherit; font-weight: 700; color: var(--text); background: rgba(255,255,255,.1); border-radius: 4px; padding: 0 5px; }
   #help.hidden { display: none; }
@@ -153,7 +152,7 @@
     <div id="flags"></div>
   </div>
   <div id="msg" class="panel"></div>
-  <div id="mouseSteer" hidden><div id="mouseSteerKnob"></div><span id="mouseHint">Click to capture the mouse</span></div>
+  <div id="mouseSteer" hidden><div id="mouseSteerKnob"></div></div>
   <div id="help" class="panel">
     <div><kbd>W</kbd> <kbd>↑</kbd> throttle · <kbd>S</kbd> <kbd>↓</kbd> brake / reverse</div>
     <div><kbd>A</kbd> <kbd>D</kbd> <kbd>←</kbd> <kbd>→</kbd> steer</div>
@@ -2427,37 +2426,35 @@ function saveStore(s) { try { localStorage.setItem(STORE_KEY, JSON.stringify(s))
 // ============================================================================
 // Input
 // ============================================================================
-const MOUSE_FULL_LOCK_PX = 350;   // mouse travel (px) from centre to full steering lock
+// Mouse steering: how far the cursor goes from the screen centre (fraction of half the width) for full lock.
+const MOUSE_RANGE = { low: 0.95, medium: 0.7, high: 0.5 };
+const MOUSE_CURVE = 1.7;      // >1 keeps small movements near the centre gentle
+// Dead zone: fraction of half the width around the centre that does nothing.
+const MOUSE_DEADZONE = { off: 0, small: 0.03, medium: 0.08, large: 0.15 };
 
 class Input {
   constructor(canvas) {
     this.keys = new Set(); this.pressed = new Set();
-    // Mouse driving: pointer-locked horizontal movement turns the wheel (it stays where you leave it),
-    // left button = throttle, right = brake, scroll = shift, middle click = centre the wheel.
+    // Mouse driving: the cursor stays visible; its distance left/right of the screen centre sets the wheel.
+    // Left button = throttle, right = brake, scroll = shift. `active` is set by the game while driving.
     this.canvas = canvas;
-    this.mouse = { enabled: false, locked: false, steer: 0, lmb: false, rmb: false };
-    canvas.addEventListener('mousedown', (e) => {
-      if (!this.mouse.enabled) return;
-      if (!this.mouse.locked) { this.lock(); return; }
-      if (e.button === 0) this.mouse.lmb = true;
-      else if (e.button === 2) this.mouse.rmb = true;
-      else if (e.button === 1) { this.mouse.steer = 0; e.preventDefault(); }
+    this.mouse = { enabled: false, active: false, steer: 0, x: null, range: MOUSE_RANGE.medium, deadzone: MOUSE_DEADZONE.small, lmb: false, rmb: false };
+    addEventListener('mousedown', (e) => {
+      const m = this.mouse;
+      if (!m.enabled || !m.active) return;
+      if (e.button === 0) m.lmb = true;
+      else if (e.button === 2) m.rmb = true;
+      else if (e.button === 1) e.preventDefault();   // no autoscroll
     });
     addEventListener('mouseup', (e) => { if (e.button === 0) this.mouse.lmb = false; else if (e.button === 2) this.mouse.rmb = false; });
-    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-    addEventListener('mousemove', (e) => {
-      if (this.mouse.enabled && this.mouse.locked) this.mouse.steer = clamp(this.mouse.steer - e.movementX / MOUSE_FULL_LOCK_PX, -1, 1);
-    });
-    canvas.addEventListener('wheel', (e) => {
-      if (!this.mouse.enabled || !this.mouse.locked) return;
+    addEventListener('contextmenu', (e) => { if (this.mouse.enabled && this.mouse.active) e.preventDefault(); });
+    addEventListener('mousemove', (e) => { this.mouse.x = e.clientX; });
+    addEventListener('wheel', (e) => {
+      if (!this.mouse.enabled || !this.mouse.active) return;
       e.preventDefault();
       this.pressed.add(e.deltaY < 0 ? 'KeyE' : 'KeyQ');
     }, { passive: false });
-    document.addEventListener('pointerlockchange', () => {
-      this.mouse.locked = document.pointerLockElement === canvas;
-      if (!this.mouse.locked) { this.mouse.lmb = this.mouse.rmb = false; }
-      this.onLockChange?.(this.mouse.locked);
-    });
+    addEventListener('blur', () => { this.mouse.lmb = this.mouse.rmb = false; });
     addEventListener('keydown', (e) => {
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
       if (!this.keys.has(e.code)) this.pressed.add(e.code);
@@ -2470,16 +2467,20 @@ class Input {
     this.padPrev = [];
   }
   takePressed(code) { const h = this.pressed.has(code); this.pressed.delete(code); return h; }
-  lock() { try { const r = this.canvas.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch (e) { /* not allowed */ } }
-  setMouse(on) {
-    this.mouse.enabled = on; this.mouse.steer = 0;
-    if (!on && this.mouse.locked) document.exitPointerLock();
+  setMouse(on) { this.mouse.enabled = on; this.mouse.steer = 0; this.mouse.lmb = this.mouse.rmb = false; }
+  mouseSteer() {
+    const m = this.mouse;
+    if (m.x == null) return 0;   // cursor hasn't moved over the page yet
+    const half = innerWidth / 2, d = (m.x - half) / half;   // -1 (left edge) .. 1 (right edge)
+    const t = clamp((Math.abs(d) - m.deadzone) / (m.range - m.deadzone), 0, 1);
+    return -Math.sign(d) * Math.pow(t, MOUSE_CURVE);
   }
   poll(dt) {
     const k = this.keys, st = this.state;
     const up = k.has('KeyW') || k.has('ArrowUp'), dn = k.has('KeyS') || k.has('ArrowDown');
     const lf = k.has('KeyA') || k.has('ArrowLeft'), rt = k.has('KeyD') || k.has('ArrowRight');
-    const m = this.mouse, mouseOn = m.enabled && m.locked;
+    const m = this.mouse, mouseOn = m.enabled && m.active;
+    m.steer = mouseOn ? this.mouseSteer() : 0;
     this.kThrottle = clamp(this.kThrottle + (up || (mouseOn && m.lmb) ? 8 : -10) * dt, 0, 1);
     this.kBrake = clamp(this.kBrake + (dn || (mouseOn && m.rmb) ? 10 : -12) * dt, 0, 1);
     st.throttle = this.kThrottle; st.brake = this.kBrake; st.steer = (lf ? 1 : 0) - (rt ? 1 : 0); st.analog = false;
@@ -2735,9 +2736,8 @@ async function main() {
   let autoStuck = 0, simTime = 0, acc = 0, last = performance.now(), helpTimer = 14;
   const prevXZ = { x: 0, z: 0 }, currXZ = { x: 0, z: 0 };
 
-  const restart = () => { car.placeAt(spawnS, 0); timing.reset(); input.mouse.steer = 0; camInit = false; camPos.set(0, 0, 0); showMsg('Session restarted<small>Cross the line to start a lap</small>'); };
+  const restart = () => { car.placeAt(spawnS, 0); timing.reset(); camInit = false; camPos.set(0, 0, 0); showMsg('Session restarted<small>Cross the line to start a lap</small>'); };
   const resetToTrack = () => {
-    input.mouse.steer = 0;
     const s = car.proj.s;
     car.placeAt(s, 0);
     timing.invalidate('RESET');
@@ -2751,11 +2751,13 @@ async function main() {
   const SETTING_DEFS = [
     { key: 'gearbox', label: 'Gears', options: [['auto', 'Automatic'], ['manual', 'Manual']] },
     { key: 'steering', label: 'Steering', options: [['keyboard', 'Keyboard'], ['mouse', 'Mouse']] },
+    { key: 'mouseSens', label: 'Mouse sensitivity', options: [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']] },
+    { key: 'mouseDeadzone', label: 'Mouse deadzone', options: [['off', 'Off'], ['small', 'Small'], ['medium', 'Medium'], ['large', 'Large']] },
     { key: 'camera', label: 'Camera', options: [['onboard', 'Onboard'], ['chase', 'Chase'], ['far', 'Far']] },
     { key: 'tc', label: 'Traction control', options: [['on', 'On'], ['off', 'Off']] },
     { key: 'sound', label: 'Sound', options: [['on', 'On'], ['off', 'Off']] },
   ];
-  const settings = { gearbox: 'auto', steering: 'keyboard', camera: 'onboard', tc: 'on', sound: 'on' };
+  const settings = { gearbox: 'auto', steering: 'keyboard', mouseSens: 'medium', mouseDeadzone: 'small', camera: 'onboard', tc: 'on', sound: 'on' };
   try {
     // carry over choices saved by earlier versions
     const g = localStorage.getItem('fastroads.gearbox'), st = localStorage.getItem('fastroads.steering');
@@ -2768,7 +2770,9 @@ async function main() {
     settings[key] = value;
     try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) { /* storage unavailable */ }
     if (key === 'gearbox') car.manual = value === 'manual';
-    if (key === 'steering') { input.setMouse(value === 'mouse'); $('mouseSteer').hidden = value !== 'mouse'; if (value === 'mouse' && started && !menu.isOpen) input.lock(); }
+    if (key === 'steering') { input.setMouse(value === 'mouse'); $('mouseSteer').hidden = value !== 'mouse'; }
+    if (key === 'mouseSens') input.mouse.range = MOUSE_RANGE[value];
+    if (key === 'mouseDeadzone') input.mouse.deadzone = MOUSE_DEADZONE[value];
     if (key === 'camera') camMode = Math.max(0, camModes.indexOf(value));
     if (key === 'tc') car.tc = value === 'on';
     if (key === 'sound') audio.setMuted(value === 'off');
@@ -2794,7 +2798,7 @@ async function main() {
       api.isOpen = false; overlay.classList.add('hidden');
       started = true; paused = false; $('hud').hidden = false; audio.start();
       input.pressed.clear();                       // the key that closed the menu shouldn't also act in-game
-      if (input.mouse.enabled && !autoOn) input.lock();
+      input.mouse.lmb = input.mouse.rmb = false;   // the click that closed the menu isn't throttle
     };
     const actions = () => !started
       ? [['Drive', () => { autoOn = false; close(); }, true], ['Watch autopilot', () => { autoOn = true; close(); }]]
@@ -2844,7 +2848,6 @@ async function main() {
       if (api.isOpen) return;
       api.isOpen = true; paused = true; focus = 0; resetArmed = false;
       overlay.classList.remove('hidden');
-      if (input.mouse.locked) document.exitPointerLock();
       render();
     };
     api.show = () => { $('loadState').hidden = true; $('menuBody').hidden = false; render(); };
@@ -2865,8 +2868,6 @@ async function main() {
   })();
 
   for (const d of SETTING_DEFS) setSetting(d.key, settings[d.key]);   // apply saved choices
-  // Losing the mouse capture (Esc) while driving opens the pause menu.
-  input.onLockChange = (locked) => { if (!locked && input.mouse.enabled && started && !menu.isOpen) menu.open(); };
   if (started) { menu.isOpen = false; overlay.classList.add('hidden'); $('hud').hidden = false; }   // ?autopilot skips the menu
   else menu.show();
 
@@ -2919,13 +2920,14 @@ async function main() {
     if (input.takePressed('KeyM')) { cycleSetting('sound'); showMsg(audio.muted ? 'Sound off' : 'Sound on', 1); }
     if (input.takePressed('KeyV')) {
       cycleSetting('steering');
-      showMsg(input.mouse.enabled ? 'Mouse steering<small>Move to steer · left click throttle · right click brake · scroll to shift</small>' : 'Keyboard steering', 2.2);
+      showMsg(input.mouse.enabled ? 'Mouse steering<small>Cursor left/right of centre steers · left click throttle · right click brake · scroll to shift</small>' : 'Keyboard steering', 2.2);
     }
     if (input.takePressed('KeyH')) hud.help.classList.toggle('hidden');
     if (input.takePressed('KeyO')) { autoOn = !autoOn; showMsg(`Autopilot ${autoOn ? 'ON' : 'OFF'}`, 1.2); }
     if (input.takePressed('KeyR')) resetToTrack();
     if (input.takePressed('Enter')) restart();
     input.pressed.clear();
+    input.mouse.active = started && !paused && !menu.isOpen && !autoOn;
 
     if (started && !paused) {
       acc += fdt;
@@ -2982,10 +2984,7 @@ async function main() {
       const surfName = SURF[Math.max(...car.wheels.map((w) => w.surf))].name;
       hud.flags.textContent = `${car.manual ? 'MANUAL' : 'AUTO'} · TC ${car.tc ? 'ON' : 'OFF'}${autoOn ? ' · AUTOPILOT' : ''}${paused ? ' · PAUSED' : ''}${surfName !== 'asphalt' ? ' · ' + surfName.toUpperCase() : ''}`;
       if (msgTimer > 0 && (msgTimer -= fdt) <= 0) hud.msg.classList.remove('show');
-      if (input.mouse.enabled) {
-        $('mouseSteerKnob').style.left = (50 - input.mouse.steer * 50) + '%';
-        $('mouseHint').style.visibility = input.mouse.locked ? 'hidden' : 'visible';
-      }
+      if (input.mouse.enabled) $('mouseSteerKnob').style.left = (50 - input.mouse.steer * 50) + '%';
       if (helpTimer > 0 && (helpTimer -= fdt) <= 0) hud.help.classList.add('hidden');
 
       // minimap
