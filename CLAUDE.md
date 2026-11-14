@@ -31,7 +31,7 @@ Run `npm run typecheck` and `npm test` before committing.
   driver?, until?)` calls `Session.tick` with the autopilot or a `(car, simTime) => DriveInput` function, exactly as
   the game loop does, including the automatic resets; `until` stops early once the test has what it measures.
 - The simulation is deterministic, and Node and the browser agree to the millisecond. `test/laps.ts` pins
-  autopilot lap times (F1 1:59.659, drift car 172.145 s with TC on, 172.217 s off), so any physics or tuning change
+  autopilot lap times (F1 1:59.659, drift car 172.433 s with TC on, 172.452 s off), so any physics or tuning change
   shows up there. When a change is intended, check the handling still makes sense, then update the expected times.
   Each lap is run by its own `laps-*.test.ts` file so the three (about 12–18 s each) run in parallel.
 - `test/handling.test.ts` holds loose-bound checks of tuning intent: the drift car's brake-and-turn kick, a stable
@@ -100,8 +100,10 @@ Run `npm run typecheck` and `npm test` before committing.
   Drift-car stability lesson: the rear must out-grip the front at speed (`gripRear > gripFront` by ~10%+), or the car
   yaws itself round under braking at 200 km/h; looseness is added only at low speed (`rearLoose`) or while
   braking + steering (`brakeKick`).
-  Drift-car catchability lesson: slides must be recoverable without an assist. That needs the rear to get its grip
-  back when the driver lifts (`rearLoose` off-throttle share), a rear tyre curve that barely falls off past its peak
+  Drift-car catchability lesson: slides must be recoverable without an assist, and the car must still rotate. The
+  rear is loose only while the driver asks for rotation (throttle, or steering into the turn) and gets its grip
+  back when they lift and straighten or countersteer (`rearLoose` off-throttle share; with the rear firm whenever
+  coasting the car understeered on entry). It also needs a rear tyre curve that barely falls off past its peak
   (`pac.C` 1.35; at 1.6 any slide beyond the keyboard's steering lock was a spin), and wheelspin that leaves the
   rear some cornering force (`spinLat`). `test/handling.test.ts` checks each with keyboard-style drivers.
 - **Switching cars**: `applySetting.car` in `main()` calls `Session.setCar`, which destroys the old `Car` (body +

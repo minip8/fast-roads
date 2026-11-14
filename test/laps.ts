@@ -7,8 +7,8 @@ import { session } from './harness';
 // Each lap has its own test file (laps-*.test.ts), so Vitest runs the three in parallel.
 const EXPECTED = {
   f1: { car: 'f1', tc: true, time: '119.659', limit: 150 },
-  drift: { car: 'drift', tc: true, time: '172.145', limit: 200 },
-  driftNoTc: { car: 'drift', tc: false, time: '172.217', limit: 200 },
+  drift: { car: 'drift', tc: true, time: '172.433', limit: 200 },
+  driftNoTc: { car: 'drift', tc: false, time: '172.452', limit: 200 },
 } satisfies Record<string, { car: CarId; tc: boolean; time: string; limit: number }>;
 
 export function lapTest(lap: keyof typeof EXPECTED) {

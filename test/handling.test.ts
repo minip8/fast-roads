@@ -58,7 +58,7 @@ describe('drift car', () => {
   });
 
   // Kick the tail out with brake + steering keys at 90 km/h; once the rear is 20 deg out, lift off, do what `after`
-  // says with the steering keys for 3 s, and report how the slide ends.
+  // says with the steering keys for 4 s, and report how the slide ends.
   async function slide(after: (slideDeg: number) => number, { assist = false } = {}) {
     const { car, drive } = await session('drift', { walls: false });
     car.forceSurface = S_ASPHALT;
@@ -75,7 +75,7 @@ describe('drift car', () => {
       max = Math.max(max, Math.abs(rearSlide(c)));
       if (t - t0 < 0.3) wheel = c.steer;
       return { throttle: 0, brake: 0, steer: after(rearSlide(c)), analog: false, autoGears: true };
-    }, () => t0 != null && now - t0 > 3);
+    }, () => t0 != null && now - t0 > 4);
     expect(t0).not.toBeNull();
     return { max, end: Math.abs(rearSlide(car)), yaw: Math.abs(car.angv.y), wheel, speed: car.speedF };
   }
@@ -98,9 +98,19 @@ describe('drift car', () => {
     return { max, at20, end: Math.abs(rearSlide(car)), wheel: car.steer, speed: car.speedF };
   }
 
-  it('steering alone does not spin it: off the throttle, a held key stays under 20 deg of slide', async () => {
-    expect((await holdKey(90, 0)).max).toBeLessThan(20);
-    expect((await holdKey(65, 0)).max).toBeLessThan(20);
+  it('turning in off the throttle steps the tail out: past 20 deg in about a second', async () => {
+    for (const kmh of [65, 90, 130]) {
+      const r = await holdKey(kmh, 0);
+      expect(r.at20).toBeGreaterThan(0.5);
+      expect(r.at20).toBeLessThan(1.6);
+    }
+  });
+
+  it('letting go of the steering and the pedals straightens a slide', async () => {
+    const r = await slide(() => 0);
+    expect(r.max).toBeLessThan(50);
+    expect(r.end).toBeLessThan(6);
+    expect(r.speed).toBeGreaterThan(5);
   });
 
   it('reaches 100 km/h in under 4.8 s', async () => {

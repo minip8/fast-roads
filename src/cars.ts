@@ -34,8 +34,8 @@ export interface CarSpec {
   counterSteer: [gain: number, fromSlip: number, damp: number, span: number];
   tcSlack: number;                          // wheelspin traction control still allows (share of tyre grip)
   spinLat: number;                          // share of its cornering force a spinning driven tyre keeps (0 = friction circle only)
-  // rear grip lost at low speed on the throttle, faded out by this speed (m/s); offThrottle = share of that loss
-  // that remains when coasting (1 = the same on and off the throttle)
+  // rear grip lost at low speed when on the throttle or steering into the turn, faded out by this speed (m/s);
+  // offThrottle = share of that loss that remains otherwise (1 = always the same)
   rearLoose: [share: number, fadedBy: number, offThrottle: number];
   pac: PacejkaCoeffs;                       // lateral tyre curve (rear, and front unless pacFront is set)
   pacFront?: PacejkaCoeffs;
@@ -119,9 +119,10 @@ export const CARS: Record<CarId, CarSpec> = {
     ClA: 0.3, CdA: 0.75, aeroFront: 0.45, rho: 1.225,
     brakeMax: 22000, brakeFront: 0.68,   // front-biased, so braking doesn't swap the ends
     gripFront: 0.66, gripRear: 0.74,   // the rear must out-grip the front at speed or the car turns itself round
-    // ...but loses this share of grip at low speed on the throttle (fading out by this speed, m/s), and about a
-    // third of that when coasting: lifting off gives the rear its grip back, which is how a slide is caught
-    rearLoose: [0.24, 50, 0.35],
+    // ...but loses this share of grip at low speed (fading out by this speed, m/s) on the throttle or when steering
+    // into the turn, and about a third of that otherwise: lifting off and steering into a slide gives the rear its
+    // grip back, which is how a slide is caught
+    rearLoose: [0.27, 50, 0.35],
     absMin: 0.3,
     brakeGrip: 1.35,                   // the tyres stop harder than they corner (about 1.4 g)
     driveGrip: 1.3,                    // ...and put power down better than they corner

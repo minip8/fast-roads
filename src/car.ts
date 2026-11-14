@@ -268,11 +268,15 @@ export class Car {
     const mc = this.spec.mass / 4;
     // Braking while steering costs the rear some grip (brakeKick = share lost at full brake + ~9 deg of steer),
     // so the tail steps out. Going straight it does nothing, so straight-line braking stays stable.
-    // The rear is also loose at cornering speeds (firm at top speed), fully on the throttle and by the offThrottle
-    // share of that when coasting, so lifting off gives the rear its grip back.
+    // The rear is also loose at cornering speeds (firm at top speed) whenever the driver asks the car to rotate: on
+    // the throttle, or steering into the turn (wheels turned the way the rear is not sliding). Coasting with the
+    // steering straight or on opposite lock leaves only the offThrottle share of that, so lifting off and steering
+    // into a slide gives the rear its grip back.
     const [loose, looseV, looseOff] = this.spec.rearLoose;
+    const vyRear = this.vel.dot(this.left) + this.angv.dot(up) * this.spec.zRear;
+    const into = clamp(Math.abs(this.steerIn) / 0.15, 0, 1) * clamp(-Math.sign(this.steerIn) * vyRear / 0.5, 0, 1);
     const rearGrip = (1 - this.spec.brakeKick * clamp(brake, 0, 1) * clamp(Math.abs(this.steerIn) / 0.15, 0, 1))
-      * (1 - loose * clamp(1 - Math.abs(vF) / looseV, 0, 1) * (looseOff + (1 - looseOff) * clamp(throttle, 0, 1)));
+      * (1 - loose * clamp(1 - Math.abs(vF) / looseV, 0, 1) * (looseOff + (1 - looseOff) * Math.max(clamp(throttle, 0, 1), into)));
     let plough = 0;
     for (const w of this.wheels) {
       if (!w.grounded) { w.slip = 0; w.omega *= 0.99; continue; }
