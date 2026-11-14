@@ -275,14 +275,17 @@ export class Car {
       let Fdrive = w.front ? 0 : drive / 2;
       if (this.tc && Fdrive > 0) Fdrive = Math.min(Fdrive, Math.sqrt(Math.max(0, Fmax * Fmax - Fy * Fy)) * 0.97 + this.spec.tcSlack * Fmax);
       // ABS: cornering force keeps priority; brakes get the grip that's left, but never less than absMin.
-      const longAvail = Math.sqrt(Math.max(0, Fmax * Fmax - Fy * Fy));
-      const brakeF = Math.min(brake * this.spec.brakeMax * (w.front ? this.spec.brakeFront : 1 - this.spec.brakeFront) / 2, Math.max(longAvail, this.spec.absMin * Fmax));
+      // brakeGrip stretches the friction circle for braking only: the tyres stop harder than they corner.
+      const bg = this.spec.brakeGrip;
+      const longAvail = bg * Math.sqrt(Math.max(0, Fmax * Fmax - Fy * Fy));
+      const brakeF = Math.min(brake * this.spec.brakeMax * (w.front ? this.spec.brakeFront : 1 - this.spec.brakeFront) / 2, Math.max(longAvail, this.spec.absMin * bg * Fmax));
       const resist = brakeF + w.rrBlend * w.Fz + wPlough * PLOUGH_WHEEL_SHARE;
       const Fres = -Math.sign(vx) * Math.min(resist, (mc * Math.abs(vx)) / dt);
       let Fx = Fdrive + Fres;
 
       // friction circle
-      const tot = Math.hypot(Fx, Fy);
+      const gx = Fx * vx < 0 ? bg : 1;                        // braking force gets the stretched limit; drive doesn't
+      const tot = Math.hypot(Fx / gx, Fy);
       let slide = 0;
       if (tot > Fmax && tot > 0) {
         slide = tot / Fmax - 1;

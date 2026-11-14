@@ -39,6 +39,22 @@ describe('handling', () => {
   });
 });
 
+describe('drift car', () => {
+  it('stops from 100 km/h in about 29 m, in a straight line', async () => {
+    const { car, drive } = await session('drift');
+    car.forceSurface = S_ASPHALT;
+    const pedals = (throttle: number, brake: number): DriveInput => ({ throttle, brake, steer: 0, analog: true, steerAngle: 0, autoGears: true });
+    drive(10, () => pedals(1, 0), () => car.speedF >= 100 / 3.6);
+    const yaw = () => Math.atan2(car.fwd.x, car.fwd.z) * 180 / Math.PI;
+    const from = car.pos.clone(), heading = yaw();
+    drive(5, () => pedals(0, 1), () => car.speedF < 0.3);
+    const dist = car.pos.distanceTo(from);
+    expect(dist).toBeGreaterThan(25);
+    expect(dist).toBeLessThan(32);                    // 38 m before the tyres' braking grip was raised
+    expect(Math.abs(yaw() - heading)).toBeLessThan(0.5);
+  });
+});
+
 describe('reverse', () => {
   for (const id of ['f1', 'drift'] as const) {
     it(`${id}: reverse tops out at reverseTop, and the throttle stops it`, async () => {

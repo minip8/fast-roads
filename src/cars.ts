@@ -25,6 +25,7 @@ export interface CarSpec {
   brakeMax: number; brakeFront: number;
   gripFront: number; gripRear: number;
   absMin: number;                           // brakes always get at least this share of a tyre's grip
+  brakeGrip: number;                        // braking grip relative to cornering grip (1 = the same)
   brakeKick: number;                        // rear grip lost when braking while turning
   tcSlack: number;                          // wheelspin traction control still allows (share of tyre grip)
   rearLoose: [share: number, fadedBy: number];   // rear grip lost at low speed, faded out by this speed (m/s)
@@ -66,6 +67,7 @@ export const CARS: Record<CarId, CarSpec> = {
     brakeMax: 42000, brakeFront: 0.55,
     gripFront: 1.0, gripRear: 1.1,     // rear tyres are wider
     absMin: 0.45,                     // brakes always get at least this share of a tyre's grip
+    brakeGrip: 1,                     // braking grip relative to cornering grip
     brakeKick: 0,                     // rear grip lost when braking while turning (see Car.step)
     tcSlack: 0.04,                    // wheelspin traction control still allows (share of tyre grip)
     rearLoose: [0, 1],                // rear grip lost at low speed: [share, speed (m/s) it has faded out by]
@@ -105,10 +107,11 @@ export const CARS: Record<CarId, CarSpec> = {
     damp: 5200,
     arbFront: 14000, arbRear: 26000,   // stiffer rear bar: the rear lets go first in corners
     ClA: 0.3, CdA: 0.75, aeroFront: 0.45, rho: 1.225,
-    brakeMax: 16000, brakeFront: 0.68,   // front-biased, so braking doesn't swap the ends
+    brakeMax: 22000, brakeFront: 0.68,   // front-biased, so braking doesn't swap the ends
     gripFront: 0.66, gripRear: 0.74,   // the rear must out-grip the front at speed or the car turns itself round
     rearLoose: [0.24, 50],             // ...but loses this share of grip at low speed, fading out by this speed (m/s)
     absMin: 0.3,
+    brakeGrip: 1.35,                   // the tyres stop harder than they corner (about 1.4 g)
     brakeKick: 0.15,
     tcSlack: 0.25,                     // lenient TC: the throttle can still swing the rear
     pac: { B: 9, C: 1.6, E: 0.1 },     // rear: grip drops off more past the peak, so slides keep going
@@ -126,7 +129,7 @@ export const CARS: Record<CarId, CarSpec> = {
       harmonics: [0.6, 1, 0.5, 0.45, 0.3, 0.28, 0.16, 0.15, 0.1, 0.08, 0.06, 0.05],
       detune: 9, level: 0.2, coast: 0.4, bright: [2.5, 7], body: [260, 1.0, 2, 5], rough: 0.22, squealHz: 780,
     },
-    autoGrip: 0.65, autoLong: 0.55, autoCounter: 0.9, autoLift: 6,
+    autoGrip: 0.65, autoLong: 0.75, autoCounter: 0.9, autoLift: 6,
     hull: [0.82, 0.28, 2.15, 0, 0.18, 0],
     parts: [[0.7, 0.2, 0.95, 0, 0.53, -0.35]],
     tyreW: [0.25, 0.27],

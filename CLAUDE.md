@@ -31,7 +31,7 @@ Run `npm run typecheck` and `npm test` before committing.
   driver?, until?)` calls `Session.tick` with the autopilot or a `(car, simTime) => DriveInput` function, exactly as
   the game loop does, including the automatic resets; `until` stops early once the test has what it measures.
 - The simulation is deterministic, and Node and the browser agree to the millisecond. `test/laps.ts` pins
-  autopilot lap times (F1 1:59.659, drift car 182.572 s with TC on, 187.424 s off), so any physics or tuning change
+  autopilot lap times (F1 1:59.659, drift car 177.701 s with TC on, 182.832 s off), so any physics or tuning change
   shows up there. When a change is intended, check the handling still makes sense, then update the expected times.
   Each lap is run by its own `laps-*.test.ts` file so the three (about 12–18 s each) run in parallel.
 - `test/handling.test.ts` holds loose-bound checks of tuning intent: the drift car's brake-and-turn kick, a stable
@@ -83,12 +83,12 @@ Run `npm run typecheck` and `npm test` before committing.
   each car (`f1`, `drift`), plus its mesh builder, its engine voice (`sound`, an `EngineVoice` from `audioGraph.ts`)
   and its lap-time `storeKey`. The `Car` class reads only `this.spec`, so a new car is a new spec entry
   (`test/cars.test.ts` checks each spec fits the menu, gearbox, mesh and autopilot). Behaviour toggled per car uses
-  neutral defaults on the F1 (e.g. `brakeKick: 0`, `rearLoose: [0, 1]`, `autoCounter: 0`, optional `pacFront`), so
-  F1 handling stays identical.
+  neutral defaults on the F1 (e.g. `brakeKick: 0`, `brakeGrip: 1`, `rearLoose: [0, 1]`, `autoCounter: 0`, optional
+  `pacFront`), so F1 handling stays identical.
 - **Car physics (`Car.step`)**: Rapier rigid body at a fixed 120 Hz (`DT`), with custom physics on top:
   - raycast suspension with anti-roll bars
   - Pacejka lateral curve with load sensitivity
-  - friction circle with ABS-style brake priority
+  - friction circle with ABS-style brake priority, stretched for braking by `brakeGrip`
   - traction control (`tcSlack`)
   - per-surface grip blending and grass/gravel ploughing
   - downforce and drag

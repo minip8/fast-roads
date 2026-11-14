@@ -33,8 +33,8 @@ steering (keyboard/mouse), camera, traction control, and sound. Settings are rem
 - **Drift car**: a heavy rear-drive coupe with almost no downforce and a torquey 7,500 rpm V8 in 6 gears. The rear
   is loose at cornering speeds (it firms up towards top speed so the straights stay stable), breaks away under
   power, and steps out when you brake while turning. Its traction control is lenient, so the throttle can still
-  swing the rear with TC on; turn it off (T) for big slides. It uses a
-  bonnet camera for the onboard view.
+  swing the rear with TC on; turn it off (T) for big slides. Its tyres stop harder than they corner: about 1.4 g,
+  100 km/h to rest in under 30 m. It uses a bonnet camera for the onboard view.
 
 Each car keeps its own best lap and sector times. Switching car puts you back on the grid.
 
