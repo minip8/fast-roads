@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { G_CAR, G_CARPART, G_GROUND, G_RAY, G_WALL, PLOUGH_FADE_V, PLOUGH_WHEEL_SHARE, SURF, SURF_BLEND_T, S_ASPHALT, S_GRASS, S_GRAVEL, groups } from './config';
+import { G_CAR, G_CARPART, G_GROUND, G_RAY, G_WALL, PLOUGH_FADE_V, PLOUGH_WHEEL_SHARE, SURF, SURF_BLEND_T, S_ASPHALT, groups } from './config';
 import type { CarMesh } from './carMeshes';
 import type { CarSpec } from './cars';
 import { pointAt, projectOnTrack, surfaceAt, trackLimitOut, type SurfaceRes, type Track, type TrackPos } from './track';
@@ -28,7 +28,7 @@ export interface Wheel {
   Fz: number; grounded: boolean;
   muBlend: number; rrBlend: number; decelBlend: number;   // surface properties, eased between surfaces
   surf: number; out: boolean;        // surface index; past the track limits
-  slip: number; slipA: number;       // slip amount (for effects) and slip angle (rad)
+  slip: number;                      // slip amount (for sound)
   spin: number; omega: number;       // visual rotation and angular speed
   proj: TrackPos; sres: SurfaceRes;
   contact: THREE.Vector3; normal: THREE.Vector3;
@@ -65,8 +65,6 @@ export class Car {
   up = new THREE.Vector3(); fwd = new THREE.Vector3(); left = new THREE.Vector3();
   prevPos = new THREE.Vector3(); prevQuat = new THREE.Quaternion();
   speedF = 0;
-  // per-step results for HUD, audio and effects
-  maxSlip = 0; rearSpin = 0; offCount = 0; groundedCount = 0; offGrass = 0; offGravel = 0; downforce = 0;
 
   constructor(world: RAPIER.World, track: Track, scene: THREE.Scene, spec: CarSpec) {
     this.world = world; this.track = track; this.scene = scene; this.spec = spec;
@@ -77,7 +75,7 @@ export class Car {
       name, front, local: new THREE.Vector3(x, this.mountY, z), k: front ? this.spec.kFront : this.spec.kRear,
       comp: staticComp, prevComp: staticComp, Fz: 0, grounded: false, L: this.spec.suspLen - staticComp,
       muBlend: SURF[S_ASPHALT].mu, rrBlend: SURF[S_ASPHALT].rr, decelBlend: 0,
-      surf: S_ASPHALT, slip: 0, slipA: 0, spin: 0, omega: 0, out: false, proj: { i: 0, lat: 0, s: 0 }, sres: { surf: 0, h: 0 },
+      surf: S_ASPHALT, slip: 0, spin: 0, omega: 0, out: false, proj: { i: 0, lat: 0, s: 0 }, sres: { surf: 0, h: 0 },
       contact: new THREE.Vector3(), normal: new THREE.Vector3(0, 1, 0),
     });
     this.wheels = [
@@ -202,7 +200,6 @@ export class Car {
 
     // --- suspension: raycasts
     const up = this.up, ray = this.ray;
-    let groundedCount = 0;
     for (const w of this.wheels) {
       const m = _v1.copy(w.local).applyQuaternion(this.quat).add(this.pos);
       projectOnTrack(tr, m.x, m.z, this.proj.i, w.proj);
@@ -221,7 +218,7 @@ export class Car {
         const dist = hit.timeOfImpact - w.sres.h / Math.max(0.5, up.y);
         const L = dist - this.spec.wheelRadius;
         if (L < this.spec.suspLen) {
-          w.grounded = true; groundedCount++;
+          w.grounded = true;
           w.L = Math.max(L, 0.0);
           w.comp = this.spec.suspLen - w.L;
           w.contact.copy(m).addScaledVector(up, -dist);
@@ -250,7 +247,7 @@ export class Car {
     const [loose, looseV] = this.spec.rearLoose;
     const rearGrip = (1 - this.spec.brakeKick * clamp(brake, 0, 1) * clamp(Math.abs(this.steer) / 0.15, 0, 1))
       * (1 - loose * clamp(1 - Math.abs(vF) / looseV, 0, 1));   // loose rear at cornering speeds, firm at top speed
-    let maxSlip = 0, offCount = 0, rearSpin = 0, plough = 0, offGrass = 0, offGravel = 0;
+    let plough = 0;
     for (const w of this.wheels) {
       if (!w.grounded) { w.slip = 0; w.omega *= 0.99; continue; }
       const n = w.normal;
@@ -266,8 +263,6 @@ export class Car {
       const pvx = this.vel.x + av.y * rz - av.z * ry, pvy = this.vel.y + av.z * rx - av.x * rz, pvz = this.vel.z + av.x * ry - av.y * rx;
       const vx = pvx * wf.x + pvy * wf.y + pvz * wf.z, vy = pvx * ws.x + pvy * ws.y + pvz * ws.z;
 
-      if (w.surf >= S_GRASS) offCount++;
-      if (w.surf === S_GRASS) offGrass++; else if (w.surf === S_GRAVEL) offGravel++;
       // Ploughing resistance from grass/gravel: most goes on the CoM (after this loop) so it can't yank the car round.
       const wPlough = w.decelBlend * mc * Math.min(1, (vx / PLOUGH_FADE_V) ** 2);
       plough += wPlough * (1 - PLOUGH_WHEEL_SHARE);
@@ -300,13 +295,9 @@ export class Car {
       const ax = (wf.x * Fx + ws.x * Fy) * dt, ay = (wf.y * Fx + ws.y * Fy) * dt, az = (wf.z * Fx + ws.z * Fy) * dt;
       b.applyImpulseAtPoint({ x: ax, y: ay, z: az }, { x: w.contact.x + up.x * 0.12, y: w.contact.y + up.y * 0.12, z: w.contact.z + up.z * 0.12 }, true);
 
-      w.slip = Math.max(Math.abs(alpha) / 0.15, slide * 2); w.slipA = alpha;
-      if (!w.front && slide > 0.05 && Fdrive > 0) rearSpin = Math.max(rearSpin, slide);
+      w.slip = Math.max(Math.abs(alpha) / 0.15, slide * 2);
       w.omega = vx / this.spec.wheelRadius * (1 + (!w.front && Fdrive > 0 ? slide * 0.8 : 0)) * (brake > 0.9 && slide > 0.3 ? 0.2 : 1);
-      maxSlip = Math.max(maxSlip, w.slip);
     }
-    this.maxSlip = maxSlip; this.rearSpin = rearSpin; this.offCount = offCount; this.groundedCount = groundedCount;
-    this.offGrass = offGrass; this.offGravel = offGravel;
     // CoM share of the ploughing resistance, along -velocity in the ground plane; never reverses the car in one tick
     const vh = Math.hypot(this.vel.x, this.vel.z);
     if (plough > 0 && vh > 0.05) {
@@ -326,7 +317,6 @@ export class Car {
       const drag = 0.5 * this.spec.rho * this.spec.CdA * v * v * dt;
       b.applyImpulse({ x: (-this.vel.x / v) * drag, y: (-this.vel.y / v) * drag, z: (-this.vel.z / v) * drag }, true);
     }
-    this.downforce = DF;
   }
 
   // Interpolated visual update
