@@ -43,8 +43,11 @@ export function loadSettings(): Settings {
     const g = localStorage.getItem('fastroads.gearbox'), st = localStorage.getItem('fastroads.steering');
     if (g) settings.gearbox = g as Settings['gearbox'];
     if (st) settings.steering = st as Settings['steering'];
-    Object.assign(settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'));
-  } catch { /* storage unavailable */ }
+    const saved: unknown = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+    if (saved && typeof saved === 'object') {
+      for (const k of SETTING_KEYS) if (k in saved) (settings as Record<SettingKey, unknown>)[k] = (saved as Record<string, unknown>)[k];
+    }
+  } catch { /* storage unavailable or corrupt */ }
   const validate = <K extends SettingKey>(k: K) => {
     if (!SETTING_DEFS[k].options.some(([v]) => v === settings[k])) settings[k] = DEFAULT_SETTINGS[k];
   };

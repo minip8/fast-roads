@@ -144,9 +144,23 @@ export class Timing {
     return el - lerp(bt[b], bt[b + 1], f - b);
   }
 }
+// Saved best times, or empty ones if there are none or they're unreadable (corrupt, or from an incompatible version).
 export function loadStore(key: string): BestStore {
   const empty: BestStore = { bestLap: null, bestSectors: [null, null, null], bestTrace: null, bestLapSectors: null };
-  try { const s = JSON.parse(localStorage.getItem(key) ?? 'null'); if (s && Array.isArray(s.bestSectors)) return { ...empty, ...s }; } catch (e) { /* storage unavailable */ }
+  try {
+    const s: unknown = JSON.parse(localStorage.getItem(key) ?? 'null');
+    const store = s && typeof s === 'object' ? { ...empty, ...s } : null;   // fields added later default to empty
+    if (isBestStore(store)) return store;
+  } catch { /* storage unavailable or corrupt */ }
   return empty;
+}
+const isTime = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v > 0;
+const isSectors = (v: unknown) => Array.isArray(v) && v.length === 3 && v.every((t) => t === null || isTime(t));
+function isBestStore(s: object | null): s is BestStore {
+  if (!s) return false;
+  const b = s as Record<keyof BestStore, unknown>;
+  return (b.bestLap === null || isTime(b.bestLap)) && isSectors(b.bestSectors)
+    && (b.bestTrace === null || (Array.isArray(b.bestTrace) && b.bestTrace.every((t) => t === null || Number.isFinite(t))))
+    && (b.bestLapSectors === null || isSectors(b.bestLapSectors));
 }
 export function saveStore(key: string, s: BestStore) { try { localStorage.setItem(key, JSON.stringify(s)); } catch (e) { /* storage unavailable */ } }
