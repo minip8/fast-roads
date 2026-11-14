@@ -33,10 +33,12 @@ export interface CarSpec {
   // span (rad) of slide past fromSlip. Gain 0 turns it off.
   counterSteer: [gain: number, fromSlip: number, damp: number, span: number];
   tcSlack: number;                          // wheelspin traction control still allows (share of tyre grip)
+  spinDrive: number;                        // share of its traction a spinning driven tyre keeps whatever its cornering force (0 = friction circle only)
   spinLat: number;                          // share of its cornering force a spinning driven tyre keeps (0 = friction circle only)
-  // rear grip lost at low speed when on the throttle or steering into the turn, faded out by this speed (m/s);
-  // offThrottle = share of that loss that remains otherwise (1 = always the same)
-  rearLoose: [share: number, fadedBy: number, offThrottle: number];
+  // rear grip lost at low speed on the throttle, faded out by this speed (m/s). offThrottle = share of that loss
+  // that remains when coasting (1 = always the same); steerIn = share that steering into the turn brings; ease =
+  // seconds over which it comes and goes
+  rearLoose: [share: number, fadedBy: number, offThrottle: number, ease: number, steerIn: number];
   // slide angles (rad) between which that looseness fades out again, and the share of extra rear grip gained by then
   rearCatch: [from: number, by: number, extra: number];
   pac: PacejkaCoeffs;                       // lateral tyre curve (rear, and front unless pacFront is set)
@@ -49,8 +51,10 @@ export interface CarSpec {
   launchRpm: number; engineBrake: number; reverseForce: number; reverseTop: number;   // reverse drive (N), fading out by reverseTop (m/s)
   // steering: [lock (rad), speed (m/s) at which the lock halves]
   steerLock: number; steerAnalog: [number, number]; steerKeys: [number, number]; steerRateKeys: number;
+  steerRateAnalog: number;                  // how fast the wheels follow a mouse or stick (rad/s)
   counterLock: [perSlide: number, rate: number];   // steering into a slide: lock per radian of slide, and how much faster the keys wind it on
   angDamp: number;
+  yawCap: [margin: number, latAccel: number, gain: number];   // soft limit on yaw rate: margin (rad/s) over latAccel (m/s2) / speed; excess decays at gain (1/s); gain 0 = off
   sound: EngineVoice;                       // engine and tyre sound (audioGraph.ts)
   // autopilot
   autoGrip: number; autoLong: number; autoCounter: number; autoLift: number;
@@ -82,9 +86,9 @@ export const CARS: Record<CarId, CarSpec> = {
     brakeKick: 0,                     // rear grip lost when braking while turning (see Car.step)
     counterSteer: [0, 1, 0, 1],       // countersteer assist off: [gain, rear slide (rad) it starts from, damp, span]
     tcSlack: 0.04,                    // wheelspin traction control still allows (share of tyre grip)
-    spinLat: 0,                       // cornering force kept under wheelspin (0 = plain friction circle)
+    spinLat: 0, spinDrive: 0,         // cornering force and traction kept under wheelspin (0 = plain friction circle)
     rearCatch: [9, 10, 0],
-    rearLoose: [0, 1, 1],             // rear grip lost at low speed: [share, speed (m/s) it has faded out by, off-throttle share]
+    rearLoose: [0, 1, 1, 0, 1],             // rear grip lost at low speed: [share, speed (m/s) it has faded out by, off-throttle share]
     pac: { B: 11, C: 1.45, E: 0.15 },
     gearTop: [0, 26, 36, 45, 54, 63, 72, 81, 90],   // m/s at redline per gear
     redline: 12500, idle: 4500,
@@ -92,8 +96,10 @@ export const CARS: Record<CarId, CarSpec> = {
     shiftPoint: 12250, overRev: 13000, shiftLightsFrom: 9500,
     launchRpm: 6500, engineBrake: 1100, reverseForce: 3500, reverseTop: 10,
     steerLock: 0.4, steerAnalog: [0.36, 45], steerKeys: [0.34, 22], steerRateKeys: 1,   // [lock, speed it halves at]
+    steerRateAnalog: 6,
     counterLock: [0, 1],
     angDamp: 0.4,
+    yawCap: [0, 0, 0],
     // V6 turbo at 12,500 rpm: smooth, even orders, bright and nasal.
     sound: {
       firingDiv: 20,
@@ -113,7 +119,7 @@ export const CARS: Record<CarId, CarSpec> = {
   drift: {
     id: 'drift', name: 'Drift car', storeKey: '.drift', mesh: buildDriftMesh,
     mass: 1000,
-    inertia: { x: 1360, y: 1300, z: 384 },   // low yaw inertia: quick to turn, quick to catch
+    inertia: { x: 1360, y: 1700, z: 384 },   // enough yaw inertia that the tail swings rather than snaps
     comHeight: 0.45,
     wheelRadius: 0.33,
     trackHalf: 0.80,
@@ -125,13 +131,13 @@ export const CARS: Record<CarId, CarSpec> = {
     ClA: 0.3, CdA: 0.75, aeroFront: 0.45, rho: 1.225,
     brakeMax: 17600, brakeFront: 0.68,   // front-biased, so braking doesn't swap the ends
     gripFront: 0.86, gripRear: 0.96,   // the rear must out-grip the front at speed or the car turns itself round
-    // ...but loses this share of grip at low speed (fading out by this speed, m/s) on the throttle or when steering
-    // into the turn, and about a third of that otherwise: lifting off and steering into a slide gives the rear its
-    // grip back, which is how a slide is caught
-    rearLoose: [0.34, 50, 0.35],
-    // ...and past 20 deg of slide the looseness fades, gone by 46 with 15% more grip on top: the tail digs in, so a
+    // ...but loses this share of grip at low speed (fading out by this speed, m/s) on the throttle, half of that
+    // when steering into the turn, and about a third of it when coasting: lifting off gives the rear its grip back.
+    // It comes and goes over 0.3 s, so the tail swings out rather than snapping.
+    rearLoose: [0.36, 50, 0.35, 0.3, 0.5],
+    // ...and past 14 deg of slide the looseness fades, gone by 40 with 10% more grip on top: the tail digs in, so a
     // slide settles at about 30 deg for as long as the throttle is down instead of running on round
-    rearCatch: [0.35, 0.8, 0.15],
+    rearCatch: [0.25, 0.7, 0.1],
     absMin: 0.3,
     brakeGrip: 1.08,                   // the tyres stop a little harder than they corner (about 1.4 g)
     driveGrip: 1.12,                   // ...and put power down a little better too
@@ -141,7 +147,7 @@ export const CARS: Record<CarId, CarSpec> = {
     tcSlack: 0.25,                     // lenient TC: the throttle can still swing the rear
     // wheelspin leaves the rear most of its cornering force: power slides build gradually, and a sliding car turns
     // (its path follows its nose) instead of spending the rear tyres on gaining speed
-    spinLat: 0.9,
+    spinLat: 0.9, spinDrive: 0.7,
     pac: { B: 9, C: 1.35, E: 0.1 },    // rear: grip barely drops off past the peak, so a big slide can still be caught
     pacFront: { B: 10, C: 1.25, E: 0.1 },   // front: holds grip when over-steered, so it doesn't wash wide
     gearTop: [0, 14, 22, 30, 39, 49, 60],
@@ -154,7 +160,9 @@ export const CARS: Record<CarId, CarSpec> = {
     // opposite lock: 0.4 of the slide angle, which leaves the slide to the throttle (held with it down, back when
     // you lift) rather than dragging the nose straight, wound on up to twice as fast
     counterLock: [0.4, 2],
+    steerRateAnalog: 6,
     angDamp: 0.25,
+    yawCap: [0.5, 12, 10],             // the tail can swing about 30 deg/s faster than the car can corner, no more
     // Cross-plane V8 at 7,500 rpm: strong half orders give the lumpy burble, darker overall.
     sound: {
       firingDiv: 15,

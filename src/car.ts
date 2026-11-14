@@ -55,6 +55,7 @@ export class Car {
   // driver-facing state
   gear: number; rpm: number; steer = 0; throttle = 0; brake = 0;
   private steerIn = 0;                      // the driver's part of the wheel angle (steer adds the countersteer assist)
+  private looseAsk = 0;                     // eased share of the rear looseness in play (see rearLoose)
   private rearSlip = 0; private slipRate = 0;   // rear slide angle (rad) and its smoothed rate, for the assist
   tc = true; manual = false;                // gearbox is automatic unless manual
   assist = false;                           // countersteer assist (only cars whose spec has one); off unless the player turns it on
@@ -116,7 +117,7 @@ export class Car {
     this.body.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true);
     this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
-    this.gear = 1; this.steer = this.steerIn = this.rearSlip = this.slipRate = 0; this.shiftTimer = 0; this.tipped = 0;
+    this.gear = 1; this.steer = this.steerIn = this.rearSlip = this.slipRate = 0; this.looseAsk = this.spec.rearLoose[2]; this.shiftTimer = 0; this.tipped = 0;
     for (const w of this.wheels) { w.comp = w.prevComp = 0.025; w.omega = 0; w.muBlend = SURF[S_ASPHALT].mu; w.rrBlend = SURF[S_ASPHALT].rr; w.decelBlend = 0; }
     this.proj.i = -1;
     this.readState();
@@ -157,7 +158,7 @@ export class Car {
       // held opposite lock holds the slide and the throttle decides whether it grows or comes back; at 1 or more
       // the fronts drag the nose round and the slide ends at once.
       const [clPer, clRate] = this.spec.counterLock;
-      if (clPer > 0 && inp.steer * slide > 0) {
+      if (clPer > 0 && !inp.analog && inp.steer * slide > 0) {
         // Blended in between 8 and 16 deg of slide, so ordinary changes of direction keep the normal lock.
         const w = clamp((Math.abs(slide) - 0.14) / 0.14, 0, 1);
         target = lerp(target, inp.steer * clPer * Math.abs(slide), w);
@@ -165,7 +166,7 @@ export class Car {
       }
     }
     target = clamp(target, -this.spec.steerLock, this.spec.steerLock);
-    const rate = inp.analog || inp.steerAngle != null ? 6 : (Math.abs(target) < Math.abs(this.steerIn) ? 3.2 : 2.2) * counter * this.spec.steerRateKeys / (1 + Math.max(0, vF) / 30);
+    const rate = inp.steerAngle != null ? 6 : inp.analog ? this.spec.steerRateAnalog : (Math.abs(target) < Math.abs(this.steerIn) ? 3.2 : 2.2) * counter * this.spec.steerRateKeys / (1 + Math.max(0, vF) / 30);
     this.steerIn += clamp(target - this.steerIn, -rate * dt, rate * dt);
     // Countersteer assist (like caster): once the rear slides past fromSlip, the front wheels turn toward where the
     // car is going, so letting go of the steering catches the slide. Three parts:
@@ -291,11 +292,15 @@ export class Car {
     // into a slide gives the rear its grip back.
     // Past rearCatch's first angle of slide the looseness fades, gone by its second: the tail goes a long way out
     // but then digs in rather than coming all the way round.
-    const [loose, looseV, looseOff] = this.spec.rearLoose, [catchFrom, catchBy, catchExtra] = this.spec.rearCatch;
+    const [loose, looseV, looseOff, looseEase, looseSteer] = this.spec.rearLoose, [catchFrom, catchBy, catchExtra] = this.spec.rearCatch;
     const dug = clamp((Math.abs(slide) - catchFrom) / (catchBy - catchFrom), 0, 1);
     const into = clamp(Math.abs(this.steerIn) / 0.15, 0, 1) * clamp(-Math.sign(this.steerIn) * vyRear / 0.5, 0, 1);
     // The looseness is sideways only: traction in a straight line is not reduced (driveGrip is divided by it below).
-    const looseK = 1 - loose * (1 - dug) * clamp(1 - Math.abs(vF) / looseV, 0, 1) * (looseOff + (1 - looseOff) * Math.max(clamp(throttle, 0, 1), into));
+    // How much of the looseness is asked for eases in and out over looseEase seconds, so the rear lets go and
+    // grips up progressively instead of in a step when the throttle or the steering changes.
+    const ask = looseOff + (1 - looseOff) * Math.max(clamp(throttle, 0, 1), into * looseSteer);
+    this.looseAsk = looseEase > 0 ? this.looseAsk + (ask - this.looseAsk) * (1 - Math.exp(-dt / looseEase)) : ask;
+    const looseK = 1 - loose * (1 - dug) * clamp(1 - Math.abs(vF) / looseV, 0, 1) * this.looseAsk;
     const rearGrip = (1 - this.spec.brakeKick * clamp(brake, 0, 1) * clamp(Math.abs(this.steerIn) / 0.15, 0, 1)) * looseK * (1 + catchExtra * dug);
     let plough = 0;
     for (const w of this.wheels) {
@@ -324,7 +329,7 @@ export class Car {
       // longitudinal: drive (rear), brakes, rolling + surface drag
       let Fdrive = w.front ? 0 : drive / 2;
       const dg = w.front ? this.spec.driveGrip : this.spec.driveGrip / looseK;   // like brakeGrip, for putting power down
-      if (this.tc && Fdrive > 0) Fdrive = Math.min(Fdrive, dg * (Math.sqrt(Math.max(0, Fmax * Fmax - Fy * Fy)) * 0.97 + this.spec.tcSlack * Fmax));
+      if (this.tc && Fdrive > 0) Fdrive = Math.min(Fdrive, dg * Math.max(Math.sqrt(Math.max(0, Fmax * Fmax - Fy * Fy)) * 0.97 + this.spec.tcSlack * Fmax, this.spec.spinDrive * Fmax));
       // ABS: cornering force keeps priority; brakes get the grip that's left, but never less than absMin.
       // brakeGrip stretches the friction circle for braking only: the tyres stop harder than they corner.
       const bg = this.spec.brakeGrip;
@@ -333,6 +338,7 @@ export class Car {
       const resist = brakeF + w.rrBlend * w.Fz + wPlough * PLOUGH_WHEEL_SHARE;
       const Fres = -Math.sign(vx) * Math.min(resist, (mc * Math.abs(vx)) / dt);
       let Fx = Fdrive + Fres;
+      const FxAsked = Fx;
 
       // friction circle
       const gx = Fx * vx < 0 ? bg : dg;                       // the friction circle, stretched along the wheel
@@ -344,6 +350,9 @@ export class Car {
         // A spinning driven tyre still holds some of its cornering force (spinLat), so power slides build gradually.
         const keep = this.spec.spinLat * Math.min(1, Fmax / Math.max(Math.abs(Fy / k), 1));
         if (Fdrive > 0 && k < keep) { Fy *= keep / k; Fx = Math.sign(Fx) * gx * Math.sqrt(Math.max(0, Fmax * Fmax - Fy * Fy)); }
+        // ...and still drives the car forward (spinDrive share of its traction, whatever it is doing sideways), so
+        // a slide on the power keeps its speed instead of bogging down.
+        if (Fdrive > 0 && FxAsked > 0) Fx = Math.max(Fx, Math.min(FxAsked, this.spec.spinDrive * gx * Fmax));
       }
       // no overshoot at low speed: never reverse the corner's lateral velocity in one step
       const maxFy = (mc * Math.abs(vy)) / dt;
@@ -360,6 +369,17 @@ export class Car {
     if (plough > 0 && vh > 0.05) {
       const imp = Math.min(plough * dt, this.spec.mass * vh * 0.5);
       b.applyImpulse({ x: (-this.vel.x / vh) * imp, y: 0, z: (-this.vel.z / vh) * imp }, true);
+    }
+
+    // --- yaw limit: past yawCap's margin over the rate the tyres could corner at (latAccel / speed), the excess
+    // spin is bled off, so the tail can't whip round faster than the driver can follow.
+    const [capMargin, capLat, capGain] = this.spec.yawCap;
+    if (capGain > 0) {
+      const yaw = this.angv.dot(up), over = Math.abs(yaw) - (capMargin + capLat / Math.max(v, 5));
+      if (over > 0) {
+        const j = -Math.sign(yaw) * Math.min(over, over * capGain * dt) * this.spec.inertia.y;
+        b.applyTorqueImpulse({ x: up.x * j, y: up.y * j, z: up.z * j }, true);
+      }
     }
 
     // --- aero

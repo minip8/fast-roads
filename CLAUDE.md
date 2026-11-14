@@ -31,9 +31,9 @@ Run `npm run typecheck` and `npm test` before committing.
   driver?, until?)` calls `Session.tick` with the autopilot or a `(car, simTime) => DriveInput` function, exactly as
   the game loop does, including the automatic resets; `until` stops early once the test has what it measures.
 - The simulation is deterministic, and Node and the browser agree to the millisecond. `test/laps.ts` pins
-  autopilot lap times (F1 1:59.659, drift car 157.698 s with TC on, 157.684 s off), so any physics or tuning change
+  autopilot lap times (F1 1:59.659, drift car 157.751 s with TC on, 157.726 s off), so any physics or tuning change
   shows up there. When a change is intended, check the handling still makes sense, then update the expected times.
-  It also pins the autopilot at Silverstone (F1 129.714 s, drift car 170.281 s). Each lap is run by its own
+  It also pins the autopilot at Silverstone (F1 129.714 s, drift car 170.275 s). Each lap is run by its own
   `laps-*.test.ts` file so the five (about 12–25 s each) run in parallel. `session(carId, { track })` picks the
   circuit (Melbourne by default).
 - `test/handling.test.ts` holds loose-bound checks of tuning intent: the drift car's brake-and-turn kick, a stable
@@ -90,8 +90,9 @@ Run `npm run typecheck` and `npm test` before committing.
   each car (`f1`, `drift`), plus its mesh builder, its engine voice (`sound`, an `EngineVoice` from `audioGraph.ts`)
   and its lap-time `storeKey`. The `Car` class reads only `this.spec`, so a new car is a new spec entry
   (`test/cars.test.ts` checks each spec fits the menu, gearbox, mesh and autopilot). Behaviour toggled per car uses
-  neutral defaults on the F1 (e.g. `brakeKick: 0`, `brakeGrip: 1`, `driveGrip: 1`, `rearLoose: [0, 1, 1]`, `counterLock: [0, 1]`, `spinLat: 0`,
-  `counterSteer` gain 0, `autoCounter: 0`, optional `pacFront`), so F1 handling stays identical.
+  neutral defaults on the F1 (e.g. `brakeKick: 0`, `brakeGrip: 1`, `driveGrip: 1`, `rearLoose` share 0,
+  `counterLock: [0, 1]`, `spinLat: 0`, `spinDrive: 0`, `yawCap` gain 0, `counterSteer` gain 0, `autoCounter: 0`,
+  optional `pacFront`), so F1 handling stays identical.
 - **Car physics (`Car.step`)**: Rapier rigid body at a fixed 120 Hz (`DT`), with custom physics on top:
   - raycast suspension with anti-roll bars
   - Pacejka lateral curve with load sensitivity
@@ -107,25 +108,22 @@ Run `npm run typecheck` and `npm test` before committing.
   Drift-car stability lesson: the rear must out-grip the front at speed (`gripRear > gripFront` by ~10%+), or the car
   yaws itself round under braking at 200 km/h; looseness is added only at low speed (`rearLoose`) or while
   braking + steering (`brakeKick`).
-  Drift-car catchability lesson: slides must be recoverable without an assist, and the car must still rotate.
-  What makes that work, each checked in `test/handling.test.ts` with keyboard-style drivers:
-  - the rear is loose only while the driver asks for rotation (throttle, or steering into the turn) and gets its
-    grip back when they lift and straighten or countersteer (`rearLoose` off-throttle share; with the rear firm
-    whenever coasting the car understeered on entry). The looseness is sideways only: it does not cost traction.
-  - past ~20 deg of slide the looseness fades and the rear gains a little extra grip (`rearCatch`), so the tail
-    goes a long way out and then digs in: a slide settles at about 30 deg for as long as the throttle is down and
-    comes back when the driver lifts. Without the fade, more looseness meant unrecoverable slides; without the
-    extra grip a slide could only be held by keeping opposite lock on (it faded in 3-4 s) and spun within a
-    second if the key was released.
-  - the rear tyre curve barely falls off past its peak (`pac.C` 1.35; at 1.6 any slide beyond the keyboard's
-    steering lock was a spin).
-  - opposite lock follows the slide angle (`counterLock`, blended in from 8 to 16 deg of slide): the keyboard's
-    normal lock at speed is smaller than a big slide's angle, so a fixed lock cannot catch one. The ratio matters:
-    at 0.4 the fronts leave the slide to the throttle; at 0.85 or more (or twice the normal lock) they dragged the
-    nose straight in under a second whatever the throttle did.
-  - wheelspin leaves the rear most of its cornering force (`spinLat`). With a low `spinLat` and generous `driveGrip`
-    a sliding car spends its rear tyres on gaining speed, so its path barely curves while the nose swings round.
-  Yaw damping (`angDamp`) is not the lever for fishtailing: enough of it to matter kills the rotation.
+  Drift-car lessons (the owner drives it with the mouse: check changes with an analog driver, as the `mouse()`
+  helper in `test/handling.test.ts` does, not only with full-lock keys):
+  - Slides come from the throttle. The rear is loose under power and, by `rearLoose`'s steerIn share, when steering
+    into the turn; coasting leaves the offThrottle share, so lifting recovers. The looseness is sideways only (it
+    does not cost traction) and eases in and out over `rearLoose`'s ease time: stepping it made the car snappy.
+  - Past `rearCatch`'s first angle the looseness fades and the rear gains a little grip, so a slide settles (about
+    30 deg) and holds for as long as the throttle is down. Without it, more looseness meant spins; with the dig-in
+    starting too late, moderate steering off the throttle already gave a 40 deg slide.
+  - A spinning rear tyre keeps most of its cornering force (`spinLat`) and still drives the car (`spinDrive`).
+    Without the drive share a held slide bogged down from 90 to 30 km/h ("heavy"); with a low `spinLat` instead,
+    the car spun under power.
+  - `yawCap` limits how much faster than its cornering rate the car can rotate. Direction changes otherwise whip
+    the tail to 70-80 deg and spin it: that is yaw momentum, which grip, yaw inertia and `angDamp` do not fix.
+  - The rear tyre curve barely falls off past its peak (`pac.C` 1.35; at 1.6 big slides were spins).
+  - `counterLock` (keys only) makes opposite lock follow the slide angle, because a key cannot choose an angle.
+    Analog steering is left alone: scaling a mouse user's own countersteer felt wrong.
 - **Switching cars**: `applySetting.car` in `main()` calls `Session.setCar`, which destroys the old `Car` (body +
   mesh), builds a new one, swaps the timing store and resets to the grid; then it re-applies the gearbox/TC settings.
   `session.car` is replaced, so closures must read it at call time, never keep it.
