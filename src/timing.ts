@@ -163,4 +163,4 @@ function isBestStore(s: object | null): s is BestStore {
     && (b.bestTrace === null || (Array.isArray(b.bestTrace) && b.bestTrace.every((t) => t === null || Number.isFinite(t))))
     && (b.bestLapSectors === null || isSectors(b.bestLapSectors));
 }
-export function saveStore(key: string, s: BestStore) { try { localStorage.setItem(key, JSON.stringify(s)); } catch (e) { /* storage unavailable */ } }
+function saveStore(key: string, s: BestStore) { try { localStorage.setItem(key, JSON.stringify(s)); } catch { /* storage unavailable */ } }

@@ -11,7 +11,7 @@ import { wrapI } from './util';
 // (the turn-in point). Zones come from the autopilot's speed plan.
 export interface BrakeZone { entry: number; s: number; fromKmh: number; toKmh: number }
 
-export function findBrakeZones(tr: Track): BrakeZone[] {
+function findBrakeZones(tr: Track): BrakeZone[] {
   const v = buildSpeedProfile(tr, CARS.f1), N = tr.N, zones: BrakeZone[] = [];   // boards are scenery: placed for the F1
   const braking = (i: number) => v[(i + 1) % N] < v[i] - 1e-3;
   let start = 0;

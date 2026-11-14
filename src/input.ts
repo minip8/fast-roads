@@ -6,12 +6,12 @@ import { clamp } from './util';
 // ============================================================================
 // Mouse steering: how far the cursor goes from the screen centre (fraction of half the width) for full lock.
 export const MOUSE_RANGE = { low: 0.95, medium: 0.7, high: 0.5 };
-export const MOUSE_CURVE = 1.7;      // >1 keeps small movements near the centre gentle
+const MOUSE_CURVE = 1.7;      // >1 keeps small movements near the centre gentle
 // Dead zone: fraction of half the width around the centre that does nothing.
 export const MOUSE_DEADZONE = { off: 0, small: 0.03, medium: 0.08, large: 0.15 };
 
 // Gamepad steering: stick dead zone (share of travel) and response curve (>1 = gentle near the centre).
-export const PAD_DEADZONE = 0.08, PAD_CURVE = 1.4;
+const PAD_DEADZONE = 0.08, PAD_CURVE = 1.4;
 
 // Gamepad buttons (standard mapping) that act like a key press: Y camera, X reset, Back/Start restart/menu, RB/LB shift.
 const PAD_BUTTONS: readonly [button: number, code: string][] = [[3, 'KeyC'], [2, 'KeyR'], [8, 'Enter'], [9, 'KeyP'], [5, 'KeyE'], [4, 'KeyQ']];

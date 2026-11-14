@@ -6,7 +6,6 @@ import type { CarSpec } from './cars';
 // Car bodies. Built in Node too (the tests construct cars), so nothing here may touch the DOM.
 export interface CarMesh {
   root: THREE.Group;                 // follows the physics body
-  body: THREE.Group;
   wheels: { pivot: THREE.Group; spinner: THREE.Group }[];   // pivot: steer + suspension; spinner: rolling
   brakeLight: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
 }
@@ -84,12 +83,12 @@ export function buildCarMesh(spec: CarSpec): CarMesh {
   const brakeLight = new THREE.Mesh(B(0.12, 0.08, 0.03), new THREE.MeshStandardMaterial({ color: 0x400000, emissive: 0xff1010, emissiveIntensity: 0.4 }));
   brakeLight.position.set(0, 0.05, -2.32); bodyGroup.add(brakeLight);
   const wheels = buildWheels(root, spec, { rim: 0x2a2d33, stripe: 0xffd23f });
-  return { root, body: bodyGroup, wheels, brakeLight };
+  return { root, wheels, brakeLight };
 }
 
 // Four wheels (pivot for steer/suspension, spinner for rolling) shared by every car body. The tyre has rounded
 // shoulders and the rim has spokes, so you can see the wheels turn.
-export function buildWheels(root: THREE.Group, spec: CarSpec, colors: { rim: number; stripe?: number }): CarMesh['wheels'] {
+function buildWheels(root: THREE.Group, spec: CarSpec, colors: { rim: number; stripe?: number }): CarMesh['wheels'] {
   const tyreMat = mat({ color: 0x1c1c1e, roughness: 0.82, envMapIntensity: 0.3 });
   const rimMat = mat({ color: colors.rim, roughness: 0.35, metalness: 0.6 });
   const stripeMat = colors.stripe === undefined ? null : mat({ color: colors.stripe, roughness: 0.6 });
@@ -183,5 +182,5 @@ export function buildDriftMesh(spec: CarSpec): CarMesh {
   });
   const brakeLight = tails[1];   // both lights share tailMat, so lighting one lights both
   const wheels = buildWheels(root, spec, { rim: 0xb8bec6 });
-  return { root, body: bodyGroup, wheels, brakeLight };
+  return { root, wheels, brakeLight };
 }
