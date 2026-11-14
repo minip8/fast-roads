@@ -99,4 +99,18 @@ describe('input', () => {
     pad.axes[0] = -1; expect(input.poll(DT).steer).toBeCloseTo(1);   // stick left = steer left, full range
     pad.axes[0] = 0.54; expect(input.poll(DT).steer).toBeCloseTo(-Math.pow(0.5, 1.4));
   });
+
+  it('mouse: the wheel is proportional to the cursor distance past the dead zone', () => {
+    vi.stubGlobal('addEventListener', () => {});
+    vi.stubGlobal('innerWidth', 2000);
+    const input = new Input(), m = input.mouse;
+    m.range = 0.7; m.deadzone = 0.1;   // full lock 700 px from the centre, nothing within 100 px
+    const steerAt = (x: number) => { m.x = x; return input.mouseSteer(); };
+    expect(steerAt(1000)).toBeCloseTo(0);
+    expect(steerAt(1090)).toBeCloseTo(0);        // inside the dead zone
+    expect(steerAt(1250)).toBeCloseTo(-0.25);    // cursor right = steer right
+    expect(steerAt(1400)).toBeCloseTo(-0.5);
+    expect(steerAt(600)).toBeCloseTo(0.5);
+    expect(steerAt(1900)).toBeCloseTo(-1);       // past the range: full lock
+  });
 });

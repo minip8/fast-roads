@@ -5,8 +5,8 @@ import { clamp } from './util';
 // Input
 // ============================================================================
 // Mouse steering: how far the cursor goes from the screen centre (fraction of half the width) for full lock.
+// The response is linear: the wheel is proportional to the cursor's distance past the dead zone.
 export const MOUSE_RANGE = { low: 0.95, medium: 0.7, high: 0.5 };
-const MOUSE_CURVE = 1.7;      // >1 keeps small movements near the centre gentle
 // Dead zone: fraction of half the width around the centre that does nothing.
 export const MOUSE_DEADZONE = { off: 0, small: 0.03, medium: 0.08, large: 0.15 };
 
@@ -66,7 +66,7 @@ export class Input {
     if (m.x == null) return 0;   // cursor hasn't moved over the page yet
     const half = innerWidth / 2, d = (m.x - half) / half;   // -1 (left edge) .. 1 (right edge)
     const t = clamp((Math.abs(d) - m.deadzone) / (m.range - m.deadzone), 0, 1);
-    return -Math.sign(d) * Math.pow(t, MOUSE_CURVE);
+    return -Math.sign(d) * t;
   }
   poll(dt: number): DriveInput {
     const k = this.keys, st = this.state;
