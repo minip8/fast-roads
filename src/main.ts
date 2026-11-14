@@ -1,4 +1,3 @@
-import trackCsv from '../tracks/melbourne.csv?raw';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { EngineAudio } from './audio';
 import { autopilot } from './autopilot';
@@ -17,6 +16,7 @@ import { buildStage } from './stage';
 import { StartupError } from './startup';
 import type { Timing } from './timing';
 import { buildTrack, parseCSV, type Track } from './track';
+import { TRACKS } from './tracks';
 import { clamp } from './util';
 
 // ============================================================================
@@ -40,15 +40,20 @@ declare global { interface Window { __game?: GameHook } }
 export async function main() {
   const params = new URLSearchParams(location.search);
   await RAPIER.init().catch((err: unknown) => { throw new StartupError('physics', 'Rapier failed to initialise', { cause: err }); });
-  $('loadState').textContent = 'Building circuit…';
+  // The circuit is chosen before anything is built; changing it reloads the page (see applySetting.track).
+  const settings = loadSettings();
+  const def = TRACKS[settings.track];
+  $('loadState').textContent = `Building ${def.name}…`;
+  $('trkName').textContent = `${def.name} · ${def.place}`;
+  $('menuSub').textContent = `Time trial · ${def.name}, ${def.place}`;
   await new Promise((r) => setTimeout(r, 0));   // let the loading text paint
 
-  const track = buildTrack(parseCSV(trackCsv));
-  const stage = buildStage($<HTMLCanvasElement>('view'), track);
+  const track = buildTrack(parseCSV(def.csv));
+  const stage = buildStage($<HTMLCanvasElement>('view'), track, def);
   const { renderer, scene, camera } = stage;
 
   // Physics. session.car is replaced when the Car setting changes: read it at call time.
-  const session = new Session(track, scene, CARS.f1), { timing } = session;
+  const session = new Session(track, scene, CARS.f1, def), { timing } = session;
   const input = new Input();
   const audio = new EngineAudio();
   const dust = new Dust(scene);
@@ -64,9 +69,11 @@ export async function main() {
   const restart = () => { session.restart(); hud.showMsg('Session restarted<small>Cross the line to start a lap</small>'); };
 
   // ---------------- Settings ----------------
-  const settings = loadSettings();
   // What changing each setting does.
   const applySetting: { [K in SettingKey]: (v: Settings[K]) => void } = {
+    // Track, walls, scenery, timing and minimap are all built once at startup, so another circuit means starting
+    // again: setSetting has already saved the choice, and the reload picks it up.
+    track: (id) => { if (id !== def.id) location.reload(); },
     car: (id) => {
       if (session.car.spec.id === id) return;
       session.setCar(CARS[id]);

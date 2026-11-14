@@ -1,7 +1,7 @@
 # Fast Roads
 
 Browser time-trial racer on real circuit layouts. Prototype covering build steps 1–3:
-one circuit (Albert Park, Melbourne), two cars (a downforce open-wheel car and a rear-drive drift car), and lap/sector
+two circuits (Albert Park in Melbourne and Silverstone), two cars (a downforce open-wheel car and a rear-drive drift car), and lap/sector
 timing with track limits.
 
 ## Run
@@ -22,8 +22,8 @@ The autopilot isn't part of the game itself.
 
 ## Main menu
 
-The game opens on a menu: **Drive**, plus settings for car, gears (automatic/manual),
-steering (keyboard/mouse), camera, traction control, countersteer assist (drift car), and sound. Settings are remembered. Your best lap for the chosen car is shown, with a
+The game opens on a menu: **Drive**, plus settings for circuit, car, gears (automatic/manual),
+steering (keyboard/mouse), camera, traction control, countersteer assist (drift car), and sound. Settings are remembered. Choosing another circuit reloads the game onto it. Your best lap for the chosen car and circuit is shown, with a
 **Reset best times** option (click twice to confirm). While driving, **Esc** or **P** opens it as a pause menu
 (Resume / Restart session). Mouse or keyboard (↑ ↓ ← → Enter) both work in the menu.
 
@@ -44,7 +44,7 @@ steering (keyboard/mouse), camera, traction control, countersteer assist (drift 
   instead of a spin. It stops at about 1.4 g, 100 km/h to rest in under 30 m. It uses a
   bonnet camera for the onboard view.
 
-Each car keeps its own best lap and sector times. Switching car puts you back on the grid.
+Each car keeps its own best lap and sector times at each circuit. Switching car puts you back on the grid.
 
 ## HUD
 
@@ -79,7 +79,9 @@ and override the mouse while held.
 
 ## How it works (TypeScript in `src/`, one module per area)
 
-- **Track**: TUM centerline + widths (`tracks/melbourne.csv`, bundled at build time) → Catmull-Rom → resampled every ~2 m.
+- **Circuits**: Albert Park (5.30 km) and the Silverstone Grand Prix layout (5.89 km, starting on the Hamilton
+  Straight). Each is a TUM centerline + widths CSV (`tracks/*.csv`, bundled at build time; `src/tracks.ts` lists them
+  with their grid spot and scenery) → Catmull-Rom → resampled every ~2 m.
   Kerbs, gravel traps, and barrier offsets are derived from curvature; barriers are shrunk/dropped where they'd
   intrude on another part of the circuit. Road, kerbs, gravel, and walls are ribbon meshes built from the samples.
 - **Physics**: Rapier rigid body (fixed 120 Hz step, interpolated rendering). Custom raycast suspension with
@@ -116,6 +118,6 @@ change to handling shows up. In the browser, `window.__game.simulate(seconds, tr
 
 ## Not yet
 
-Elevation (Albert Park is flat; Spa/COTA will need SRTM data), pit lane, ghosts, leaderboards, multiplayer.
+Elevation (Albert Park is flat and Silverstone nearly so; Spa/COTA will need SRTM data), pit lane, ghosts, leaderboards, multiplayer.
 
 Track data: [TUMFTM/racetrack-database](https://github.com/TUMFTM/racetrack-database) (LGPL-3.0).

@@ -1,6 +1,7 @@
 import { CAM_MODES, type CamMode } from './camera';
 import { CARS, type CarId } from './cars';
 import type { MouseDeadzone, MouseSensitivity } from './input';
+import { TRACKS, type TrackId } from './tracks';
 import { wrapI } from './util';
 
 // ============================================================================
@@ -9,7 +10,7 @@ import { wrapI } from './util';
 type OnOff = 'on' | 'off';
 
 export interface Settings {
-  car: CarId; gearbox: 'auto' | 'manual'; steering: 'keyboard' | 'mouse';
+  track: TrackId; car: CarId; gearbox: 'auto' | 'manual'; steering: 'keyboard' | 'mouse';
   mouseSens: MouseSensitivity; mouseDeadzone: MouseDeadzone; camera: CamMode; tc: OnOff; assist: OnOff; sound: OnOff;
 }
 export type SettingKey = keyof Settings;
@@ -19,6 +20,7 @@ const CAM_LABELS: Record<CamMode, string> = { onboard: 'Onboard', chase: 'Chase'
 
 // Menu rows, in display order.
 export const SETTING_DEFS: { [K in SettingKey]: SettingDef<K> } = {
+  track: { label: 'Circuit', options: Object.values(TRACKS).map((t) => [t.id, t.name]) },
   car: { label: 'Car', options: Object.values(CARS).map((c) => [c.id, c.name]) },
   gearbox: { label: 'Gears', options: [['auto', 'Automatic'], ['manual', 'Manual']] },
   steering: { label: 'Steering', options: [['keyboard', 'Keyboard'], ['mouse', 'Mouse']] },
@@ -31,7 +33,7 @@ export const SETTING_DEFS: { [K in SettingKey]: SettingDef<K> } = {
 };
 export const SETTING_KEYS = Object.keys(SETTING_DEFS) as SettingKey[];
 export const DEFAULT_SETTINGS: Settings = {
-  car: 'f1', gearbox: 'auto', steering: 'keyboard', mouseSens: 'medium', mouseDeadzone: 'small', camera: 'onboard', tc: 'on', assist: 'off', sound: 'on',
+  track: 'melbourne', car: 'f1', gearbox: 'auto', steering: 'keyboard', mouseSens: 'medium', mouseDeadzone: 'small', camera: 'onboard', tc: 'on', assist: 'off', sound: 'on',
 };
 
 const SETTINGS_KEY = 'fastroads.settings';

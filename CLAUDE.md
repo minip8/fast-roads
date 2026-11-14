@@ -33,7 +33,9 @@ Run `npm run typecheck` and `npm test` before committing.
 - The simulation is deterministic, and Node and the browser agree to the millisecond. `test/laps.ts` pins
   autopilot lap times (F1 1:59.659, drift car 161.442 s with TC on, 161.441 s off), so any physics or tuning change
   shows up there. When a change is intended, check the handling still makes sense, then update the expected times.
-  Each lap is run by its own `laps-*.test.ts` file so the three (about 12–18 s each) run in parallel.
+  It also pins the autopilot at Silverstone (F1 129.714 s, drift car 174.098 s). Each lap is run by its own
+  `laps-*.test.ts` file so the five (about 12–25 s each) run in parallel. `session(carId, { track })` picks the
+  circuit (Melbourne by default).
 - `test/handling.test.ts` holds loose-bound checks of tuning intent: the drift car's brake-and-turn kick, a stable
   F1. `car.forceSurface = S_ASPHALT` keeps manoeuvres off grass. Keep them short (about 1–2 s after the manoeuvre):
   the start straight is walled (`walls: false` removes the barriers for manoeuvres that need the room).
@@ -59,6 +61,7 @@ Run `npm run typecheck` and `npm test` before committing.
   (world, walls, car on the grid, timing; `tick`, `resetToTrack`, `restart`, `setCar`), shared by the game and tests
 - `carMeshes.ts`: car bodies, static parts merged per material. Paint and metal reflect the environment map that
   `stage.ts` hands over with `setCarEnvironment` before any car is built.
+- `tracks.ts`: the circuits (`TRACKS`, `TrackDef`): CSV, names, best-times key, grid spot, scenery placement
 - `track.ts`: track geometry and colliders (`Track`)
 - `trackMeshes.ts`, `textures.ts`, `scenery.ts`, `brakeMarkers.ts`: visuals; `batch.ts`: `Batch`, which merges many
   static parts into one mesh per material (grandstands, pit, gantry, brake boards, car bodies)
@@ -75,8 +78,12 @@ Run `npm run typecheck` and `npm test` before committing.
 - `main.ts`: wires it together and owns game state (the `Session`, `started`/`paused`/autopilot, the
   `applySetting` table, hotkeys, the `window.__game` hook (typed `GameHook`), the frame loop)
 
-- **Track data**: `tracks/melbourne.csv` (TUM racetrack-database centreline + widths), imported into `main.ts` with
-  Vite's `?raw` suffix; `parseCSV` skips `#` comment lines.
+- **Track data**: `tracks/*.csv` (TUM racetrack-database centreline + widths, first row at the start/finish line,
+  in racing direction), imported into `tracks.ts` with Vite's `?raw` suffix; `parseCSV` skips `#` comment lines.
+  A new circuit is a CSV plus a `TRACKS` entry: the Circuit menu row, labels, best-times keys (`TrackDef.storeKey` +
+  the car's `storeKey` suffix) and scenery follow from it. Check the start straight (grid spot `gridBack`, pit
+  building and stands ranges must sit on it), that the autopilot laps it cleanly, and how it looks. Everything is
+  built once at startup for `settings.track`, so changing the Circuit setting saves it and reloads the page.
   `buildTrack` turns it into a closed spline sampled every ~2 m (arrays `X, Z, TX, TZ, NX, NZ, K, S, WL, WR`, kerb/
   gravel/barrier offsets). Almost everything works in track coordinates `(s, lat)` via `projectOnTrack` / `pointAt`.
 - **Car specs (`CARS`)**: every physics, engine, gearbox, steering, collider, camera, sound and autopilot number for
@@ -115,7 +122,8 @@ Run `npm run typecheck` and `npm test` before committing.
   `localStorage` `fastroads.settings` and calls `applySetting`; in-game hotkeys go through `cycleSetting` so the menu
   stays in sync. Adding a setting means adding it to all four; the compiler flags any you miss.
 - **Timing**: start/finish and two sector lines as segments, with crossings interpolated within a tick; track-limit
-  invalidation; best lap/sectors/trace stored per car under `spec.storeKey` (`useStore` switches).
+  invalidation; best lap/sectors/trace stored per circuit and car under `TrackDef.storeKey + spec.storeKey`
+  (`useStore` switches).
 - **Input**: keyboard, gamepad and visible-cursor mouse steering (cursor x relative to screen centre, with
   sensitivity/deadzone settings) merge in `Input.poll` into one input object. `input.mouse.active` is set each frame
   by the game loop (driving, not paused or in the menu).

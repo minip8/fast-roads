@@ -5,12 +5,12 @@ import type { CarSpec } from './cars';
 import { DT } from './config';
 import { Timing } from './timing';
 import { buildTrackColliders, type Track } from './track';
+import type { TrackDef } from './tracks';
 
 // ============================================================================
 // Simulation: one physics tick, and the session that owns the world, car and timing. The game loop and the tests
 // both drive a Session, so they simulate exactly the same thing (rendering, input and sound stay in main.ts).
 // ============================================================================
-const GRID_BACK = 160;    // m: the grid spot is this far before the start/finish line
 const STUCK_SECS = 3;     // the autopilot below 1 m/s for this long (against a wall) is put back on track
 
 type XZ = { x: number; z: number };
@@ -53,14 +53,15 @@ export class Session {
   private readonly gridS: number;
   private stuck = 0;
 
-  constructor(readonly track: Track, private readonly scene: THREE.Scene, spec: CarSpec) {
+  // def: the circuit's grid spot and its localStorage key for best times (each car adds its own suffix).
+  constructor(readonly track: Track, private readonly scene: THREE.Scene, spec: CarSpec, private readonly def: Pick<TrackDef, 'storeKey' | 'gridBack'>) {
     this.world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
     this.world.timestep = DT;
     this.wallCount = buildTrackColliders(track, this.world);
-    this.gridS = track.L - GRID_BACK;
+    this.gridS = track.L - def.gridBack;
     this.car = new Car(this.world, track, scene, spec);
     this.car.placeAt(this.gridS, 0);
-    this.timing = new Timing(track, spec.storeKey);
+    this.timing = new Timing(track, def.storeKey + spec.storeKey);
   }
 
   // One physics tick. autopilot: the autopilot is driving (so it is put back on track if it gets stuck).
@@ -87,7 +88,7 @@ export class Session {
   setCar(spec: CarSpec) {
     this.car.destroy();
     this.car = new Car(this.world, this.track, this.scene, spec);
-    this.timing.useStore(spec.storeKey);
+    this.timing.useStore(this.def.storeKey + spec.storeKey);
     this.restart();
   }
 

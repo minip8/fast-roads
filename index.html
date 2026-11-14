@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Fast Roads</title>
-<meta name="description" content="Time-trial racing on real circuit layouts, in the browser: an F1 car and a drift car at Albert Park, with lap and sector timing.">
+<meta name="description" content="Time-trial racing on real circuit layouts, in the browser: an F1 car and a drift car at Albert Park and Silverstone, with lap and sector timing.">
 <meta name="theme-color" content="#0b0d10">
 <meta name="color-scheme" content="dark">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
@@ -16,7 +16,7 @@
 
 <div id="hud" hidden>
   <div id="timing" class="panel">
-    <div class="trk">Albert Park · Melbourne · <span id="trkLen"></span></div>
+    <div class="trk"><span id="trkName"></span> · <span id="trkLen"></span></div>
     <div id="lapTime" class="num">-:--.---</div>
     <div id="lapState">OUT LAP</div>
     <div id="delta" class="num"></div>
@@ -61,7 +61,7 @@
   <div id="menu">
     <p id="menuPaused" hidden>Paused</p>
     <h1>FAST ROADS</h1>
-    <p class="sub">Time trial · Albert Park, Melbourne</p>
+    <p class="sub" id="menuSub">Time trial</p>
     <p id="loadState">Loading physics…</p>
     <div id="menuBody" hidden>
       <div class="menu-actions" id="menuActions"></div>

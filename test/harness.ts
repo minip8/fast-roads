@@ -1,6 +1,5 @@
 // Headless game session for tests: the game's own Session (track, physics world, one car and lap timing), with no
 // rendering.
-import { readFileSync } from 'node:fs';
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { autopilot } from '../src/autopilot';
@@ -9,15 +8,15 @@ import { CARS, type CarId } from '../src/cars';
 import { DT, G_WALL } from '../src/config';
 import { Session } from '../src/sim';
 import { buildTrack, parseCSV, type Track } from '../src/track';
+import { TRACKS, type TrackId } from '../src/tracks';
 
-let track: Track | null = null;
+const tracks: Partial<Record<TrackId, Track>> = {};
 
 // `walls: false` removes the barriers, for manoeuvres that need more room than the walled start straight has.
-export async function session(carId: CarId, { tc = true, walls = true } = {}) {
+export async function session(carId: CarId, { tc = true, walls = true, track = 'melbourne' as TrackId } = {}) {
   await RAPIER.init();
-  track ??= buildTrack(parseCSV(readFileSync(new URL('../tracks/melbourne.csv', import.meta.url), 'utf8')));
-  const tr = track;
-  const s = new Session(tr, new THREE.Scene(), CARS[carId]);
+  const def = TRACKS[track], tr = tracks[track] ??= buildTrack(parseCSV(def.csv));
+  const s = new Session(tr, new THREE.Scene(), CARS[carId], def);
   const { car, timing, world } = s;
   car.tc = tc;
   if (!walls) {

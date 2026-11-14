@@ -3,11 +3,12 @@ import { Batch } from './batch';
 import { canvasTex, noiseFill } from './textures';
 import { clamp, wrapI } from './util';
 import type { Track } from './track';
+import type { TrackDef } from './tracks';
 
 // ============================================================================
 // Scenery: sky, terrain, trees, grandstands, skyline, gantry
 // ============================================================================
-export function buildScenery(tr: Track, scene: THREE.Scene) {
+export function buildScenery(tr: Track, scene: THREE.Scene, def: TrackDef) {
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
   for (let i = 0; i < tr.N; i++) { minX = Math.min(minX, tr.X[i]); maxX = Math.max(maxX, tr.X[i]); minZ = Math.min(minZ, tr.Z[i]); maxZ = Math.max(maxZ, tr.Z[i]); }
   const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
@@ -39,7 +40,7 @@ export function buildScenery(tr: Track, scene: THREE.Scene) {
   // Trees (instanced)
   const rng = mulberry32(1337);
   const treePos = [];
-  for (let tries = 0; tries < 7000 && treePos.length < 1800; tries++) {
+  for (let tries = 0; tries < 7000 && treePos.length < def.trees; tries++) {
     const x = minX - 500 + rng() * (maxX - minX + 1000), z = minZ - 500 + rng() * (maxZ - minZ + 1000);
     const d = tr.nearestDist(x, z);
     if (d < 48) continue;
@@ -60,9 +61,9 @@ export function buildScenery(tr: Track, scene: THREE.Scene) {
   trunks.castShadow = leaves.castShadow = true;
   scene.add(trunks, leaves);
 
-  // Distant city skyline (north, i.e. -z)
+  // Distant city skyline (north, i.e. -z), at circuits that have one
   const bGeo = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
-  const bCount = 160;
+  const bCount = def.skyline ? 160 : 0;
   const blds = new THREE.InstancedMesh(bGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6, metalness: 0.2 }), bCount);
   for (let k = 0; k < bCount; k++) {
     const x = cx - 900 + rng() * 1900, z = minZ - 1900 - rng() * 1300;
@@ -73,7 +74,7 @@ export function buildScenery(tr: Track, scene: THREE.Scene) {
   }
   scene.add(blds);
 
-  // Grandstands along the right side of the main straight, pit building on the left
+  // Pit building on def.pitSide of the main straight, grandstands along the other side
   const standMats = {
     concrete: new THREE.MeshStandardMaterial({ color: 0xb9b6ae, roughness: 0.9 }),
     // One row of seated spectators per tier front (24 m x 1.2 m, so the texels are roughly square)
@@ -102,12 +103,13 @@ export function buildScenery(tr: Track, scene: THREE.Scene) {
   const roofGeo = new THREE.BoxGeometry(25, 0.3, 13), postGeo = new THREE.BoxGeometry(0.4, 9, 0.4);
   const tierMats = [standMats.concrete, standMats.concrete, standMats.concrete, standMats.concrete, standMats.crowd, standMats.concrete];
   const stepI = Math.round(26 / (tr.L / tr.N));
-  for (let k = -16; k <= 3; k++) {
+  for (let k = -def.stands[0]; k <= def.stands[1]; k++) {
     const i = wrapI(k * stepI, tr.N);
-    if (!tr.barRValid[i] || Math.abs(tr.KS[i]) > 1 / 600) continue;
-    const off = -(tr.barR[i] + 4);
-    // local +z points to track centre (left normal)
-    M.compose(pos.set(tr.X[i] + tr.NX[i] * off, 0, tr.Z[i] + tr.NZ[i] * off), q.setFromEuler(e.set(0, Math.atan2(tr.NX[i], tr.NZ[i]), 0)), sc.set(1, 1, 1));
+    const side = -def.pitSide, bar = side > 0 ? tr.barL : tr.barR, valid = side > 0 ? tr.barLValid : tr.barRValid;
+    if (!valid[i] || Math.abs(tr.KS[i]) > 1 / 600) continue;
+    const off = side * (bar[i] + 4);
+    // local +z points to the track centre
+    M.compose(pos.set(tr.X[i] + tr.NX[i] * off, 0, tr.Z[i] + tr.NZ[i] * off), q.setFromEuler(e.set(0, Math.atan2(-side * tr.NX[i], -side * tr.NZ[i]), 0)), sc.set(1, 1, 1));
     for (let t = 0; t < 5; t++) part(tierGeo, 0, 0.6 + t * 1.2, -t * 2.2, tierMats);
     part(backGeo, 0, 4.5, -10.2, standMats.concrete);
     part(roofGeo, 0, 9.2, -4.5, standMats.roof);
@@ -115,12 +117,14 @@ export function buildScenery(tr: Track, scene: THREE.Scene) {
   }
   // Pit building
   {
-    const i0 = wrapI(-110, tr.N), i1 = wrapI(40, tr.N);
+    const ds = tr.L / tr.N, k0 = Math.round(def.pit[0] / ds), k1 = Math.round(def.pit[1] / ds);
+    const i0 = wrapI(k0, tr.N), i1 = wrapI(k1, tr.N);
     const a = { x: tr.X[i0], z: tr.Z[i0] }, b = { x: tr.X[i1], z: tr.Z[i1] };
     const len = Math.hypot(b.x - a.x, b.z - a.z);
-    const im = wrapI(-35, tr.N), off = tr.barL[im] + 9;
-    M.compose(pos.set(tr.X[im] + tr.NX[im] * off, 4, tr.Z[im] + tr.NZ[im] * off), q.setFromEuler(e.set(0, Math.atan2(b.x - a.x, b.z - a.z), 0)), sc.set(1, 1, 1));
-    // local -x faces the track: garages along it (that face's u runs along the building)
+    const im = wrapI(Math.round((k0 + k1) / 2), tr.N), side = def.pitSide, off = side * ((side > 0 ? tr.barL : tr.barR)[im] + 9);
+    // On the left the building's local -x faces the track; on the right it is turned round so that face still does.
+    M.compose(pos.set(tr.X[im] + tr.NX[im] * off, 4, tr.Z[im] + tr.NZ[im] * off), q.setFromEuler(e.set(0, Math.atan2(b.x - a.x, b.z - a.z) + (side > 0 ? 0 : Math.PI), 0)), sc.set(1, 1, 1));
+    // garages along the track-facing face (its u runs along the building)
     const pitFront = new THREE.MeshStandardMaterial({ map: pitTexture(), roughness: 0.8 });
     pitFront.map!.repeat.set(Math.max(1, Math.round(len / 32)), 1);
     part(new THREE.BoxGeometry(12, 8, len), 0, 0, 0, [standMats.concrete, pitFront, standMats.roof, standMats.concrete, standMats.concrete, standMats.concrete]);

@@ -8,7 +8,7 @@ type Box = [hx: number, hy: number, hz: number, x: number, y: number, z: number]
 // Values that only one car uses are neutral on the others (e.g. brakeKick 0), so behaviour stays per-car.
 export interface CarSpec {
   id: CarId; name: string;
-  storeKey: string;                         // localStorage key for this car's best times
+  storeKey: string;                         // this car's suffix on the circuit's localStorage key for best times
   mesh: (spec: CarSpec) => CarMesh;
   // body
   mass: number;
@@ -60,7 +60,7 @@ export type CarId = 'f1' | 'drift';
 
 export const CARS: Record<CarId, CarSpec> = {
   f1: {
-    id: 'f1', name: 'F1', storeKey: 'fastroads.v1.melbourne', mesh: buildCarMesh,
+    id: 'f1', name: 'F1', storeKey: '', mesh: buildCarMesh,
     mass: 798,
     inertia: { x: 950, y: 1050, z: 260 },   // pitch, yaw, roll (body axes)
     comHeight: 0.30,
@@ -105,7 +105,7 @@ export const CARS: Record<CarId, CarSpec> = {
   },
   // Rear-drive coupe: heavy, little downforce, lots of torque, loose rear. Slides easily, best with TC off.
   drift: {
-    id: 'drift', name: 'Drift car', storeKey: 'fastroads.v1.melbourne.drift', mesh: buildDriftMesh,
+    id: 'drift', name: 'Drift car', storeKey: '.drift', mesh: buildDriftMesh,
     mass: 1250,
     inertia: { x: 1700, y: 1800, z: 480 },
     comHeight: 0.45,

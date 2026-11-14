@@ -3,6 +3,7 @@ import { buildBrakeMarkers } from './brakeMarkers';
 import { setCarEnvironment } from './carMeshes';
 import { buildScenery, buildSky } from './scenery';
 import type { Track } from './track';
+import type { TrackDef } from './tracks';
 import { buildTrackMeshes } from './trackMeshes';
 
 // ============================================================================
@@ -10,7 +11,7 @@ import { buildTrackMeshes } from './trackMeshes';
 // ============================================================================
 const SHADOW_HALF = 60, SHADOW_AHEAD = 28, SHADOW_MAP = 2048, SUN_DIST = 250;
 
-export function buildStage(canvas: HTMLCanvasElement, track: Track) {
+export function buildStage(canvas: HTMLCanvasElement, track: Track, def: TrackDef) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.setSize(innerWidth, innerHeight);
@@ -61,7 +62,7 @@ export function buildStage(canvas: HTMLCanvasElement, track: Track) {
   };
 
   buildTrackMeshes(track, scene);
-  const bounds = buildScenery(track, scene);
+  const bounds = buildScenery(track, scene, def);
   const brakeMarkers = buildBrakeMarkers(track, scene);
 
   // Also catches devicePixelRatio changes (browser zoom, moving the window to another monitor).
