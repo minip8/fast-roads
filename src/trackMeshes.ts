@@ -13,9 +13,12 @@ export interface RibbonCol {
   u: number | ((i: number) => number);    // texture u
   cut?: boolean;
 }
-export function ribbon(tr: Track, cols: RibbonCol[], { mask = null, vScale = 1, material }: { mask?: Uint8Array | null; vScale?: number; material: THREE.Material }) {
+// `shade` (optional) gives a grey vertex colour per sample and column (the material needs vertexColors).
+export function ribbon(tr: Track, cols: RibbonCol[], { mask = null, vScale = 1, material, shade }:
+  { mask?: Uint8Array | null; vScale?: number; material: THREE.Material; shade?: (i: number, c: number) => number }) {
   const N = tr.N, C = cols.length;
   const pos = new Float32Array((N + 1) * C * 3), uv = new Float32Array((N + 1) * C * 2);
+  const rgb = shade ? new Float32Array((N + 1) * C * 3) : null;
   for (let i = 0; i <= N; i++) {
     const k = i % N, s = i === N ? tr.L : tr.S[k];
     for (let c = 0; c < C; c++) {
@@ -25,6 +28,7 @@ export function ribbon(tr: Track, cols: RibbonCol[], { mask = null, vScale = 1, 
       const v = i * C + c;
       pos[v * 3] = tr.X[k] + tr.NX[k] * o; pos[v * 3 + 1] = y; pos[v * 3 + 2] = tr.Z[k] + tr.NZ[k] * o;
       uv[v * 2] = u; uv[v * 2 + 1] = s * vScale;
+      if (rgb) rgb.fill(shade!(k, c), v * 3, v * 3 + 3);
     }
   }
   const index: number[] = [];
@@ -39,6 +43,7 @@ export function ribbon(tr: Track, cols: RibbonCol[], { mask = null, vScale = 1, 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  if (rgb) geo.setAttribute('color', new THREE.BufferAttribute(rgb, 3));
   geo.setIndex(index);
   geo.computeVertexNormals();
   const mesh = new THREE.Mesh(geo, material);
@@ -54,17 +59,20 @@ export function buildTrackMeshes(tr: Track, scene: THREE.Scene) {
       const x = Math.random() * w, y = Math.random() * h, r = 20 + Math.random() * 70, dark = Math.random() < 0.55;
       for (const ox of [-w, 0, w]) for (const oy of [-h, 0, h]) {   // wrapped, so the tile stays seamless
         const grd = g.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r);
-        grd.addColorStop(0, dark ? 'rgba(20,22,26,0.16)' : 'rgba(150,150,150,0.08)'); grd.addColorStop(1, 'rgba(0,0,0,0)');
+        grd.addColorStop(0, dark ? 'rgba(20,22,26,0.1)' : 'rgba(150,150,150,0.05)'); grd.addColorStop(1, 'rgba(0,0,0,0)');
         g.fillStyle = grd; g.fillRect(x + ox - r, y + oy - r, 2 * r, 2 * r);
       }
     }
   });
-  const roadMat = new THREE.MeshStandardMaterial({ map: asphaltTex, roughness: 0.92, metalness: 0, side: THREE.DoubleSide });
+  const roadMat = new THREE.MeshStandardMaterial({ map: asphaltTex, vertexColors: true, roughness: 0.92, metalness: 0, side: THREE.DoubleSide });
+  // Large-scale shading the 8 m texture tile can't give: slow light/dark bands along the lap (resurfaced
+  // stretches) and a slightly darker, rubbered middle.
+  const along = (i: number) => { const s = tr.S[i]; return 0.93 + 0.035 * Math.sin(s / 41) + 0.025 * Math.sin(s / 97 + 1.7) + 0.02 * Math.sin(s / 13.3 + 0.4); };
   scene.add(ribbon(tr, [
     { o: (i) => -tr.WR[i], y: 0, u: (i) => -tr.WR[i] / 8 },
     { o: () => 0, y: 0, u: 0 },
     { o: (i) => tr.WL[i], y: 0, u: (i) => tr.WL[i] / 8 },
-  ], { vScale: 1 / 8, material: roadMat }));
+  ], { vScale: 1 / 8, material: roadMat, shade: (i, c) => along(i) * (c === 1 ? 0.9 : 1.04) }));
 
   const lineMat = new THREE.MeshStandardMaterial({ color: 0xf4f4f0, roughness: 0.7, side: THREE.DoubleSide });
   scene.add(ribbon(tr, [{ o: (i) => tr.WL[i] - 0.22, y: 0.004, u: 0 }, { o: (i) => tr.WL[i] - 0.02, y: 0.004, u: 1 }], { material: lineMat }));
