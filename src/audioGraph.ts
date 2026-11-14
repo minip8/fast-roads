@@ -17,14 +17,16 @@ import { clamp } from './util';
 
 // Everything the sound reads from the car. Car satisfies it as is; tests and offline renders can pass snapshots.
 export interface AudioCar {
-  readonly spec: { readonly id: CarId; readonly firingDiv: number; readonly redline: number; readonly idle: number };
+  readonly spec: { readonly id: CarId; readonly sound: EngineVoice; readonly redline: number; readonly idle: number };
   readonly rpm: number; readonly throttle: number; readonly gear: number; readonly speedF: number;
   readonly vel: { readonly x: number; readonly y: number; readonly z: number };
   readonly pos: { readonly x: number; readonly y: number; readonly z: number };
   readonly wheels: readonly { readonly surf: number; readonly slip: number; readonly grounded: boolean }[];
 }
 
-interface Voice {
+// A car's engine and tyre sound (CarSpec.sound).
+export interface EngineVoice {
+  firingDiv: number;         // rpm / this = firing frequency
   harmonics: number[];       // amplitudes of the harmonics of half the firing frequency (index 0 = f/2)
   detune: number;            // cents: second oscillator, for slow beating between "banks"
   level: number;             // engine gain at full throttle and redline
@@ -34,20 +36,6 @@ interface Voice {
   rough: number;             // random amplitude wobble (uneven firing), 0..1
   squealHz: number;          // tyre squeal pitch
 }
-
-// One voice per car (the compiler flags a car without one).
-const VOICES: Record<CarId, Voice> = {
-  // V6 turbo at 12,500 rpm: smooth, even orders, bright and nasal.
-  f1: {
-    harmonics: [0.12, 1, 0.18, 0.55, 0.1, 0.36, 0.07, 0.22, 0.05, 0.14, 0.03, 0.09, 0.02, 0.05],
-    detune: 6, level: 0.17, coast: 0.42, bright: [2.2, 6.5], body: [1500, 1.2, 1, 4], rough: 0.06, squealHz: 950,
-  },
-  // Cross-plane V8 at 7,500 rpm: strong half orders give the lumpy burble, darker overall.
-  drift: {
-    harmonics: [0.6, 1, 0.5, 0.45, 0.3, 0.28, 0.16, 0.15, 0.1, 0.08, 0.06, 0.05],
-    detune: 9, level: 0.2, coast: 0.4, bright: [2.5, 7], body: [260, 1.0, 2, 5], rough: 0.22, squealHz: 780,
-  },
-};
 
 // Layer levels at full effect (white noise through a narrow filter is quiet, hence the big numbers).
 const MIX = { squeal: 3, scrub: 0.1, road: 0.5, kerb: 3, grass: 1.1, gravel: 0.4, wind: 0.3, thudTone: 0.35, thudNoise: 2 };
@@ -60,7 +48,7 @@ type Src = AudioScheduledSourceNode;
 export class SoundGraph {
   readonly master: GainNode;
   private readonly bus: GainNode;
-  private readonly waves: Record<CarId, PeriodicWave>;
+  private readonly waves = new Map<CarId, PeriodicWave>();   // each car's engine wave, built when first needed
   // engine
   private readonly osc: OscillatorNode[];
   private readonly roughDepth: GainNode;
@@ -91,7 +79,7 @@ export class SoundGraph {
   private pv = { x: 0, y: 0, z: 0 }; private pp = { x: 0, y: 0, z: 0 };
   private thudReady = 0;
 
-  constructor(ctx: BaseAudioContext, dest: AudioNode) {
+  constructor(private readonly ctx: BaseAudioContext, dest: AudioNode) {
     const gain = (v: number, to?: AudioNode | AudioParam) => { const g = ctx.createGain(); g.gain.value = v; if (to) g.connect(to as AudioNode); return g; };
     const filter = (type: BiquadFilterType, hz: number, q: number, to?: AudioNode) => {
       const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = hz; f.Q.value = q; if (to) f.connect(to); return f;
@@ -122,8 +110,6 @@ export class SoundGraph {
     const mod = modSrc(1);
 
     // ---- engine
-    this.waves = {} as Record<CarId, PeriodicWave>;
-    for (const id of Object.keys(VOICES) as CarId[]) this.waves[id] = harmonicWave(ctx, VOICES[id].harmonics);
     this.engine = gain(0, this.bus);
     this.limiter = gain(1, this.engine);
     this.shift = gain(1, this.limiter);
@@ -134,7 +120,7 @@ export class SoundGraph {
     this.roughDepth = gain(0, rough.gain); mod.connect(this.roughDepth);
     const mix = gain(1, rough);
     this.osc = [0, 1].map((k) => {
-      const o = ctx.createOscillator(); o.setPeriodicWave(this.waves.f1); o.frequency.value = 100;
+      const o = ctx.createOscillator(); o.frequency.value = 100;   // wave set by update() for the car
       o.connect(k ? gain(0.35, mix) : mix); sources.push([o, 0]); return o;
     });
     // Rev limiter: a softened square chops the level (and dips the pitch) while on the limiter.
@@ -188,10 +174,12 @@ export class SoundGraph {
 
   // Once per frame. dt: frame time (s); active: driving (not paused / in the menu); t: the context's current time.
   update(car: AudioCar, dt: number, active: boolean, t: number) {
-    const v = VOICES[car.spec.id], abs = Math.abs(car.speedF);
+    const v = car.spec.sound, abs = Math.abs(car.speedF);
     if (this.voiceId !== car.spec.id) {   // switching car happens in the menu, while the bus is silent
       this.voiceId = car.spec.id;
-      for (const o of this.osc) o.setPeriodicWave(this.waves[car.spec.id]);
+      let wave = this.waves.get(car.spec.id);
+      if (!wave) this.waves.set(car.spec.id, (wave = harmonicWave(this.ctx, v.harmonics)));
+      for (const o of this.osc) o.setPeriodicWave(wave);
       this.osc[1].detune.value = v.detune;
       this.engBody.frequency.value = v.body[0]; this.engBody.Q.value = v.body[1];
       this.roughDepth.gain.value = v.rough;
@@ -203,7 +191,7 @@ export class SoundGraph {
     // ---- engine
     const thr = clamp(car.throttle, 0, 1);
     const rpmN = clamp(car.rpm / car.spec.redline, 0, 1.1);
-    const fire = Math.max(car.rpm, car.spec.idle * 0.9) / car.spec.firingDiv;
+    const fire = Math.max(car.rpm, car.spec.idle * 0.9) / v.firingDiv;
     for (const o of this.osc) o.frequency.setTargetAtTime(fire / 2, t, 0.012);
     this.engLow.frequency.setTargetAtTime(clamp(fire * (v.bright[0] + (v.bright[1] - v.bright[0]) * thr), 150, 14000), t, 0.03);
     this.engBody.gain.setTargetAtTime(v.body[2] + (v.body[3] - v.body[2]) * thr, t, 0.05);

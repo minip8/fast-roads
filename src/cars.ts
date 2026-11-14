@@ -1,9 +1,10 @@
+import type { EngineVoice } from './audioGraph';
 import { buildCarMesh, buildDriftMesh, type CarMesh } from './carMeshes';
 
 export interface PacejkaCoeffs { B: number; C: number; E: number }
 type Box = [hx: number, hy: number, hz: number, x: number, y: number, z: number];
 
-// Car specs. Every physics/engine number the Car class uses lives here, so cars can differ.
+// Car specs. Every per-car number (physics, engine, sound, autopilot, cameras) lives here, so cars can differ.
 // Values that only one car uses are neutral on the others (e.g. brakeKick 0), so behaviour stays per-car.
 export interface CarSpec {
   id: CarId; name: string;
@@ -38,7 +39,7 @@ export interface CarSpec {
   // steering: [lock (rad), speed (m/s) at which the lock halves]
   steerLock: number; steerAnalog: [number, number]; steerKeys: [number, number]; steerRateKeys: number;
   angDamp: number;
-  firingDiv: number;                        // rpm / this = engine sound frequency
+  sound: EngineVoice;                       // engine and tyre sound (audioGraph.ts)
   // autopilot
   autoGrip: number; autoLong: number; autoCounter: number; autoLift: number;
   // visuals
@@ -76,7 +77,12 @@ export const CARS: Record<CarId, CarSpec> = {
     launchRpm: 6500, engineBrake: 1100, reverseForce: 3500, reverseTop: 10,
     steerLock: 0.4, steerAnalog: [0.36, 45], steerKeys: [0.34, 22], steerRateKeys: 1,   // [lock, speed it halves at]
     angDamp: 0.4,
-    firingDiv: 20,                // rpm / this = engine sound frequency (V6)
+    // V6 turbo at 12,500 rpm: smooth, even orders, bright and nasal.
+    sound: {
+      firingDiv: 20,
+      harmonics: [0.12, 1, 0.18, 0.55, 0.1, 0.36, 0.07, 0.22, 0.05, 0.14, 0.03, 0.09, 0.02, 0.05],
+      detune: 6, level: 0.17, coast: 0.42, bright: [2.2, 6.5], body: [1500, 1.2, 1, 4], rough: 0.06, squealHz: 950,
+    },
     autoGrip: 0.68, autoLong: 1.2,   // autopilot's assumed lateral grip share / braking (g)
     autoCounter: 0,                  // autopilot counter-steer per radian of slide
     autoLift: 0,                     // autopilot throttle cut per radian of slide
@@ -114,7 +120,12 @@ export const CARS: Record<CarId, CarSpec> = {
     launchRpm: 3500, engineBrake: 600, reverseForce: 4500, reverseTop: 12,
     steerLock: 0.6, steerAnalog: [0.6, 90], steerKeys: [0.5, 50], steerRateKeys: 1.8,
     angDamp: 0.25,
-    firingDiv: 15,                // V8
+    // Cross-plane V8 at 7,500 rpm: strong half orders give the lumpy burble, darker overall.
+    sound: {
+      firingDiv: 15,
+      harmonics: [0.6, 1, 0.5, 0.45, 0.3, 0.28, 0.16, 0.15, 0.1, 0.08, 0.06, 0.05],
+      detune: 9, level: 0.2, coast: 0.4, bright: [2.5, 7], body: [260, 1.0, 2, 5], rough: 0.22, squealHz: 780,
+    },
     autoGrip: 0.65, autoLong: 0.55, autoCounter: 0.9, autoLift: 6,
     hull: [0.82, 0.28, 2.15, 0, 0.18, 0],
     parts: [[0.7, 0.2, 0.95, 0, 0.53, -0.35]],

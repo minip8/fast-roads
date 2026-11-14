@@ -72,8 +72,9 @@ Run `npm run typecheck` and `npm test` before committing.
   Vite's `?raw` suffix; `parseCSV` skips `#` comment lines.
   `buildTrack` turns it into a closed spline sampled every ~2 m (arrays `X, Z, TX, TZ, NX, NZ, K, S, WL, WR`, kerb/
   gravel/barrier offsets). Almost everything works in track coordinates `(s, lat)` via `projectOnTrack` / `pointAt`.
-- **Car specs (`CARS`)**: every physics, engine, gearbox, steering, collider, camera and autopilot number for each car
-  (`f1`, `drift`), plus its mesh builder and its lap-time `storeKey`. The `Car` class reads only `this.spec`, so a
+- **Car specs (`CARS`)**: every physics, engine, gearbox, steering, collider, camera, sound and autopilot number for
+  each car (`f1`, `drift`), plus its mesh builder, its engine voice (`sound`, an `EngineVoice` from `audioGraph.ts`)
+  and its lap-time `storeKey`. The `Car` class reads only `this.spec`, so a
   new car is a new spec entry. Behaviour toggled per car uses neutral defaults on the F1 (e.g. `brakeKick: 0`,
   `rearLoose: [0, 1]`, `autoCounter: 0`, optional `pacFront`), so F1 handling stays identical.
 - **Car physics (`Car.step`)**: Rapier rigid body at a fixed 120 Hz (`DT`), with custom physics on top:
