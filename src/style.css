@@ -56,19 +56,22 @@ canvas#view { display: block; width: 100vw; height: 100vh; }
 .unit { font-size: 11px; color: var(--muted); letter-spacing: .12em; }
 #flags { font-size: 11px; color: var(--muted); margin-top: 4px; letter-spacing: .08em; }
 
-#msg { position: fixed; top: 18%; left: 50%; transform: translateX(-50%); text-align: center; pointer-events: none;
-  font-size: 22px; font-weight: 700; padding: 10px 18px; opacity: 0; transition: opacity .25s; white-space: nowrap; }
-#msg.show { opacity: 1; }
+#msg { position: fixed; top: 18%; left: 50%; transform: translate(-50%, -6px); text-align: center; pointer-events: none;
+  font-size: 22px; font-weight: 700; padding: 10px 18px; opacity: 0; transition: opacity .25s, transform .25s;
+  width: max-content; max-width: min(480px, calc(100vw - 32px)); text-wrap: balance; }
+#msg.show { opacity: 1; transform: translate(-50%, 0); }
 #msg small { display: block; font-size: 14px; font-weight: 500; color: var(--muted); }
 
 #mouseSteer { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); width: 260px; height: 8px;
-  background: rgba(12,14,18,.6); border-radius: 4px; pointer-events: none; }
+  background: rgba(12,14,18,.6); border-radius: 4px; pointer-events: none;
+  box-shadow: 0 0 0 1px rgba(255,255,255,.22); }   /* outline keeps it visible over the dark car body */
 #mouseSteer::after { content: ''; position: absolute; left: 50%; top: -3px; width: 2px; height: 14px; background: rgba(255,255,255,.35); }
 #mouseSteerKnob { position: absolute; top: -4px; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%; background: #ff6a13;
   border: 2px solid #111; left: 50%; }
-#help { position: fixed; left: 16px; bottom: 16px; padding: 10px 14px; font-size: 12px; line-height: 1.6; color: #d6dbe0; }
+#help { position: fixed; left: 16px; bottom: 16px; padding: 10px 14px; font-size: 12px; line-height: 1.6; color: #d6dbe0;
+  transition: opacity .4s, visibility .4s; }
 #help kbd { font: inherit; font-weight: 700; color: var(--text); background: rgba(255,255,255,.1); border-radius: 4px; padding: 0 5px; }
-#help.hidden { display: none; }
+#help.hidden { opacity: 0; visibility: hidden; }
 
 #overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; overflow-y: auto;
   background: radial-gradient(ellipse at center, rgba(10,12,16,.55), rgba(10,12,16,.88)); padding: 16px;
@@ -117,8 +120,32 @@ button.link { background: none; border: 0; padding: 0; color: var(--muted); text
 button.link.armed { color: var(--red); }
 .menu-hint { text-align: center; font-size: 12px; color: var(--muted); margin: 14px 0 0; }
 
+/* Small screens: a compact timing panel, no minimap or help, messages clear of the panels */
+@media (max-width: 700px), (max-height: 520px) {
+  #timing { padding: 9px 12px; }
+  #lapTime { font-size: 28px; }
+  .sectors { margin: 6px 0; }
+  .row { font-size: 13px; padding: 1px 0; }
+  #lapList { display: none; }
+  #help { display: none; }
+  #msg { top: 42%; font-size: 19px; }
+}
 @media (max-width: 700px) {
   #timing { width: calc(100vw - 32px); }
   #minimap { display: none; }
-  #help { display: none; }
+  #mouseSteer { bottom: 170px; width: 200px; }   /* above the dash */
+}
+@media (max-height: 520px) {
+  #timing .row:has(#optLap) { display: none; }
+  #minimap { width: 150px; height: 150px; }
+  #msg { top: 30%; }
+}
+/* Large screens: scale the HUD and menu up with the resolution */
+@media (min-width: 1700px) and (min-height: 1000px) { #hud > *, #menu { zoom: 1.2; } }
+@media (min-width: 2300px) and (min-height: 1300px) { #hud > *, #menu { zoom: 1.5; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before { transition-duration: 0s !important; }
+  #loadState::before { animation-duration: 2.4s; }
+  #shiftLights.flash.off i.on { background: #3d8bff; box-shadow: 0 0 8px #3d8bff; }   /* steady blue instead of flashing */
 }

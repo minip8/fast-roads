@@ -61,6 +61,7 @@ export class Hud {
   update(f: HudFrame) {
     if (this.root.hidden) return;
     const { car, timing, simTime } = f, el = this.el;
+    const dt = f.paused ? 0 : f.dt;   // messages and the help panel wait while the game is paused
     const lapStart = timing.lapStart, lapRunning = lapStart != null;
     el.lap.textContent = lapRunning ? fmtTime(simTime + f.alpha * DT - lapStart) : '-:--.---';
     el.lap.classList.toggle('invalid', lapRunning && !timing.valid);
@@ -87,9 +88,9 @@ export class Hud {
     this.updateDash(car);
     const surfName = SURF[Math.max(...car.wheels.map((w) => w.surf))].name;
     el.flags.textContent = `${car.manual ? 'MANUAL' : 'AUTO'} · TC ${car.tc ? 'ON' : 'OFF'}${f.autoOn ? ' · AUTOPILOT' : ''}${f.paused ? ' · PAUSED' : ''}${surfName !== 'asphalt' ? ' · ' + surfName.toUpperCase() : ''}`;
-    if (this.msgTimer > 0 && (this.msgTimer -= f.dt) <= 0) el.msg.classList.remove('show');
+    if (this.msgTimer > 0 && (this.msgTimer -= dt) <= 0) el.msg.classList.remove('show');
     if (f.mouseSteer != null) el.mouseKnob.style.left = (50 - f.mouseSteer * 50) + '%';
-    if (this.helpTimer > 0 && (this.helpTimer -= f.dt) <= 0) el.help.classList.add('hidden');
+    if (this.helpTimer > 0 && (this.helpTimer -= dt) <= 0) el.help.classList.add('hidden');
     this.minimap.draw(car);
   }
 
