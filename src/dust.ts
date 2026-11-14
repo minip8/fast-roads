@@ -61,11 +61,12 @@ export class Dust {
     const k = this.next; this.next = (this.next + 1) % this.max;
     this.pos[k * 3] = x; this.pos[k * 3 + 1] = y; this.pos[k * 3 + 2] = z;
     this.vel[k * 3] = vx; this.vel[k * 3 + 1] = vy; this.vel[k * 3 + 2] = vz;
-    const shade = 0.9 + Math.random() * 0.2;
-    const c = gravel ? [0.80, 0.72, 0.56] : [0.56, 0.55, 0.38];
+    // Light, dry dust (lighter than the ground, so it reads against grass and gravel alike)
+    const shade = 0.88 + Math.random() * 0.2;
+    const c = gravel ? [0.86, 0.78, 0.62] : [0.70, 0.68, 0.52];
     this.col[k * 3] = c[0] * shade; this.col[k * 3 + 1] = c[1] * shade; this.col[k * 3 + 2] = c[2] * shade;
-    this.age[k] = 0; this.life[k] = 0.7 + Math.random() * 0.6;
-    this.a0[k] = gravel ? 0.26 : 0.18; this.s0[k] = 0.35; this.s1[k] = gravel ? 1.8 : 1.3;
+    this.age[k] = 0; this.life[k] = (gravel ? 1.0 : 0.8) + Math.random() * 0.7;
+    this.a0[k] = gravel ? 0.42 : 0.26; this.s0[k] = 0.5; this.s1[k] = (gravel ? 2.8 : 2.0) * (0.8 + Math.random() * 0.4);
   }
   update(dt: number, car: Car, camera: THREE.PerspectiveCamera, renderer: THREE.WebGLRenderer) {
     this.mat.uniforms.uScale.value = (renderer.domElement.height * 0.5) / Math.tan((camera.fov * Math.PI) / 360);
@@ -75,7 +76,7 @@ export class Dust {
       const off = w.grounded && (w.surf === S_GRASS || w.surf === S_GRAVEL) && speed > 4;
       if (!off) { this.carry[wi] = 0; return; }
       const gravel = w.surf === S_GRAVEL;
-      this.carry[wi] += (gravel ? 55 : 25) * clamp(speed / 25, 0.3, 1.5) * dt;
+      this.carry[wi] += (gravel ? 60 : 32) * clamp(speed / 25, 0.3, 1.6) * dt;
       while (this.carry[wi] >= 1) {
         this.carry[wi] -= 1;
         const r = () => Math.random() - 0.5;
@@ -91,7 +92,7 @@ export class Dust {
       this.vel[k * 3 + 1] -= 1.5 * dt;
       for (let a = 0; a < 3; a++) { this.vel[k * 3 + a] *= drag; this.pos[k * 3 + a] += this.vel[k * 3 + a] * dt; }
       if (this.pos[k * 3 + 1] < 0.02) { this.pos[k * 3 + 1] = 0.02; this.vel[k * 3 + 1] = 0; }
-      this.alpha[k] = this.a0[k] * (1 - t);
+      this.alpha[k] = this.a0[k] * Math.min(1, t * 8) * (1 - t) * (1 - t * 0.3);
       this.size[k] = lerp(this.s0[k], this.s1[k], Math.sqrt(t));
     }
     for (const n of ['position', 'aColor', 'aAlpha', 'aSize']) this.geo.attributes[n].needsUpdate = true;
