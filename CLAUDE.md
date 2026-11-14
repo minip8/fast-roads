@@ -11,7 +11,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Running
 
 Vite + TypeScript (strict), no framework. three.js and Rapier (`@dimforge/rapier3d-compat`) are npm dependencies
-pinned to exact versions.
+pinned to exact versions. The production build (`vite.config.ts`) puts three.js and Rapier in their own chunks and
+swaps Rapier's inline base64 WebAssembly for the identical `.wasm` file it ships (the build fails if they differ);
+dev and the tests use the inline copy.
 
     npm install
     npm run dev         # dev server; ?autopilot in the URL skips the menu and lets the built-in driver lap
