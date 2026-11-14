@@ -112,15 +112,17 @@ Run `npm run typecheck` and `npm test` before committing.
   - the rear is loose only while the driver asks for rotation (throttle, or steering into the turn) and gets its
     grip back when they lift and straighten or countersteer (`rearLoose` off-throttle share; with the rear firm
     whenever coasting the car understeered on entry). The looseness is sideways only: it does not cost traction.
-  - past ~20 deg of slide the looseness fades (`rearCatch`), so the tail goes a long way out and then digs in
-    instead of spinning; without it, more looseness meant unrecoverable slides.
+  - past ~20 deg of slide the looseness fades and the rear gains a little extra grip (`rearCatch`), so the tail
+    goes a long way out and then digs in: a slide settles at about 30 deg for as long as the throttle is down and
+    comes back when the driver lifts. Without the fade, more looseness meant unrecoverable slides; without the
+    extra grip a slide could only be held by keeping opposite lock on (it faded in 3-4 s) and spun within a
+    second if the key was released.
   - the rear tyre curve barely falls off past its peak (`pac.C` 1.35; at 1.6 any slide beyond the keyboard's
     steering lock was a spin).
   - opposite lock follows the slide angle (`counterLock`, blended in from 8 to 16 deg of slide): the keyboard's
     normal lock at speed is smaller than a big slide's angle, so a fixed lock cannot catch one. The ratio matters:
-    at 0.55 the fronts balance the sliding rear, so opposite lock plus throttle holds a slide and lifting recovers
-    it in about a second; at 0.85 or more (or twice the normal lock) the slide ended in under a second whatever the
-    throttle did.
+    at 0.4 the fronts leave the slide to the throttle; at 0.85 or more (or twice the normal lock) they dragged the
+    nose straight in under a second whatever the throttle did.
   - wheelspin leaves the rear most of its cornering force (`spinLat`). With a low `spinLat` and generous `driveGrip`
     a sliding car spends its rear tyres on gaining speed, so its path barely curves while the nose swings round.
   Yaw damping (`angDamp`) is not the lever for fishtailing: enough of it to matter kills the rotation.
