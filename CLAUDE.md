@@ -26,10 +26,10 @@ Run `npm run typecheck` and `npm test` before committing.
 
 ## Testing
 
-- Tests run the real simulation in Node: `test/harness.ts` `session(carId, { tc })` builds the track, Rapier world,
-  car and timing with no rendering. `drive(seconds, driver?)` steps physics with the autopilot or a
-  `(car, simTime) => DriveInput` function. Each tick goes through `stepPhysics` in `src/sim.ts`, the same function
-  the game loop uses.
+- Tests run the real simulation in Node: `test/harness.ts` `session(carId, { tc })` builds the track and the game's
+  own `Session` (`src/sim.ts`: Rapier world, walls, car on the grid, timing) with no rendering. `drive(seconds,
+  driver?)` calls `Session.tick` with the autopilot or a `(car, simTime) => DriveInput` function, exactly as the game
+  loop does, including the automatic resets.
 - The simulation is deterministic, and Node and the browser agree to the millisecond. `test/laps.test.ts` pins
   autopilot lap times (F1 1:59.659, drift car 182.572 s with TC on, 187.424 s off), so any physics or tuning change
   shows up there. When a change is intended, check the handling still makes sense, then update the expected times.
@@ -37,8 +37,9 @@ Run `npm run typecheck` and `npm test` before committing.
   F1. `car.forceSurface = S_ASPHALT` keeps manoeuvres off grass. Keep them short (about 1–2 s after the manoeuvre):
   the start straight is walled.
 - In the browser, `window.__game` exposes `simulate(seconds, driver, probeSecs)`, `car` (a getter: the car object is
-  replaced when you switch cars), `timing`, `track`, `setSetting(key, value)` and `setAutopilot`. Use it for
-  checks that need the page (menu, HUD, settings), e.g. from headless Chromium.
+  replaced when you switch cars), `simTime`, `session`, `timing`, `track`, `input`, `setSetting(key, value)` and
+  `setAutopilot` (the `GameHook` type in `main.ts`). Use it for checks that need the page (menu, HUD, settings), e.g.
+  from headless Chromium.
 
 ## Architecture (`src/`)
 
@@ -53,7 +54,8 @@ Run `npm run typecheck` and `npm test` before committing.
 - `util.ts`: math and formatting helpers
 - `cars.ts`: car specs (`CarSpec`)
 - `car.ts`: car physics (`Car`, `DriveInput`)
-- `sim.ts`: one physics tick
+- `sim.ts`: `stepPhysics` (one physics tick) and `Session` (world, walls, car, timing; `tick`, `resetToTrack`,
+  `restart`, `setCar`), shared by the game and the tests
 - `carMeshes.ts`: car bodies
 - `track.ts`: track geometry and colliders (`Track`)
 - `trackMeshes.ts`, `textures.ts`, `scenery.ts`, `brakeMarkers.ts`: visuals
@@ -63,8 +65,8 @@ Run `npm run typecheck` and `npm test` before committing.
 - `settings.ts`: setting types, menu rows, defaults, load/save
 - `menu.ts`: `Menu`, which talks to `main.ts` only through the `MenuHost` callbacks
 - `hud.ts`, `minimap.ts`: in-game HUD; `dom.ts`: `$` element lookup
-- `main.ts`: wires it together and owns game state (`car`, `started`/`paused`, `simTime`, the `applySetting`
-  table, hotkeys, the frame loop)
+- `main.ts`: wires it together and owns game state (the `Session`, `started`/`paused`/autopilot, the
+  `applySetting` table, hotkeys, the `window.__game` hook (typed `GameHook`), the frame loop)
 
 - **Track data**: `tracks/melbourne.csv` (TUM racetrack-database centreline + widths), imported into `main.ts` with
   Vite's `?raw` suffix; `parseCSV` skips `#` comment lines.
@@ -86,9 +88,9 @@ Run `npm run typecheck` and `npm test` before committing.
   Drift-car stability lesson: the rear must out-grip the front at speed (`gripRear > gripFront` by ~10%+), or the car
   yaws itself round under braking at 200 km/h; looseness is added only at low speed (`rearLoose`) or while
   braking + steering (`brakeKick`).
-- **Switching cars**: `applySetting.car` in `main()` destroys the old `Car` (body + mesh), builds a new one,
-  re-applies gearbox/TC settings, swaps the timing store and resets to the grid. `car` in `main()` is a `let`;
-  closures must read it at call time, never cache it.
+- **Switching cars**: `applySetting.car` in `main()` calls `Session.setCar`, which destroys the old `Car` (body +
+  mesh), builds a new one, swaps the timing store and resets to the grid; then it re-applies the gearbox/TC settings.
+  `session.car` is replaced, so closures must read it at call time, never keep it.
 - **Settings and menu**: `settings.ts` has the `Settings` type, `SETTING_DEFS` (menu rows and their order) and
   `DEFAULT_SETTINGS`; `main()` has the `applySetting` table (what each setting does). `setSetting` saves to
   `localStorage` `fastroads.settings` and calls `applySetting`; in-game hotkeys go through `cycleSetting` so the menu
