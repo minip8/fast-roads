@@ -53,8 +53,12 @@ export class CameraRig {
       fov = 76 + clamp(speed, 0, 90) * 0.05;
     } else {
       // Heading is smoothed (the car visibly yaws and slides in front of the camera), but the camera is attached to
-      // the car's position rather than chasing it, so it stays the same distance behind at any speed.
+      // the car's position rather than chasing it, so it stays the same distance behind at any speed. Moving
+      // forwards, the camera aims between the car's heading and its direction of travel, so a slide shows the car
+      // angled across the view instead of swinging the camera round with it.
       const flat = _v2.set(fwd.x, 0, fwd.z).normalize();
+      const v = car.vel, vh = Math.hypot(v.x, v.z), wv = car.speedF > 2 ? clamp((vh - 3) / 12, 0, 1) : 0;
+      if (wv > 0) flat.set(flat.x + (v.x / vh) * wv, 0, flat.z + (v.z / vh) * wv).normalize();
       const far = this.mode === 'far';
       const dist = (far ? 9.5 : 6.2) + clamp(speed, 0, 90) * (far ? 0.016 : 0.01), h = far ? 3.0 : 1.75;
       if (!this.init) { this.fwd.copy(flat); this.y = p.y; this.init = true; this.off.set(0, 0, 0); }
