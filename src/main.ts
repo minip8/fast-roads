@@ -79,7 +79,7 @@ export async function main() {
       session.setCar(CARS[id]);
       applySetting.gearbox(settings.gearbox); applySetting.tc(settings.tc); applySetting.assist(settings.assist);
       hud.clearLaps(); acc = 0;
-      if (id === 'drift') hud.showMsg(`${CARS[id].name}<small>Loose rear on the power: brake while turning to kick it out · lift off to catch it · TC off (T) for big slides</small>`, 3);
+      if (id === 'drift') hud.showMsg(`${CARS[id].name}<small>The tail swings out when you turn in or use the throttle · steer into the slide to catch it · TC off (T) for bigger slides</small>`, 3);
     },
     gearbox: (v) => { session.car.manual = v === 'manual'; },
     steering: (v) => { input.setMouse(v === 'mouse'); $('mouseSteer').hidden = v !== 'mouse'; },

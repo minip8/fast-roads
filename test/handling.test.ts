@@ -57,9 +57,9 @@ describe('drift car', () => {
     expect(Math.abs(yaw() - heading)).toBeLessThan(0.5);
   });
 
-  // Kick the tail out with brake + steering keys at 90 km/h; once the rear is 20 deg out, lift off, do what `after`
-  // says with the steering keys for 4 s, and report how the slide ends.
-  async function slide(after: (slideDeg: number) => number, { assist = false } = {}) {
+  // Kick the tail out with brake + steering keys at 90 km/h; once the rear is `from` deg out, lift off, do what
+  // `after` says with the steering keys for 4 s, and report how the slide ends.
+  async function slide(after: (slideDeg: number) => number, { assist = false, from = 20 } = {}) {
     const { car, drive } = await session('drift', { walls: false });
     car.forceSurface = S_ASPHALT;
     car.assist = assist;
@@ -69,7 +69,7 @@ describe('drift car', () => {
       upToSpeed ||= c.speedF >= 25;
       if (!upToSpeed) return { throttle: 1, brake: 0, steer: 0, analog: true, steerAngle: 0, autoGears: true };
       if (t0 == null) {
-        if (Math.abs(rearSlide(c)) < 20) return { throttle: 0, brake: 1, steer: 1, analog: false, autoGears: true };
+        if (Math.abs(rearSlide(c)) < from) return { throttle: 0, brake: 1, steer: 1, analog: false, autoGears: true };
         t0 = t;
       }
       max = Math.max(max, Math.abs(rearSlide(c)));
@@ -113,13 +113,13 @@ describe('drift car', () => {
     expect(r.speed).toBeGreaterThan(2);               // still rolling forwards, not spun
   });
 
-  it('reaches 100 km/h in under 4.8 s', async () => {
+  it('reaches 100 km/h in about 3 s', async () => {
     const { car, drive } = await session('drift');
     car.forceSurface = S_ASPHALT;
     let t = 0;
     drive(10, (_c, now) => { t = now; return { throttle: 1, brake: 0, steer: 0, analog: true, steerAngle: 0, autoGears: true }; }, () => car.speedF >= 100 / 3.6);
-    expect(t).toBeGreaterThan(3.8);
-    expect(t).toBeLessThan(4.8);                      // 5.7 s before the extra traction and torque
+    expect(t).toBeGreaterThan(2.5);
+    expect(t).toBeLessThan(3.3);                      // 5.7 s originally: lighter, and the loose rear no longer costs traction
   });
 
   it('in a power slide the direction of travel follows the nose: it turns at over 25 deg/s without gaining speed', async () => {
@@ -149,6 +149,32 @@ describe('drift car', () => {
     expect(r.at20).toBeGreaterThan(0.3);              // builds, rather than snapping
     expect(r.at20).toBeLessThan(1.5);
     expect(r.max).toBeGreaterThan(60);
+  });
+
+  it('the tail goes a long way out and then digs in: a held key slides past 35 deg but does not spin', async () => {
+    for (const kmh of [65, 90, 130]) {
+      const r = await holdKey(kmh, 0);
+      expect(r.max).toBeGreaterThan(35);
+      expect(r.max).toBeLessThan(60);
+      expect(r.speed).toBeGreaterThan(0);             // still nose-first after 4 s (it scrubs most of its speed off)
+    }
+    const power = await holdKey(65, 1, { tc: false });   // on the power it goes further, and still hangs on
+    expect(power.max).toBeGreaterThan(55);
+    expect(power.max).toBeLessThan(80);
+  });
+
+  it('opposite lock catches a big slide: from 40 deg it never gets past 55 and is straight again within 4 s', async () => {
+    const r = await slide((deg) => (Math.abs(deg) > 9 ? Math.sign(deg) : 0), { from: 40 });
+    expect(r.max).toBeLessThan(55);
+    expect(r.end).toBeLessThan(8);
+    expect(r.speed).toBeGreaterThan(3);
+  });
+
+  it('opposite lock reaches further than steering into a corner', async () => {
+    const r = await slide((deg) => Math.sign(deg), { from: 30 });   // full opposite key throughout
+    const { car } = await session('drift');
+    const normal = car.spec.steerKeys[0] / (1 + 25 / car.spec.steerKeys[1]);   // the keys' lock at 90 km/h
+    expect(Math.abs(r.wheel)).toBeGreaterThan(normal * 1.3);
   });
 
   it('a slide is caught by lifting off and steering into it', async () => {

@@ -30,19 +30,19 @@ steering (keyboard/mouse), camera, traction control, countersteer assist (drift 
 ## Cars
 
 - **F1**: light, huge downforce and grip, 8 gears, 12,500 rpm. Stable and fast.
-- **Drift car**: a heavy rear-drive coupe with almost no downforce and a torquey 7,500 rpm V8 in 6 gears
-  (0–100 km/h in about 3.9 s, about 1.2 g of cornering grip). It is oversteery: at cornering speeds the rear gives up grip whenever you ask the car
-  to rotate, by steering into a corner or by using the throttle (it firms up towards top speed so the straights
-  stay stable), and it steps out further when you brake while turning. Turning in off the throttle puts the tail
-  about 20° out within a second. Lifting off and straightening the wheel, or steering into the slide, gives the
-  rear its grip back, so that is how a slide is caught; opposite lock and feathering the throttle holds one.
-  Spinning the rear wheels costs little cornering force, so in a power slide the car keeps turning (its path
-  follows its nose) rather than gaining speed. Its
-  traction control is lenient, so the throttle can still swing the rear with TC on; turn it off (T) for big slides.
-  Nothing steers for you unless you turn on **Countersteer assist** in the menu (off by default): with it, the
-  front wheels turn into a slide by themselves, and holding the steering key settles into a drift at about 30°
-  instead of a spin. It stops at about 1.4 g, 100 km/h to rest in under 30 m. It uses a
-  bonnet camera for the onboard view.
+- **Drift car**: a light (1,000 kg) rear-drive coupe with almost no downforce and a torquey 7,500 rpm V8 in 6 gears:
+  0–100 km/h in about 2.9 s, about 1.2 g of cornering grip. It is oversteery: at cornering speeds the rear gives up
+  grip whenever you ask the car to rotate, by steering into a corner or by using the throttle (it firms up towards
+  top speed so the straights stay stable), and it steps out further when you brake while turning. The tail goes a
+  long way out: turning in off the throttle puts it 20° out in under a second and 40° soon after. Past that it digs
+  in rather than coming all the way round, so a held slide hangs at 40–45° off the throttle and around 65–70° on it.
+  Steering into the slide brings it back: opposite lock reaches up to twice as far (and the keys wind it on twice as
+  fast) as steering into a corner, and lifting off gives the rear its grip back. Spinning the rear wheels costs
+  little cornering force, so in a power slide the car keeps turning (its path follows its nose) rather than gaining
+  speed. Its traction control is lenient, so the throttle can still swing the rear with TC on; turn it off (T) for
+  bigger slides. Nothing steers for you unless you turn on **Countersteer assist** in the menu (off by default):
+  with it, the front wheels turn into a slide by themselves. It stops at about 1.4 g, 100 km/h to rest in under
+  30 m. It uses a bonnet camera for the onboard view.
 
 Each car keeps its own best lap and sector times at each circuit. Switching car puts you back on the grid.
 
