@@ -79,6 +79,12 @@ and override the mouse while held.
   on gravel.
   Grip eases between surfaces over ~0.1 s instead of switching instantly at the track edge.
   Off-track you get a grass rumble or gravel crunch and dust behind the wheels (visual only; the body stays steady).
+- **Sound**: all synthesised with Web Audio, no samples. Each car has its own engine voice (a smooth V6 in the F1, a
+  lumpy V8 in the drift car) that brightens under load, cuts briefly on upshifts, blips on downshifts and stutters on
+  the rev limiter. Tyres squeal as they near the limit of grip on asphalt and kerbs (cornering or wheelspin), which is
+  the cue to catch a slide; kerbs rumble at the strip rate, road and wind noise rise with speed, and hard impacts
+  thud. Sound starts on the first click or key press (browser autoplay rules), fades out while paused, and stops
+  while muted or in a background tab.
 - **Timing**: start/finish + two sector lines as segments; crossings are detected per tick and interpolated within
   the tick. A lap is deleted if all four wheels pass the kerb (or white line where there's no kerb), on reset, or when
   crossing a line backwards. Best lap, best sectors, and the best-lap trace (for the live delta) persist in localStorage.

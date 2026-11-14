@@ -181,7 +181,7 @@ async function main() {
     car.render(alpha, paused ? 0 : fdt);
     dust.update(paused ? 0 : fdt, car, camera, renderer);
     cam.update(fdt, car);
-    audio.update(car);
+    audio.update(car, fdt, started && !paused);
 
     hud.handleEvents(timing);
     hud.update({ car, timing, simTime, alpha, dt: fdt, autoOn, paused, mouseSteer: input.mouse.enabled ? input.mouse.steer : null });
