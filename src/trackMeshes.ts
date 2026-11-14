@@ -47,7 +47,18 @@ export function ribbon(tr: Track, cols: RibbonCol[], { mask = null, vScale = 1, 
 }
 
 export function buildTrackMeshes(tr: Track, scene: THREE.Scene) {
-  const asphaltTex = canvasTex(512, 512, (g, w, h) => noiseFill(g, w, h, [58, 60, 64], 26, 0.02));
+  const asphaltTex = canvasTex(512, 512, (g, w, h) => {
+    noiseFill(g, w, h, [58, 60, 64], 26, 0.02);
+    // soft darker/lighter patches (wear, repairs), so the road isn't one flat grey once mipmapped in the distance
+    for (let k = 0; k < 40; k++) {
+      const x = Math.random() * w, y = Math.random() * h, r = 20 + Math.random() * 70, dark = Math.random() < 0.55;
+      for (const ox of [-w, 0, w]) for (const oy of [-h, 0, h]) {   // wrapped, so the tile stays seamless
+        const grd = g.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, r);
+        grd.addColorStop(0, dark ? 'rgba(20,22,26,0.16)' : 'rgba(150,150,150,0.08)'); grd.addColorStop(1, 'rgba(0,0,0,0)');
+        g.fillStyle = grd; g.fillRect(x + ox - r, y + oy - r, 2 * r, 2 * r);
+      }
+    }
+  });
   const roadMat = new THREE.MeshStandardMaterial({ map: asphaltTex, roughness: 0.92, metalness: 0, side: THREE.DoubleSide });
   scene.add(ribbon(tr, [
     { o: (i) => -tr.WR[i], y: 0, u: (i) => -tr.WR[i] / 8 },

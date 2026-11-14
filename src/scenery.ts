@@ -76,9 +76,21 @@ export function buildScenery(tr: Track, scene: THREE.Scene) {
   // Grandstands along the right side of the main straight, pit building on the left
   const standMats = {
     concrete: new THREE.MeshStandardMaterial({ color: 0xb9b6ae, roughness: 0.9 }),
-    crowd: new THREE.MeshStandardMaterial({ map: canvasTex(256, 64, (g, w, h) => {
-      g.fillStyle = '#2b3442'; g.fillRect(0, 0, w, h);
-      for (let k = 0; k < 900; k++) { g.fillStyle = `hsl(${Math.random() * 360},${40 + Math.random() * 40}%,${40 + Math.random() * 35}%)`; g.fillRect(Math.random() * w, Math.random() * h, 2, 2); }
+    // One row of seated spectators per tier front (24 m x 1.2 m, so the texels are roughly square)
+    crowd: new THREE.MeshStandardMaterial({ map: canvasTex(1024, 64, (g, w, h) => {
+      g.fillStyle = '#39414d'; g.fillRect(0, 0, w, h);
+      g.fillStyle = '#2c333d'; g.fillRect(0, 40, w, h - 40);
+      const shirts = ['#d8d4cc', '#2f5fa8', '#c23b30', '#e0b03a', '#3d7a48', '#1e2228', '#e8e8e8', '#7c4f8f', '#f07a2a', '#5d6873'];
+      const skins = ['#f1c6a4', '#d9a27c', '#b77b55', '#8a5a3c', '#f5d2b8'];
+      for (let x = 4; x < w - 18; x += 20 + Math.random() * 4) {
+        if (Math.random() < 0.12) continue;                                     // empty seat
+        const dx = x + Math.random() * 3, dy = Math.random() * 4 - (Math.random() < 0.1 ? 8 : 0);   // a few stand up
+        g.fillStyle = shirts[Math.floor(Math.random() * shirts.length)];
+        g.fillRect(dx, 26 + dy, 15, 40);                                        // torso
+        g.fillStyle = skins[Math.floor(Math.random() * skins.length)];
+        g.beginPath(); g.arc(dx + 7.5, 19 + dy, 6, 0, Math.PI * 2); g.fill();   // head
+        if (Math.random() < 0.4) { g.fillStyle = Math.random() < 0.5 ? '#2a2420' : '#c9b48a'; g.fillRect(dx + 1, 11 + dy, 13, 5); }   // hair / cap
+      }
     }), roughness: 1 }),
     roof: new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 0.6, metalness: 0.3 }),
   };
@@ -108,7 +120,10 @@ export function buildScenery(tr: Track, scene: THREE.Scene) {
     const len = Math.hypot(b.x - a.x, b.z - a.z);
     const im = wrapI(-35, tr.N), off = tr.barL[im] + 9;
     M.compose(pos.set(tr.X[im] + tr.NX[im] * off, 4, tr.Z[im] + tr.NZ[im] * off), q.setFromEuler(e.set(0, Math.atan2(b.x - a.x, b.z - a.z), 0)), sc.set(1, 1, 1));
-    part(new THREE.BoxGeometry(12, 8, len), 0, 0, 0, [standMats.concrete, standMats.concrete, standMats.roof, standMats.concrete, standMats.concrete, standMats.concrete]);
+    // local -x faces the track: garages along it (that face's u runs along the building)
+    const pitFront = new THREE.MeshStandardMaterial({ map: pitTexture(), roughness: 0.8 });
+    pitFront.map!.repeat.set(Math.max(1, Math.round(len / 32)), 1);
+    part(new THREE.BoxGeometry(12, 8, len), 0, 0, 0, [standMats.concrete, pitFront, standMats.roof, standMats.concrete, standMats.concrete, standMats.concrete]);
   }
   // Start gantry: local x maps to the left normal, rotation.y = atan2(-NZ, NX) maps (1,0,0) -> (NX, 0, NZ)
   {
@@ -126,6 +141,24 @@ export function buildScenery(tr: Track, scene: THREE.Scene) {
   return { cx, cz, minX, maxX, minZ, maxZ };
 }
 
+// Pit building frontage, 32 m x 8 m per repeat: four garages under a glazed upper floor and a dark roof band.
+function pitTexture() {
+  return canvasTex(512, 128, (g, w, h) => {
+    noiseFill(g, w, h, [196, 194, 188], 10);
+    g.fillStyle = '#1f2630'; g.fillRect(0, 0, w, 12);                                  // roof band
+    g.fillStyle = '#5d7f9e'; g.fillRect(0, 22, w, 26);                                 // upper-floor glazing
+    g.fillStyle = 'rgba(255,255,255,0.22)'; for (let x = 0; x < w; x += 32) g.fillRect(x + 4, 24, 9, 22);
+    g.fillStyle = '#9aa1a8'; for (let x = 0; x < w; x += 32) g.fillRect(x, 22, 3, 26);   // mullions
+    for (let k = 0; k < 4; k++) {
+      const x0 = k * 128 + 12;
+      g.fillStyle = ['#d8262b', '#1d4f9e', '#f0b323', '#2b8a4a'][k]; g.fillRect(x0, 54, 104, 6);   // team colour strip
+      g.fillStyle = '#1b1f24'; g.fillRect(x0, 62, 104, 66);                            // garage opening
+      g.fillStyle = '#3a4048'; g.fillRect(x0 + 4, 62, 96, 30);                         // half-open shutter
+      g.fillStyle = '#4a515a'; for (let y = 64; y < 92; y += 4) g.fillRect(x0 + 4, y, 96, 1);
+    }
+  });
+}
+
 export function mulberry32(a: number): () => number {
   return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 }
@@ -135,11 +168,25 @@ export function buildSky(scene: THREE.Scene, sunDir: THREE.Vector3) {
     side: THREE.BackSide, depthWrite: false, fog: false, toneMapped: false,
     uniforms: { sunDir: { value: sunDir } },
     vertexShader: `varying vec3 vDir; void main(){ vDir = position; vec4 p = projectionMatrix * modelViewMatrix * vec4(position,1.); gl_Position = p.xyww; }`,
+    // Colours are display-space and match the fog colour at the horizon. Clouds: value-noise fbm on a flat layer
+    // (direction projected onto a plane overhead), thinned out towards the horizon so it stays hazy there.
     fragmentShader: `varying vec3 vDir; uniform vec3 sunDir;
+      float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f);
+        return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y); }
+      float fbm(vec2 p){ float v = 0., a = 0.5; for (int k = 0; k < 5; k++) { v += a * vnoise(p); p = p * 2.03 + 17.1; a *= 0.5; } return v; }
       void main(){ vec3 d = normalize(vDir); float h = clamp(d.y, 0., 1.);
         vec3 horizon = vec3(0.80, 0.87, 0.93), zenith = vec3(0.28, 0.52, 0.86);
         vec3 col = mix(horizon, zenith, pow(h, 0.55));
         float s = max(dot(d, normalize(sunDir)), 0.);
+        if (d.y > 0.) {
+          vec2 uv = d.xz / (d.y + 0.12) * 1.6;
+          float c = smoothstep(0.50, 0.78, fbm(uv + vec2(3.7, 1.2)));
+          c *= smoothstep(0.02, 0.22, d.y);
+          float shade = 0.82 + 0.18 * fbm(uv * 1.7 + 5.);            // lumpy undersides
+          vec3 cloud = mix(vec3(0.74, 0.79, 0.86), vec3(1.0, 0.99, 0.97), shade) + vec3(1.0, 0.9, 0.7) * pow(s, 8.) * 0.25;
+          col = mix(col, cloud, c * 0.85);
+        }
         col += vec3(1.0, 0.92, 0.75) * (pow(s, 900.) * 6. + pow(s, 12.) * 0.18);
         if (d.y < 0.) col = horizon * mix(1.0, 0.85, clamp(-d.y * 4., 0., 1.));
         gl_FragColor = vec4(col, 1.); }`,
