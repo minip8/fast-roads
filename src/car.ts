@@ -54,6 +54,8 @@ export class Car {
   private readonly ray: RAPIER.Ray;
   // driver-facing state
   gear: number; rpm: number; steer = 0; throttle = 0; brake = 0;
+  private steerIn = 0;                      // the driver's part of the wheel angle (steer adds the countersteer assist)
+  private rearSlip = 0; private slipRate = 0;   // rear slide angle (rad) and its smoothed rate, for the assist
   tc = true; manual = false;                // gearbox is automatic unless manual
   pendingShift = 0; shiftDenied = false;    // queued manual shifts; set when a downshift would over-rev
   shiftTimer = 0; private revTimer = 0;
@@ -113,7 +115,7 @@ export class Car {
     this.body.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true);
     this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
-    this.gear = 1; this.steer = 0; this.shiftTimer = 0; this.tipped = 0;
+    this.gear = 1; this.steer = this.steerIn = this.rearSlip = this.slipRate = 0; this.shiftTimer = 0; this.tipped = 0;
     for (const w of this.wheels) { w.comp = w.prevComp = 0.025; w.omega = 0; w.muBlend = SURF[S_ASPHALT].mu; w.rrBlend = SURF[S_ASPHALT].rr; w.decelBlend = 0; }
     this.proj.i = -1;
     this.readState();
@@ -145,8 +147,29 @@ export class Car {
       target = inp.steer * lock / (1 + Math.max(0, vF) / halfV);
     }
     target = clamp(target, -this.spec.steerLock, this.spec.steerLock);
-    const rate = inp.analog || inp.steerAngle != null ? 6 : (Math.abs(target) < Math.abs(this.steer) ? 3.2 : 2.2) * this.spec.steerRateKeys / (1 + Math.max(0, vF) / 30);
-    this.steer += clamp(target - this.steer, -rate * dt, rate * dt);
+    const rate = inp.analog || inp.steerAngle != null ? 6 : (Math.abs(target) < Math.abs(this.steerIn) ? 3.2 : 2.2) * this.spec.steerRateKeys / (1 + Math.max(0, vF) / 30);
+    this.steerIn += clamp(target - this.steerIn, -rate * dt, rate * dt);
+    // Countersteer assist (like caster): once the rear slides past fromSlip, the front wheels turn toward where the
+    // car is going, so letting go of the steering catches the slide. Three parts:
+    // - assist: countersteer in proportion to the slide (gain);
+    // - unwind: countersteer early as the tail steps out and back off as it returns (damp x how fast the slide is
+    //   changing), which stops a held countersteer whipping the car the other way;
+    // - the driver's steering into the slide fades out over `span` more radians of slide, so holding the steering
+    //   key settles into a slide instead of a spin.
+    const [csGain, csFrom, csDamp, csSpan] = this.spec.counterSteer;
+    let own = this.steerIn, assist = 0, unwind = 0;
+    if (csGain > 0 && inp.steerAngle == null && vF > 2) {
+      const rearSlip = Math.atan2(this.vel.dot(this.left) + this.angv.dot(this.up) * this.spec.zRear, Math.max(vF, 5));
+      this.slipRate += ((rearSlip - this.rearSlip) / dt - this.slipRate) * 0.25;
+      this.rearSlip = rearSlip;
+      const fade = clamp((vF - 2) / 4, 0, 1), over = Math.max(0, Math.abs(rearSlip) - csFrom);
+      assist = csGain * Math.sign(rearSlip) * over * fade;
+      unwind = csDamp * Math.sign(this.slipRate) * Math.max(0, Math.abs(this.slipRate) - 0.4) * fade;
+      if (own * rearSlip < 0) own *= 1 - fade * clamp(over / csSpan, 0, 1);
+    } else this.rearSlip = this.slipRate = 0;
+    // A driver who countersteers too gets the larger of the two angles, not the sum, so the assist can't overcorrect.
+    const both = own * assist > 0 ? Math.sign(assist) * Math.max(Math.abs(own), Math.abs(assist)) : own + assist;
+    this.steer = clamp(both + unwind, -this.spec.steerLock, this.spec.steerLock);
 
     // --- gearbox
     let throttle = inp.throttle, brake = inp.brake;
@@ -245,7 +268,7 @@ export class Car {
     // Braking while steering costs the rear some grip (brakeKick = share lost at full brake + ~9 deg of steer),
     // so the tail steps out. Going straight it does nothing, so straight-line braking stays stable.
     const [loose, looseV] = this.spec.rearLoose;
-    const rearGrip = (1 - this.spec.brakeKick * clamp(brake, 0, 1) * clamp(Math.abs(this.steer) / 0.15, 0, 1))
+    const rearGrip = (1 - this.spec.brakeKick * clamp(brake, 0, 1) * clamp(Math.abs(this.steerIn) / 0.15, 0, 1))
       * (1 - loose * clamp(1 - Math.abs(vF) / looseV, 0, 1));   // loose rear at cornering speeds, firm at top speed
     let plough = 0;
     for (const w of this.wheels) {

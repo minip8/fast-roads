@@ -6,19 +6,25 @@ import * as THREE from 'three';
 import { autopilot } from '../src/autopilot';
 import type { Car, DriveInput } from '../src/car';
 import { CARS, type CarId } from '../src/cars';
-import { DT } from '../src/config';
+import { DT, G_WALL } from '../src/config';
 import { Session } from '../src/sim';
 import { buildTrack, parseCSV, type Track } from '../src/track';
 
 let track: Track | null = null;
 
-export async function session(carId: CarId, { tc = true } = {}) {
+// `walls: false` removes the barriers, for manoeuvres that need more room than the walled start straight has.
+export async function session(carId: CarId, { tc = true, walls = true } = {}) {
   await RAPIER.init();
   track ??= buildTrack(parseCSV(readFileSync(new URL('../tracks/melbourne.csv', import.meta.url), 'utf8')));
   const tr = track;
   const s = new Session(tr, new THREE.Scene(), CARS[carId]);
   const { car, timing, world } = s;
   car.tc = tc;
+  if (!walls) {
+    const handles: number[] = [];
+    world.forEachCollider((c) => { if ((c.collisionGroups() >>> 16) & G_WALL) handles.push(c.handle); });
+    for (const h of handles) world.removeCollider(world.getCollider(h), false);
+  }
 
   // Drive for `seconds`, or until `until()` is true after a tick; the default driver is the autopilot. Same ticks and
   // resets as the game loop.

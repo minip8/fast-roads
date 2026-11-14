@@ -26,7 +26,7 @@ Run `npm run typecheck` and `npm test` before committing.
 
 ## Testing
 
-- Tests run the real simulation in Node: `test/harness.ts` `session(carId, { tc })` builds the track and the game's
+- Tests run the real simulation in Node: `test/harness.ts` `session(carId, { tc, walls })` builds the track and the game's
   own `Session` (`src/sim.ts`: Rapier world, walls, car on the grid, timing) with no rendering. `drive(seconds,
   driver?, until?)` calls `Session.tick` with the autopilot or a `(car, simTime) => DriveInput` function, exactly as
   the game loop does, including the automatic resets; `until` stops early once the test has what it measures.
@@ -36,7 +36,7 @@ Run `npm run typecheck` and `npm test` before committing.
   Each lap is run by its own `laps-*.test.ts` file so the three (about 12–18 s each) run in parallel.
 - `test/handling.test.ts` holds loose-bound checks of tuning intent: the drift car's brake-and-turn kick, a stable
   F1. `car.forceSurface = S_ASPHALT` keeps manoeuvres off grass. Keep them short (about 1–2 s after the manoeuvre):
-  the start straight is walled.
+  the start straight is walled (`walls: false` removes the barriers for manoeuvres that need the room).
 - In the browser, `window.__game` exposes `simulate(seconds, driver, probeSecs)`, `car` (a getter: the car object is
   replaced when you switch cars), `simTime`, `session`, `timing`, `track`, `input`, `setSetting(key, value)` and
   `setAutopilot` (the `GameHook` type in `main.ts`). Use it for checks that need the page (menu, HUD, settings), e.g.
@@ -83,12 +83,14 @@ Run `npm run typecheck` and `npm test` before committing.
   each car (`f1`, `drift`), plus its mesh builder, its engine voice (`sound`, an `EngineVoice` from `audioGraph.ts`)
   and its lap-time `storeKey`. The `Car` class reads only `this.spec`, so a new car is a new spec entry
   (`test/cars.test.ts` checks each spec fits the menu, gearbox, mesh and autopilot). Behaviour toggled per car uses
-  neutral defaults on the F1 (e.g. `brakeKick: 0`, `brakeGrip: 1`, `rearLoose: [0, 1]`, `autoCounter: 0`, optional
-  `pacFront`), so F1 handling stays identical.
+  neutral defaults on the F1 (e.g. `brakeKick: 0`, `brakeGrip: 1`, `rearLoose: [0, 1]`, `counterSteer` gain 0,
+  `autoCounter: 0`, optional `pacFront`), so F1 handling stays identical.
 - **Car physics (`Car.step`)**: Rapier rigid body at a fixed 120 Hz (`DT`), with custom physics on top:
   - raycast suspension with anti-roll bars
   - Pacejka lateral curve with load sensitivity
   - friction circle with ABS-style brake priority, stretched for braking by `brakeGrip`
+  - countersteer assist for the player's steering (`counterSteer`); the autopilot's `steerAngle` bypasses it, so
+    assist tuning does not move the pinned lap times
   - traction control (`tcSlack`)
   - per-surface grip blending and grass/gravel ploughing
   - downforce and drag
