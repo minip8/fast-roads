@@ -9,6 +9,16 @@ import { clamp, fmtDelta, fmtSec, fmtTime } from './util';
 // ============================================================================
 // In-game HUD: lap/sector timing, messages, dash (shift lights, pedals, gear, speed), minimap
 // ============================================================================
+// The HUD updates every frame, but most of it changes a few times a second: only write what changed, so unchanged
+// text, classes and styles don't cost a DOM mutation (and style recalculation) each frame.
+// Those parts of the page are only ever written through these, so the caches always match it.
+const texts = new WeakMap<Node, string>(), classes = new WeakMap<Element, string>(), styles = new WeakMap<HTMLElement, string>();
+function setText(el: Node, text: string) { if (texts.get(el) !== text) { texts.set(el, text); el.textContent = text; } }
+function setClass(el: Element, cls: string) { if (classes.get(el) !== cls) { classes.set(el, cls); el.className = cls; } }
+function setStyle(el: HTMLElement, prop: 'left' | 'height', value: string) {
+  if (styles.get(el) !== value) { styles.set(el, value); el.style[prop] = value; }
+}
+
 export interface HudFrame {
   car: Car; timing: Timing;
   simTime: number; alpha: number;   // physics time and interpolation fraction into the next tick
@@ -21,7 +31,7 @@ export class Hud {
   private readonly el = { lap: $('lapTime'), state: $('lapState'), delta: $('delta'), last: $('lastLap'), best: $('bestLap'), opt: $('optLap'),
     list: $('lapList'), speed: $('speed'), gear: $('gear'), flags: $('flags'), msg: $('msg'), help: $('help'),
     shiftLights: $('shiftLights'), thr: $('thrFill'), brk: $('brkFill'), mouseKnob: $('mouseSteerKnob'),
-    sec: [0, 1, 2].map((k) => $('sec' + k)) };
+    sec: [0, 1, 2].map((k) => $('sec' + k)), secTime: [0, 1, 2].map((k) => $('sec' + k).querySelector('b')!) };
   private readonly lights: HTMLElement[] = [];
   private readonly minimap: Minimap;
   private litCount = -1;
@@ -46,6 +56,7 @@ export class Hud {
 
   // Turn this frame's timing events into messages.
   handleEvents(timing: Timing) {
+    if (!timing.events.length) return;
     for (const ev of timing.events.splice(0)) {
       if (ev.type === 'invalid') this.showMsg(`<span style="color:var(--red)">${ev.reason}</span><small>Lap time deleted</small>`, 2);
       if (ev.type === 'lap') {
@@ -63,12 +74,12 @@ export class Hud {
     const { car, timing, simTime } = f, el = this.el;
     const dt = f.paused ? 0 : f.dt;   // messages and the help panel wait while the game is paused
     const lapStart = timing.lapStart, lapRunning = lapStart != null;
-    el.lap.textContent = lapRunning ? fmtTime(simTime + f.alpha * DT - lapStart) : '-:--.---';
+    setText(el.lap, lapRunning ? fmtTime(simTime + f.alpha * DT - lapStart) : '-:--.---');
     el.lap.classList.toggle('invalid', lapRunning && !timing.valid);
-    el.state.textContent = !lapRunning ? 'OUT LAP' : timing.valid ? `LAP ${timing.laps.length + 1}` : `LAP ${timing.laps.length + 1} · INVALID (${timing.invalidReason})`;
+    setText(el.state, !lapRunning ? 'OUT LAP' : timing.valid ? `LAP ${timing.laps.length + 1}` : `LAP ${timing.laps.length + 1} · INVALID (${timing.invalidReason})`);
     const dl = timing.valid ? timing.liveDelta(simTime, car.proj.s) : null;
-    el.delta.textContent = dl != null ? fmtDelta(dl) : '';
-    el.delta.className = 'num ' + (dl == null ? '' : dl <= 0 ? 'ahead' : 'behind');
+    setText(el.delta, dl != null ? fmtDelta(dl) : '');
+    setClass(el.delta, 'num ' + (dl == null ? '' : dl <= 0 ? 'ahead' : 'behind'));
     for (let k = 0; k < 3; k++) {
       const t = timing.cur[k];
       let txt, cls;
@@ -76,20 +87,22 @@ export class Hud {
       else if (lapRunning && timing.next === (k + 1) % 3) { txt = fmtSec(simTime - timing.sectorStart); cls = 'live'; }
       else if (!lapRunning && timing.lastLap) { txt = fmtSec(timing.lastLap.sectors[k]); cls = timing.lastLap.classes[k]; }
       else { txt = '—'; cls = ''; }
-      el.sec[k].className = 'sec ' + cls;
-      el.sec[k].lastChild!.textContent = txt;
+      setClass(el.sec[k], 'sec ' + cls);
+      setText(el.secTime[k], txt);
     }
-    el.last.textContent = timing.lastLap ? fmtTime(timing.lastLap.time) + (timing.lastLap.valid ? '' : ' ✕') : '—';
-    el.best.textContent = fmtTime(timing.store.bestLap);
+    setText(el.last, timing.lastLap ? fmtTime(timing.lastLap.time) + (timing.lastLap.valid ? '' : ' ✕') : '—');
+    setText(el.best, fmtTime(timing.store.bestLap));
     const [b0, b1, b2] = timing.store.bestSectors;
-    el.opt.textContent = b0 != null && b1 != null && b2 != null ? fmtTime(b0 + b1 + b2) : '—';
-    el.speed.textContent = String(Math.round(Math.abs(car.speedF) * 3.6));
-    el.gear.textContent = car.gear === 0 ? 'R' : !car.manual && Math.abs(car.speedF) < 0.5 && car.throttle < 0.05 ? 'N' : String(car.gear);
+    setText(el.opt, b0 != null && b1 != null && b2 != null ? fmtTime(b0 + b1 + b2) : '—');
+    setText(el.speed, String(Math.round(Math.abs(car.speedF) * 3.6)));
+    setText(el.gear, car.gear === 0 ? 'R' : !car.manual && Math.abs(car.speedF) < 0.5 && car.throttle < 0.05 ? 'N' : String(car.gear));
     this.updateDash(car);
-    const surfName = SURF[Math.max(...car.wheels.map((w) => w.surf))].name;
-    el.flags.textContent = `${car.manual ? 'MANUAL' : 'AUTO'} · TC ${car.tc ? 'ON' : 'OFF'}${f.autoOn ? ' · AUTOPILOT' : ''}${f.paused ? ' · PAUSED' : ''}${surfName !== 'asphalt' ? ' · ' + surfName.toUpperCase() : ''}`;
+    let surf = 0;
+    for (const w of car.wheels) surf = Math.max(surf, w.surf);
+    const surfName = SURF[surf].name;
+    setText(el.flags, `${car.manual ? 'MANUAL' : 'AUTO'} · TC ${car.tc ? 'ON' : 'OFF'}${f.autoOn ? ' · AUTOPILOT' : ''}${f.paused ? ' · PAUSED' : ''}${surfName !== 'asphalt' ? ' · ' + surfName.toUpperCase() : ''}`);
     if (this.msgTimer > 0 && (this.msgTimer -= dt) <= 0) el.msg.classList.remove('show');
-    if (f.mouseSteer != null) el.mouseKnob.style.left = (50 - f.mouseSteer * 50) + '%';
+    if (f.mouseSteer != null) setStyle(el.mouseKnob, 'left', (50 - f.mouseSteer * 50) + '%');
     if (this.helpTimer > 0 && (this.helpTimer -= dt) <= 0) el.help.classList.add('hidden');
     this.minimap.draw(car);
   }
@@ -101,7 +114,7 @@ export class Hud {
     const sl = this.el.shiftLights, flashing = n === 15;
     sl.classList.toggle('flash', flashing);
     sl.classList.toggle('off', flashing && Math.floor(performance.now() / 70) % 2 === 1);
-    this.el.thr.style.height = Math.round(clamp(car.throttle, 0, 1) * 100) + '%';
-    this.el.brk.style.height = Math.round(clamp(car.brake, 0, 1) * 100) + '%';
+    setStyle(this.el.thr, 'height', Math.round(clamp(car.throttle, 0, 1) * 100) + '%');
+    setStyle(this.el.brk, 'height', Math.round(clamp(car.brake, 0, 1) * 100) + '%');
   }
 }
