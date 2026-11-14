@@ -11,7 +11,7 @@ import { session } from './harness';
 async function maxSlipAngle(carId: CarId, v0: number, input: Pick<DriveInput, 'brake' | 'steer'>) {
   const { car, drive } = await session(carId);
   car.forceSurface = S_ASPHALT;                 // the manoeuvre can run past the track edge
-  let t0: number | null = null, maxDeg = 0;
+  let t0: number | null = null, maxDeg = 0, done = false;
   drive(8, (c, t) => {
     if (t0 == null) {
       if (c.speedF > v0) t0 = t;
@@ -22,8 +22,9 @@ async function maxSlipAngle(carId: CarId, v0: number, input: Pick<DriveInput, 'b
       if (c.speedF > 3) maxDeg = Math.max(maxDeg, slip);
       return { throttle: 0, analog: true, autoGears: true, ...input };
     }
+    done = true;
     return { throttle: 0, brake: 0.5, steer: 0, analog: true, autoGears: true };
-  });
+  }, () => done);
   return maxDeg;
 }
 

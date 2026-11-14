@@ -20,9 +20,13 @@ export async function session(carId: CarId, { tc = true } = {}) {
   const { car, timing, world } = s;
   car.tc = tc;
 
-  // Drive for `seconds`; the default driver is the autopilot. Same ticks and resets as the game loop.
-  const drive = (seconds: number, driver?: (car: Car, t: number) => DriveInput) => {
-    for (let k = 0, n = Math.round(seconds / DT); k < n; k++) s.tick(driver ? driver(car, s.simTime) : autopilot(car, tr), !driver);
+  // Drive for `seconds`, or until `until()` is true after a tick; the default driver is the autopilot. Same ticks and
+  // resets as the game loop.
+  const drive = (seconds: number, driver?: ((car: Car, t: number) => DriveInput) | null, until?: () => boolean) => {
+    for (let k = 0, n = Math.round(seconds / DT); k < n; k++) {
+      s.tick(driver ? driver(car, s.simTime) : autopilot(car, tr), !driver);
+      if (until?.()) return;
+    }
   };
   return { track: tr, world, car, timing, drive };
 }

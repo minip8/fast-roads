@@ -18,7 +18,7 @@ dev and the tests use the inline copy.
     npm install
     npm run dev         # dev server; ?autopilot in the URL skips the menu and lets the built-in driver lap
     npm run typecheck   # tsc for src/, then for test/ (only test/ gets Node types)
-    npm test            # Vitest, headless physics (~30 s)
+    npm test            # Vitest, headless physics (~20 s: the test files run in parallel)
     npx vitest run test/handling.test.ts -t 'F1'   # one file / one test by name
     npm run build       # typecheck + static build in dist/ (base './'); npm run preview serves it
 
@@ -28,11 +28,12 @@ Run `npm run typecheck` and `npm test` before committing.
 
 - Tests run the real simulation in Node: `test/harness.ts` `session(carId, { tc })` builds the track and the game's
   own `Session` (`src/sim.ts`: Rapier world, walls, car on the grid, timing) with no rendering. `drive(seconds,
-  driver?)` calls `Session.tick` with the autopilot or a `(car, simTime) => DriveInput` function, exactly as the game
-  loop does, including the automatic resets.
-- The simulation is deterministic, and Node and the browser agree to the millisecond. `test/laps.test.ts` pins
+  driver?, until?)` calls `Session.tick` with the autopilot or a `(car, simTime) => DriveInput` function, exactly as
+  the game loop does, including the automatic resets; `until` stops early once the test has what it measures.
+- The simulation is deterministic, and Node and the browser agree to the millisecond. `test/laps.ts` pins
   autopilot lap times (F1 1:59.659, drift car 182.572 s with TC on, 187.424 s off), so any physics or tuning change
   shows up there. When a change is intended, check the handling still makes sense, then update the expected times.
+  Each lap is run by its own `laps-*.test.ts` file so the three (about 12–18 s each) run in parallel.
 - `test/handling.test.ts` holds loose-bound checks of tuning intent: the drift car's brake-and-turn kick, a stable
   F1. `car.forceSurface = S_ASPHALT` keeps manoeuvres off grass. Keep them short (about 1–2 s after the manoeuvre):
   the start straight is walled.
