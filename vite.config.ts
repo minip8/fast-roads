@@ -9,11 +9,13 @@ import { defineConfig, type Plugin } from 'vite';
 // and no base64 decode on the main thread. The build fails if the inline copy and the file ever differ, so the
 // browser always runs exactly the binary the Node tests run (dev and tests keep the inline copy).
 function rapierWasmFile(): Plugin {
+  let swapped = false;
   return {
     name: 'rapier-wasm-file',
     apply: 'build',
     transform(code, id) {
       if (!/rapier3d-compat[\\/]rapier\.mjs$/.test(id)) return;
+      swapped = true;
       const inline = /\b[\w$]+\.toByteArray\("([A-Za-z0-9+/=]{100000,})"\)\.buffer/g;
       const found = [...code.matchAll(inline)];
       const wasm = readFileSync(join(dirname(id), 'rapier_wasm3d_bg.wasm'));
@@ -23,6 +25,9 @@ function rapierWasmFile(): Plugin {
       const ref = this.emitFile({ type: 'asset', name: 'rapier_wasm3d_bg.wasm', source: wasm });
       // the bundled wasm-bindgen init takes { module_or_path } and fetches it with instantiateStreaming
       return code.replace(found[0][0], () => `{ module_or_path: import.meta.ROLLUP_FILE_URL_${ref} }`);
+    },
+    buildEnd(err) {
+      if (!err && !swapped) this.error('rapier-wasm-file: rapier.mjs was not in the build (package layout changed?); update this plugin');
     },
   };
 }
@@ -37,6 +42,7 @@ function preloadGame(): Plugin {
       order: 'post',
       handler(_html, { bundle, chunk: entry }) {
         if (!bundle || !entry) return;
+        if (!entry.dynamicImports.length) throw new Error('preload-game: the entry no longer imports the game dynamically; update this plugin');
         const files = new Set<string>();
         const add = (f: string) => {
           const c = bundle[f];
@@ -69,7 +75,9 @@ function serviceWorker(): Plugin {
       const hash = createHash('sha256');
       for (const f of files) hash.update(f).update(readFileSync(join(outDir, f)));
       const urls = files.map((f) => (f === 'index.html' ? './' : './' + f));
-      const src = readFileSync(resolve(root, 'src/sw.js'), 'utf8')
+      const template = readFileSync(resolve(root, 'src/sw.js'), 'utf8');
+      for (const p of ['__VERSION__', '__FILES__']) if (!template.includes(p)) this.error(`service-worker: src/sw.js has no ${p} placeholder`);
+      const src = template
         .replace('__VERSION__', JSON.stringify(hash.digest('hex').slice(0, 12)))
         .replace('__FILES__', JSON.stringify(urls));
       writeFileSync(join(outDir, 'sw.js'), src);
