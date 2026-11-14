@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { buildSpeedProfile } from './autopilot';
+import { Batch } from './batch';
 import { CARS } from './cars';
 import { KERB_W } from './config';
 import { canvasTex } from './textures';
@@ -48,6 +49,7 @@ export function buildBrakeMarkers(tr: Track, scene: THREE.Scene) {
   const postMat = new THREE.MeshStandardMaterial({ color: 0x444a52, roughness: 0.6, metalness: 0.4 });
   const faceMat = {} as Record<number, THREE.Material>;
   for (const d of BOARD_DISTANCES) faceMat[d] = new THREE.MeshStandardMaterial({ map: tex[d], roughness: 0.6 });
+  const batch = new Batch(), M = new THREE.Matrix4(), L = new THREE.Matrix4();   // all boards: one mesh per material
   zones.forEach((z, zi) => {
     const prevEntry = zones.length > 1 ? zones[wrapI(zi - 1, zones.length)].s : -Infinity;
     // the side the car approaches on: the outside of the corner it is about to turn into
@@ -62,17 +64,13 @@ export function buildBrakeMarkers(tr: Track, scene: THREE.Scene) {
       const edge = side > 0 ? tr.WL[i] : tr.WR[i], bar = side > 0 ? tr.barL[i] : tr.barR[i];
       const off = Math.min(edge + KERB_W + 2.2, bar - 1.2);
       const q = pointAt(tr, sb, side * off);
-      const g = new THREE.Group();
-      const board = new THREE.Mesh(boardGeo, [plain, plain, plain, plain, faceMat[d], plain]);   // +z face shows the number
-      board.position.y = 1.3; board.castShadow = true;
-      const post = new THREE.Mesh(postGeo, postMat);
-      g.add(board, post);
-      g.position.set(q.x, 0, q.z);
       // face the oncoming car: local +z points back along the track (-tangent)
-      g.rotation.y = Math.atan2(-tr.TX[i], -tr.TZ[i]);
-      scene.add(g);
+      M.makeRotationY(Math.atan2(-tr.TX[i], -tr.TZ[i])).setPosition(q.x, 0, q.z);
+      batch.add(boardGeo, L.multiplyMatrices(M, L.makeTranslation(0, 1.3, 0)), [plain, plain, plain, plain, faceMat[d], plain]);   // +z face shows the number
+      batch.add(postGeo, M, postMat);
       markers.push({ d, s: Math.round(((sb % tr.L) + tr.L) % tr.L), side, entryS: Math.round(z.s), fromKmh: z.fromKmh, toKmh: z.toKmh });
     }
   });
+  batch.build(scene);
   return { zones, markers };
 }

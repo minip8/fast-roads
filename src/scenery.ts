@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Batch } from './batch';
 import { canvasTex, noiseFill } from './textures';
 import { clamp, wrapI } from './util';
 import type { Track } from './track';
@@ -81,56 +82,47 @@ export function buildScenery(tr: Track, scene: THREE.Scene) {
     }), roughness: 1 }),
     roof: new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 0.6, metalness: 0.3 }),
   };
-  const makeStand = () => {
-    const gs = new THREE.Group();
-    for (let t = 0; t < 5; t++) {
-      const tier = new THREE.Mesh(new THREE.BoxGeometry(24, 1.2, 2.2), [standMats.concrete, standMats.concrete, standMats.concrete, standMats.concrete, standMats.crowd, standMats.concrete]);
-      tier.position.set(0, 0.6 + t * 1.2, -t * 2.2);   // local +z faces the track
-      tier.castShadow = tier.receiveShadow = true;
-      gs.add(tier);
-    }
-    const back = new THREE.Mesh(new THREE.BoxGeometry(24, 9, 0.5), standMats.concrete); back.position.set(0, 4.5, -10.2); gs.add(back);
-    const roof = new THREE.Mesh(new THREE.BoxGeometry(25, 0.3, 13), standMats.roof); roof.position.set(0, 9.2, -4.5); roof.castShadow = true; gs.add(roof);
-    for (const x of [-11.5, 11.5]) { const post = new THREE.Mesh(new THREE.BoxGeometry(0.4, 9, 0.4), standMats.concrete); post.position.set(x, 4.5, 1.5); gs.add(post); }
-    return gs;
-  };
+  // Every stand, the pit building and the gantry are merged into one mesh per material (a few draw calls in all).
+  const batch = new Batch(), M = new THREE.Matrix4(), L = new THREE.Matrix4(), e = new THREE.Euler();
+  const part = (geo: THREE.BufferGeometry, x: number, y: number, z: number, mat: THREE.Material | THREE.Material[]) =>
+    batch.add(geo, L.multiplyMatrices(M, L.makeTranslation(x, y, z)), mat);
+  const tierGeo = new THREE.BoxGeometry(24, 1.2, 2.2), backGeo = new THREE.BoxGeometry(24, 9, 0.5);
+  const roofGeo = new THREE.BoxGeometry(25, 0.3, 13), postGeo = new THREE.BoxGeometry(0.4, 9, 0.4);
+  const tierMats = [standMats.concrete, standMats.concrete, standMats.concrete, standMats.concrete, standMats.crowd, standMats.concrete];
   const stepI = Math.round(26 / (tr.L / tr.N));
   for (let k = -16; k <= 3; k++) {
     const i = wrapI(k * stepI, tr.N);
     if (!tr.barRValid[i] || Math.abs(tr.KS[i]) > 1 / 600) continue;
     const off = -(tr.barR[i] + 4);
-    const st = makeStand();
-    st.position.set(tr.X[i] + tr.NX[i] * off, 0, tr.Z[i] + tr.NZ[i] * off);
-    st.rotation.y = Math.atan2(tr.NX[i], tr.NZ[i]);      // local +z points to track centre (left normal)
-    scene.add(st);
+    // local +z points to track centre (left normal)
+    M.compose(pos.set(tr.X[i] + tr.NX[i] * off, 0, tr.Z[i] + tr.NZ[i] * off), q.setFromEuler(e.set(0, Math.atan2(tr.NX[i], tr.NZ[i]), 0)), sc.set(1, 1, 1));
+    for (let t = 0; t < 5; t++) part(tierGeo, 0, 0.6 + t * 1.2, -t * 2.2, tierMats);
+    part(backGeo, 0, 4.5, -10.2, standMats.concrete);
+    part(roofGeo, 0, 9.2, -4.5, standMats.roof);
+    for (const x of [-11.5, 11.5]) part(postGeo, x, 4.5, 1.5, standMats.concrete);
   }
   // Pit building
   {
     const i0 = wrapI(-110, tr.N), i1 = wrapI(40, tr.N);
     const a = { x: tr.X[i0], z: tr.Z[i0] }, b = { x: tr.X[i1], z: tr.Z[i1] };
-    const len = Math.hypot(b.x - a.x, b.z - a.z), mid = 0;
+    const len = Math.hypot(b.x - a.x, b.z - a.z);
     const im = wrapI(-35, tr.N), off = tr.barL[im] + 9;
-    const pit = new THREE.Mesh(new THREE.BoxGeometry(12, 8, len), [standMats.concrete, standMats.concrete, standMats.roof, standMats.concrete, standMats.concrete, standMats.concrete]);
-    pit.position.set(tr.X[im] + tr.NX[im] * off, 4, tr.Z[im] + tr.NZ[im] * off);
-    pit.rotation.y = Math.atan2(b.x - a.x, b.z - a.z) + mid;
-    pit.castShadow = pit.receiveShadow = true;
-    scene.add(pit);
+    M.compose(pos.set(tr.X[im] + tr.NX[im] * off, 4, tr.Z[im] + tr.NZ[im] * off), q.setFromEuler(e.set(0, Math.atan2(b.x - a.x, b.z - a.z), 0)), sc.set(1, 1, 1));
+    part(new THREE.BoxGeometry(12, 8, len), 0, 0, 0, [standMats.concrete, standMats.concrete, standMats.roof, standMats.concrete, standMats.concrete, standMats.concrete]);
   }
-  // Start gantry
+  // Start gantry: local x maps to the left normal, rotation.y = atan2(-NZ, NX) maps (1,0,0) -> (NX, 0, NZ)
   {
-    const gan = new THREE.Group(), m = new THREE.MeshStandardMaterial({ color: 0x2a2e35, roughness: 0.5, metalness: 0.6 });
+    const m = new THREE.MeshStandardMaterial({ color: 0x2a2e35, roughness: 0.5, metalness: 0.6 });
+    const lamp = new THREE.MeshStandardMaterial({ color: 0x220000, emissive: 0x330000 });
     const wl = tr.WL[0] + 2, wr = tr.WR[0] + 2;
-    for (const o of [wl, -wr]) { const post = new THREE.Mesh(new THREE.BoxGeometry(0.5, 7, 0.5), m); post.position.set(o, 3.5, 0); post.castShadow = true; gan.add(post); }
-    const beam = new THREE.Mesh(new THREE.BoxGeometry(wl + wr, 0.9, 0.6), m); beam.position.set((wl - wr) / 2, 6.8, 0); beam.castShadow = true; gan.add(beam);
-    for (let k = 0; k < 5; k++) {
-      const l = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.2), new THREE.MeshStandardMaterial({ color: 0x220000, emissive: 0x330000 }));
-      l.position.set(-1.4 + k * 0.7, 6.8, 0.35); gan.add(l);
-    }
-    gan.position.set(tr.X[0], 0, tr.Z[0]);
-    // local x axis must map to the left normal: rotation.y = atan2(-NZ, NX) maps (1,0,0) -> (NX, 0, NZ)
-    gan.rotation.y = Math.atan2(-tr.NZ[0], tr.NX[0]);
-    scene.add(gan);
+    M.compose(pos.set(tr.X[0], 0, tr.Z[0]), q.setFromEuler(e.set(0, Math.atan2(-tr.NZ[0], tr.NX[0]), 0)), sc.set(1, 1, 1));
+    const gpost = new THREE.BoxGeometry(0.5, 7, 0.5);
+    for (const o of [wl, -wr]) part(gpost, o, 3.5, 0, m);
+    part(new THREE.BoxGeometry(wl + wr, 0.9, 0.6), (wl - wr) / 2, 6.8, 0, m);
+    const lampGeo = new THREE.BoxGeometry(0.5, 0.5, 0.2);
+    for (let k = 0; k < 5; k++) part(lampGeo, -1.4 + k * 0.7, 6.8, 0.35, lamp);
   }
+  batch.build(scene);
   return { cx, cz, minX, maxX, minZ, maxZ };
 }
 
