@@ -13,6 +13,9 @@ export const MOUSE_DEADZONE = { off: 0, small: 0.03, medium: 0.08, large: 0.15 }
 // Gamepad steering: stick dead zone (share of travel) and response curve (>1 = gentle near the centre).
 export const PAD_DEADZONE = 0.08, PAD_CURVE = 1.4;
 
+// Gamepad buttons (standard mapping) that act like a key press: Y camera, X reset, Back/Start restart/menu, RB/LB shift.
+const PAD_BUTTONS: readonly [button: number, code: string][] = [[3, 'KeyC'], [2, 'KeyR'], [8, 'Enter'], [9, 'KeyP'], [5, 'KeyE'], [4, 'KeyQ']];
+
 export type MouseSensitivity = keyof typeof MOUSE_RANGE;
 export type MouseDeadzone = keyof typeof MOUSE_DEADZONE;
 
@@ -85,8 +88,7 @@ export class Input {
         st.steer = t > 0 ? -Math.sign(ax) * Math.pow(t, PAD_CURVE) : 0;
         st.throttle = Math.max(st.throttle, rtv); st.brake = Math.max(st.brake, ltv); st.analog = true;
       }
-      const map: [number, string][] = [[3, 'KeyC'], [2, 'KeyR'], [8, 'Enter'], [9, 'KeyP'], [5, 'KeyE'], [4, 'KeyQ']];
-      for (const [bi, code] of map) {
+      for (const [bi, code] of PAD_BUTTONS) {
         const down = !!p.buttons[bi]?.pressed;
         if (down && !this.padPrev[bi]) this.pressed.add(code);
         this.padPrev[bi] = down;

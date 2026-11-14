@@ -6,8 +6,13 @@ import { clamp, lerp } from './util';
 // ============================================================================
 // Dust kicked up by wheels on grass / gravel (purely visual)
 // ============================================================================
+// Light, dry dust (lighter than the ground, so it reads against grass and gravel alike)
+const COLOR_GRASS = [0.70, 0.68, 0.52], COLOR_GRAVEL = [0.86, 0.78, 0.62];
+const rnd = () => Math.random() - 0.5;
+
 export class Dust {
   private next = 0;
+  private wasAlive = false;               // particles were visible last frame (their buffers need uploading)
   private readonly carry = [0, 0, 0, 0];   // fractional particles owed per wheel
   // per-particle buffers: position/velocity/colour (xyz), plus alpha, size, age, lifetime, start alpha, start/end size
   private readonly pos: Float32Array<ArrayBuffer>; private readonly vel: Float32Array<ArrayBuffer>; private readonly col: Float32Array<ArrayBuffer>;
@@ -61,9 +66,8 @@ export class Dust {
     const k = this.next; this.next = (this.next + 1) % this.max;
     this.pos[k * 3] = x; this.pos[k * 3 + 1] = y; this.pos[k * 3 + 2] = z;
     this.vel[k * 3] = vx; this.vel[k * 3 + 1] = vy; this.vel[k * 3 + 2] = vz;
-    // Light, dry dust (lighter than the ground, so it reads against grass and gravel alike)
     const shade = 0.88 + Math.random() * 0.2;
-    const c = gravel ? [0.86, 0.78, 0.62] : [0.70, 0.68, 0.52];
+    const c = gravel ? COLOR_GRAVEL : COLOR_GRASS;
     this.col[k * 3] = c[0] * shade; this.col[k * 3 + 1] = c[1] * shade; this.col[k * 3 + 2] = c[2] * shade;
     this.age[k] = 0; this.life[k] = (gravel ? 1.0 : 0.8) + Math.random() * 0.7;
     this.a0[k] = gravel ? 0.42 : 0.26; this.s0[k] = 0.5; this.s1[k] = (gravel ? 2.8 : 2.0) * (0.8 + Math.random() * 0.4);
@@ -72,21 +76,24 @@ export class Dust {
     this.mat.uniforms.uScale.value = (renderer.domElement.height * 0.5) / Math.tan((camera.fov * Math.PI) / 360);
     if (dt <= 0) return;
     const v = car.vel, speed = Math.hypot(v.x, v.z);
-    car.wheels.forEach((w, wi) => {
+    let spawned = false;
+    for (let wi = 0; wi < car.wheels.length; wi++) {
+      const w = car.wheels[wi];
       const off = w.grounded && (w.surf === S_GRASS || w.surf === S_GRAVEL) && speed > 4;
-      if (!off) { this.carry[wi] = 0; return; }
+      if (!off) { this.carry[wi] = 0; continue; }
       const gravel = w.surf === S_GRAVEL;
       this.carry[wi] += (gravel ? 60 : 32) * clamp(speed / 25, 0.3, 1.6) * dt;
       while (this.carry[wi] >= 1) {
-        this.carry[wi] -= 1;
-        const r = () => Math.random() - 0.5;
-        this.spawn(w.contact.x + r() * 0.4, w.contact.y + 0.05, w.contact.z + r() * 0.4,
-          v.x * 0.3 + r() * 3, (gravel ? 1.4 : 0.9) + Math.random() * 1.2, v.z * 0.3 + r() * 3, gravel);
+        this.carry[wi] -= 1; spawned = true;
+        this.spawn(w.contact.x + rnd() * 0.4, w.contact.y + 0.05, w.contact.z + rnd() * 0.4,
+          v.x * 0.3 + rnd() * 3, (gravel ? 1.4 : 0.9) + Math.random() * 1.2, v.z * 0.3 + rnd() * 3, gravel);
       }
-    });
+    }
     const drag = Math.exp(-1.6 * dt);
+    let alive = false;
     for (let k = 0; k < this.max; k++) {
       if (this.age[k] >= this.life[k]) { this.alpha[k] = 0; continue; }
+      alive = true;
       this.age[k] += dt;
       const t = Math.min(1, this.age[k] / this.life[k]);
       this.vel[k * 3 + 1] -= 1.5 * dt;
@@ -95,6 +102,12 @@ export class Dust {
       this.alpha[k] = this.a0[k] * Math.min(1, t * 8) * (1 - t) * (1 - t * 0.3);
       this.size[k] = lerp(this.s0[k], this.s1[k], Math.sqrt(t));
     }
-    for (const n of ['position', 'aColor', 'aAlpha', 'aSize']) this.geo.attributes[n].needsUpdate = true;
+    // Upload to the GPU only while there is dust (and once more as the last of it fades); colours only change on spawn.
+    if (alive || this.wasAlive) {
+      const a = this.geo.attributes;
+      a.position.needsUpdate = a.aAlpha.needsUpdate = a.aSize.needsUpdate = true;
+      if (spawned) a.aColor.needsUpdate = true;
+    }
+    this.wasAlive = alive;
   }
 }
