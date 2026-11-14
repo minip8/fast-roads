@@ -117,10 +117,9 @@ export async function main() {
   const simulate = (seconds: number, driver: Driver = true, probe: number | null = null) => {
     const n = Math.round(seconds / DT), log: ProbeSample[] = [];
     for (let k = 0; k < n; k++) {
-      const car = session.car;
-      session.tick(typeof driver === 'function' ? driver(car, session.simTime) : driver ? autopilot(car, track) : input.poll(DT), driver === true);
+      const c = session.car;
+      session.tick(typeof driver === 'function' ? driver(c, session.simTime) : driver ? autopilot(c, track) : input.poll(DT), driver === true);
       if (probe && k % Math.round(probe / DT) === 0) {
-        const c = session.car;
         log.push({ t: +session.simTime.toFixed(2), s: Math.round(c.proj.s), kmh: Math.round(c.speedF * 3.6), g: c.gear, lat: +c.proj.lat.toFixed(1), y: +c.pos.y.toFixed(3), up: +c.up.y.toFixed(3) });
       }
     }
