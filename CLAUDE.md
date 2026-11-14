@@ -55,17 +55,23 @@ Run `npm run typecheck` and `npm test` before committing.
 - `util.ts`: math and formatting helpers
 - `cars.ts`: car specs (`CarSpec`)
 - `car.ts`: car physics (`Car`, `DriveInput`)
-- `sim.ts`: `stepPhysics` (one physics tick) and `Session` (world, walls, car, timing; `tick`, `resetToTrack`,
-  `restart`, `setCar`), shared by the game and the tests
-- `carMeshes.ts`: car bodies
+- `sim.ts`: `stepPhysics` (one physics tick; replaces non-finite input, which would abort Rapier) and `Session`
+  (world, walls, car on the grid, timing; `tick`, `resetToTrack`, `restart`, `setCar`), shared by the game and tests
+- `carMeshes.ts`: car bodies, static parts merged per material. Paint and metal reflect the environment map that
+  `stage.ts` hands over with `setCarEnvironment` before any car is built.
 - `track.ts`: track geometry and colliders (`Track`)
-- `trackMeshes.ts`, `textures.ts`, `scenery.ts`, `brakeMarkers.ts`: visuals
-- `timing.ts`, `input.ts`, `audio.ts`, `dust.ts`, `autopilot.ts`
-- `stage.ts`: renderer, scene, lights, static track visuals (`buildStage`)
+- `trackMeshes.ts`, `textures.ts`, `scenery.ts`, `brakeMarkers.ts`: visuals; `batch.ts`: `Batch`, which merges many
+  static parts into one mesh per material (grandstands, pit, gantry, brake boards, car bodies)
+- `audio.ts`: `EngineAudio`, the AudioContext's lifecycle (created on the first gesture, suspended while muted or
+  hidden); `audioGraph.ts`: `SoundGraph`, every sound node, built once, with `update()` moving only parameters.
+  It reads the car through the `AudioCar` interface and each car's `spec.sound` (`EngineVoice`).
+- `timing.ts`, `input.ts`, `dust.ts`, `autopilot.ts`
+- `stage.ts`: renderer, scene, lights, sky, shadow-following sun, static track visuals (`buildStage`)
 - `camera.ts`: `CameraRig` (camera modes)
 - `settings.ts`: setting types, menu rows, defaults, load/save
 - `menu.ts`: `Menu`, which talks to `main.ts` only through the `MenuHost` callbacks
-- `hud.ts`, `minimap.ts`: in-game HUD; `dom.ts`: `$` element lookup
+- `hud.ts`, `minimap.ts`: in-game HUD (`Hud.update` runs every frame but writes only text/classes/styles that
+  changed); `dom.ts`: `$` element lookup
 - `main.ts`: wires it together and owns game state (the `Session`, `started`/`paused`/autopilot, the
   `applySetting` table, hotkeys, the `window.__game` hook (typed `GameHook`), the frame loop)
 
@@ -75,9 +81,10 @@ Run `npm run typecheck` and `npm test` before committing.
   gravel/barrier offsets). Almost everything works in track coordinates `(s, lat)` via `projectOnTrack` / `pointAt`.
 - **Car specs (`CARS`)**: every physics, engine, gearbox, steering, collider, camera, sound and autopilot number for
   each car (`f1`, `drift`), plus its mesh builder, its engine voice (`sound`, an `EngineVoice` from `audioGraph.ts`)
-  and its lap-time `storeKey`. The `Car` class reads only `this.spec`, so a
-  new car is a new spec entry. Behaviour toggled per car uses neutral defaults on the F1 (e.g. `brakeKick: 0`,
-  `rearLoose: [0, 1]`, `autoCounter: 0`, optional `pacFront`), so F1 handling stays identical.
+  and its lap-time `storeKey`. The `Car` class reads only `this.spec`, so a new car is a new spec entry
+  (`test/cars.test.ts` checks each spec fits the menu, gearbox, mesh and autopilot). Behaviour toggled per car uses
+  neutral defaults on the F1 (e.g. `brakeKick: 0`, `rearLoose: [0, 1]`, `autoCounter: 0`, optional `pacFront`), so
+  F1 handling stays identical.
 - **Car physics (`Car.step`)**: Rapier rigid body at a fixed 120 Hz (`DT`), with custom physics on top:
   - raycast suspension with anti-roll bars
   - Pacejka lateral curve with load sensitivity
