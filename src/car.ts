@@ -181,7 +181,10 @@ export class Car {
 
     let drive = 0;
     if (this.gear === 0) {
-      drive = -brake * this.spec.reverseForce; brake = 0;
+      // reverse: the brake pedal drives backwards (fading out by reverseTop) and the throttle brakes
+      const back = brake; brake = throttle; throttle = back;
+      if (back > 0.02) drive = -back * this.spec.reverseForce * clamp(1 + vF / this.spec.reverseTop, 0, 1);
+      else if (vF < -2) drive = this.spec.engineBrake * (this.rpm / this.spec.redline);    // engine braking
       this.rpm = lerp(this.rpm, this.spec.idle + 3000 * inp.brake, 0.1);
     } else {
       const top = this.spec.gearTop[this.gear];

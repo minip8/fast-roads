@@ -37,6 +37,26 @@ describe('handling', () => {
   });
 });
 
+describe('reverse', () => {
+  for (const id of ['f1', 'drift'] as const) {
+    it(`${id}: reverse tops out at reverseTop, and the throttle stops it`, async () => {
+      const { car, drive } = await session(id);
+      car.forceSurface = S_ASPHALT;
+      const pedals = (throttle: number, brake: number): DriveInput => ({ throttle, brake, steer: 0, analog: true, steerAngle: 0, autoGears: true });
+      drive(6, () => pedals(0, 1));                  // hold brake: stops, engages reverse, backs up
+      expect(car.gear).toBe(0);
+      expect(-car.speedF).toBeGreaterThan(0.7 * car.spec.reverseTop);
+      expect(-car.speedF).toBeLessThan(car.spec.reverseTop);
+      const v0 = -car.speedF;
+      drive(1, () => pedals(0, 0));                  // coasting backwards: engine braking slows it
+      expect(-car.speedF).toBeLessThan(v0 - 0.2);
+      drive(1.5, () => pedals(1, 0));                // throttle brakes, then drives forwards
+      expect(car.gear).toBeGreaterThan(0);
+      expect(car.speedF).toBeGreaterThan(0);
+    });
+  }
+});
+
 describe('input', () => {
   afterEach(() => { vi.unstubAllGlobals(); });
 

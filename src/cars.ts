@@ -34,7 +34,7 @@ export interface CarSpec {
   redline: number; idle: number;
   torque: [rpm: number, nm: number][];
   shiftPoint: number; overRev: number; shiftLightsFrom: number;
-  launchRpm: number; engineBrake: number; reverseForce: number;
+  launchRpm: number; engineBrake: number; reverseForce: number; reverseTop: number;   // reverse drive (N), fading out by reverseTop (m/s)
   // steering: [lock (rad), speed (m/s) at which the lock halves]
   steerLock: number; steerAnalog: [number, number]; steerKeys: [number, number]; steerRateKeys: number;
   angDamp: number;
@@ -73,7 +73,7 @@ export const CARS: Record<CarId, CarSpec> = {
     redline: 12500, idle: 4500,
     torque: [[4000, 330], [6000, 430], [8000, 520], [10000, 600], [11500, 615], [12500, 570], [12900, 0]],   // rpm, Nm
     shiftPoint: 12250, overRev: 13000, shiftLightsFrom: 9500,
-    launchRpm: 6500, engineBrake: 1100, reverseForce: 3500,
+    launchRpm: 6500, engineBrake: 1100, reverseForce: 3500, reverseTop: 10,
     steerLock: 0.4, steerAnalog: [0.36, 45], steerKeys: [0.34, 22], steerRateKeys: 1,   // [lock, speed it halves at]
     angDamp: 0.4,
     firingDiv: 20,                // rpm / this = engine sound frequency (V6)
@@ -111,7 +111,7 @@ export const CARS: Record<CarId, CarSpec> = {
     redline: 7500, idle: 1000,
     torque: [[1000, 300], [2500, 400], [4000, 470], [5000, 480], [6500, 450], [7500, 400], [7800, 0]],
     shiftPoint: 7200, overRev: 7700, shiftLightsFrom: 5200,
-    launchRpm: 3500, engineBrake: 600, reverseForce: 4500,
+    launchRpm: 3500, engineBrake: 600, reverseForce: 4500, reverseTop: 12,
     steerLock: 0.6, steerAnalog: [0.6, 90], steerKeys: [0.5, 50], steerRateKeys: 1.8,
     angDamp: 0.25,
     firingDiv: 15,                // V8

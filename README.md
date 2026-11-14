@@ -45,7 +45,7 @@ applied; then the gear and speed.
 | Key | Action |
 | --- | --- |
 | W / ↑ | Throttle |
-| S / ↓ | Brake (hold when stopped to reverse) |
+| S / ↓ | Brake (hold when stopped to reverse, up to ~40 km/h; W then brakes) |
 | A D / ← → | Steer |
 | R | Reset to track (invalidates the lap) |
 | Enter | Restart session at the grid |
