@@ -10,7 +10,7 @@ type OnOff = 'on' | 'off';
 
 export interface Settings {
   car: CarId; gearbox: 'auto' | 'manual'; steering: 'keyboard' | 'mouse';
-  mouseSens: MouseSensitivity; mouseDeadzone: MouseDeadzone; camera: CamMode; tc: OnOff; sound: OnOff;
+  mouseSens: MouseSensitivity; mouseDeadzone: MouseDeadzone; camera: CamMode; tc: OnOff; assist: OnOff; sound: OnOff;
 }
 export type SettingKey = keyof Settings;
 interface SettingDef<K extends SettingKey> { label: string; options: [value: Settings[K], text: string][] }
@@ -26,11 +26,12 @@ export const SETTING_DEFS: { [K in SettingKey]: SettingDef<K> } = {
   mouseDeadzone: { label: 'Mouse deadzone', options: [['off', 'Off'], ['small', 'Small'], ['medium', 'Medium'], ['large', 'Large']] },
   camera: { label: 'Camera', options: CAM_MODES.map((m) => [m, CAM_LABELS[m]]) },
   tc: { label: 'Traction control', options: [['on', 'On'], ['off', 'Off']] },
+  assist: { label: 'Countersteer assist', options: [['off', 'Off'], ['on', 'On']] },   // cars with CarSpec.counterSteer
   sound: { label: 'Sound', options: [['on', 'On'], ['off', 'Off']] },
 };
 export const SETTING_KEYS = Object.keys(SETTING_DEFS) as SettingKey[];
 export const DEFAULT_SETTINGS: Settings = {
-  car: 'f1', gearbox: 'auto', steering: 'keyboard', mouseSens: 'medium', mouseDeadzone: 'small', camera: 'onboard', tc: 'on', sound: 'on',
+  car: 'f1', gearbox: 'auto', steering: 'keyboard', mouseSens: 'medium', mouseDeadzone: 'small', camera: 'onboard', tc: 'on', assist: 'off', sound: 'on',
 };
 
 const SETTINGS_KEY = 'fastroads.settings';

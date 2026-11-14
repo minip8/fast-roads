@@ -57,59 +57,103 @@ describe('drift car', () => {
     expect(Math.abs(yaw() - heading)).toBeLessThan(0.5);
   });
 
-  // Kick the tail out with brake + steering keys at 90 km/h, then do what `after` says and report how the slide ends.
-  async function slide(after: (slideDeg: number) => number) {
+  // Kick the tail out with brake + steering keys at 90 km/h; once the rear is 20 deg out, lift off, do what `after`
+  // says with the steering keys for 3 s, and report how the slide ends.
+  async function slide(after: (slideDeg: number) => number, { assist = false } = {}) {
     const { car, drive } = await session('drift', { walls: false });
     car.forceSurface = S_ASPHALT;
+    car.assist = assist;
     let upToSpeed = false, t0: number | null = null, now = 0, max = 0, wheel = 0;
     drive(12, (c, t) => {
       now = t;
       upToSpeed ||= c.speedF >= 25;
       if (!upToSpeed) return { throttle: 1, brake: 0, steer: 0, analog: true, steerAngle: 0, autoGears: true };
       if (t0 == null) {
-        if (Math.abs(rearSlide(c)) < 20) return { throttle: 0, brake: 0.6, steer: 1, analog: false, autoGears: true };
+        if (Math.abs(rearSlide(c)) < 20) return { throttle: 0, brake: 1, steer: 1, analog: false, autoGears: true };
         t0 = t;
       }
       max = Math.max(max, Math.abs(rearSlide(c)));
       if (t - t0 < 0.3) wheel = c.steer;
       return { throttle: 0, brake: 0, steer: after(rearSlide(c)), analog: false, autoGears: true };
-    }, () => t0 != null && now - t0 > 2.2);
+    }, () => t0 != null && now - t0 > 3);
     expect(t0).not.toBeNull();
     return { max, end: Math.abs(rearSlide(car)), yaw: Math.abs(car.angv.y), wheel, speed: car.speedF };
   }
 
-  it('a slide straightens out when the driver lets go of the steering', async () => {
-    const r = await slide(() => 0);
-    expect(r.wheel).toBeLessThan(-0.1);               // slid with the tail out to the right: the wheels turned right
+  // Hold the left key from `kmh` with the given pedals for 4 s (stopping early past 80 deg): how far the tail goes.
+  async function holdKey(kmh: number, throttle: number, { tc = true, assist = false } = {}) {
+    const { car, drive } = await session('drift', { tc, walls: false });
+    car.forceSurface = S_ASPHALT;
+    car.assist = assist;
+    let upToSpeed = false, t0 = -1, now = 0, max = 0, at20 = -1;
+    drive(12, (c, t) => {
+      now = t;
+      upToSpeed ||= c.speedF >= kmh / 3.6;
+      if (!upToSpeed) return { throttle: 1, brake: 0, steer: 0, analog: true, steerAngle: 0, autoGears: true };
+      if (t0 < 0) t0 = t;
+      max = Math.max(max, Math.abs(rearSlide(c)));
+      if (at20 < 0 && max > 20) at20 = t - t0;
+      return { throttle, brake: 0, steer: 1, analog: false, autoGears: true };
+    }, () => t0 >= 0 && (now - t0 > 4 || Math.abs(rearSlide(car)) > 80));
+    return { max, at20, end: Math.abs(rearSlide(car)), wheel: car.steer, speed: car.speedF };
+  }
+
+  it('steering alone does not spin it: off the throttle, a held key stays under 20 deg of slide', async () => {
+    expect((await holdKey(90, 0)).max).toBeLessThan(20);
+    expect((await holdKey(65, 0)).max).toBeLessThan(20);
+  });
+
+  it('the throttle steps the tail out: past 20 deg within 1.5 s with TC off, and it keeps going if held', async () => {
+    const r = await holdKey(65, 1, { tc: false });
+    expect(r.at20).toBeGreaterThan(0.3);              // builds, rather than snapping
+    expect(r.at20).toBeLessThan(1.5);
+    expect(r.max).toBeGreaterThan(60);
+  });
+
+  it('a slide is caught by lifting off and steering into it', async () => {
+    const r = await slide((deg) => (Math.abs(deg) > 9 ? Math.sign(deg) : 0));   // keys: opposite lock while it slides
     expect(r.max).toBeLessThan(35);
-    expect(r.end).toBeLessThan(4);
-    expect(r.yaw).toBeLessThan(0.2);
+    expect(r.end).toBeLessThan(8);
     expect(r.speed).toBeGreaterThan(5);               // still rolling forwards, not spun
   });
 
-  it('holding the steering key on the power settles into a slide on opposite lock, not a spin', async () => {
+  it('a keyboard driver can hold a power slide by feathering the throttle', async () => {
     const { car, drive } = await session('drift', { tc: false, walls: false });
     car.forceSurface = S_ASPHALT;
-    let upToSpeed = false, t0 = -1, now = 0, max = 0;
-    drive(12, (c, t) => {
+    let upToSpeed = false, t0 = -1, now = 0, max = 0, sliding = 0, n = 0;
+    drive(14, (c, t) => {
       now = t;
       upToSpeed ||= c.speedF >= 18;
       if (!upToSpeed) return { throttle: 1, brake: 0, steer: 0, analog: true, steerAngle: 0, autoGears: true };
       if (t0 < 0) t0 = t;
-      max = Math.max(max, Math.abs(rearSlide(c)));
-      return { throttle: 1, brake: 0, steer: 1, analog: false, autoGears: true };   // left key and full throttle, TC off
-    }, () => t0 >= 0 && now - t0 > 4);
-    expect(max).toBeLessThan(45);
-    expect(Math.abs(rearSlide(car))).toBeGreaterThan(20);   // still sliding after 4 s...
-    expect(car.steer).toBeLessThan(-0.2);                   // ...with the wheels turned the other way
-    expect(car.speedF).toBeGreaterThan(15);
+      const out = -rearSlide(c);                      // tail out, in a left turn
+      max = Math.max(max, Math.abs(out));
+      if (t - t0 > 1) { n++; if (out > 10 && out < 45) sliding++; }
+      // turn in until it slides, then opposite lock; throttle on below 28 deg, off above
+      return { throttle: out < 28 ? 1 : 0, brake: 0, steer: out < 8 ? 1 : out > 14 ? -1 : 0, analog: false, autoGears: true };
+    }, () => t0 >= 0 && now - t0 > 6);
+    expect(max).toBeLessThan(60);
+    expect(sliding / n).toBeGreaterThan(0.3);         // sideways (10-45 deg) for a good part of the 5 s
+    expect(car.speedF).toBeGreaterThan(10);
   });
 
-  it('holding opposite lock too long does not whip it round the other way', async () => {
-    const r = await slide((deg) => (Math.abs(deg) > 3 ? Math.sign(deg) : 0));   // keys: full countersteer until it is straight
-    expect(r.max).toBeLessThan(35);
-    expect(r.end).toBeLessThan(8);
-    expect(r.speed).toBeGreaterThan(5);
+  describe('with the countersteer assist on', () => {
+    it('a slide straightens out when the driver lets go of the steering', async () => {
+      const r = await slide(() => 0, { assist: true });
+      expect(r.wheel).toBeLessThan(-0.05);            // slid with the tail out to the right: the wheels turned right
+      expect(r.max).toBeLessThan(35);
+      expect(r.end).toBeLessThan(4);
+      expect(r.yaw).toBeLessThan(0.2);
+      expect(r.speed).toBeGreaterThan(5);
+    });
+
+    it('holding the steering key on the power settles into a slide on opposite lock, not a spin', async () => {
+      const r = await holdKey(65, 1, { tc: false, assist: true });
+      expect(r.max).toBeLessThan(45);
+      expect(r.end).toBeGreaterThan(15);              // still sliding after 4 s...
+      expect(r.wheel).toBeLessThan(-0.15);            // ...with the wheels turned the other way
+      expect(r.speed).toBeGreaterThan(15);
+    });
   });
 });
 

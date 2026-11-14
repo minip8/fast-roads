@@ -31,7 +31,7 @@ Run `npm run typecheck` and `npm test` before committing.
   driver?, until?)` calls `Session.tick` with the autopilot or a `(car, simTime) => DriveInput` function, exactly as
   the game loop does, including the automatic resets; `until` stops early once the test has what it measures.
 - The simulation is deterministic, and Node and the browser agree to the millisecond. `test/laps.ts` pins
-  autopilot lap times (F1 1:59.659, drift car 177.701 s with TC on, 182.832 s off), so any physics or tuning change
+  autopilot lap times (F1 1:59.659, drift car 178.375 s with TC on, 178.974 s off), so any physics or tuning change
   shows up there. When a change is intended, check the handling still makes sense, then update the expected times.
   Each lap is run by its own `laps-*.test.ts` file so the three (about 12–18 s each) run in parallel.
 - `test/handling.test.ts` holds loose-bound checks of tuning intent: the drift car's brake-and-turn kick, a stable
@@ -83,14 +83,15 @@ Run `npm run typecheck` and `npm test` before committing.
   each car (`f1`, `drift`), plus its mesh builder, its engine voice (`sound`, an `EngineVoice` from `audioGraph.ts`)
   and its lap-time `storeKey`. The `Car` class reads only `this.spec`, so a new car is a new spec entry
   (`test/cars.test.ts` checks each spec fits the menu, gearbox, mesh and autopilot). Behaviour toggled per car uses
-  neutral defaults on the F1 (e.g. `brakeKick: 0`, `brakeGrip: 1`, `rearLoose: [0, 1]`, `counterSteer` gain 0,
-  `autoCounter: 0`, optional `pacFront`), so F1 handling stays identical.
+  neutral defaults on the F1 (e.g. `brakeKick: 0`, `brakeGrip: 1`, `rearLoose: [0, 1, 1]`, `spinLat: 0`,
+  `counterSteer` gain 0, `autoCounter: 0`, optional `pacFront`), so F1 handling stays identical.
 - **Car physics (`Car.step`)**: Rapier rigid body at a fixed 120 Hz (`DT`), with custom physics on top:
   - raycast suspension with anti-roll bars
   - Pacejka lateral curve with load sensitivity
   - friction circle with ABS-style brake priority, stretched for braking by `brakeGrip`
-  - countersteer assist for the player's steering (`counterSteer`); the autopilot's `steerAngle` bypasses it, so
-    assist tuning does not move the pinned lap times
+  - optional countersteer assist for the player's steering (`counterSteer`, enabled by `car.assist` from the
+    Countersteer assist setting, off by default); the autopilot's `steerAngle` bypasses it, so assist tuning does
+    not move the pinned lap times
   - traction control (`tcSlack`)
   - per-surface grip blending and grass/gravel ploughing
   - downforce and drag
@@ -99,6 +100,10 @@ Run `npm run typecheck` and `npm test` before committing.
   Drift-car stability lesson: the rear must out-grip the front at speed (`gripRear > gripFront` by ~10%+), or the car
   yaws itself round under braking at 200 km/h; looseness is added only at low speed (`rearLoose`) or while
   braking + steering (`brakeKick`).
+  Drift-car catchability lesson: slides must be recoverable without an assist. That needs the rear to get its grip
+  back when the driver lifts (`rearLoose` off-throttle share), a rear tyre curve that barely falls off past its peak
+  (`pac.C` 1.35; at 1.6 any slide beyond the keyboard's steering lock was a spin), and wheelspin that leaves the
+  rear some cornering force (`spinLat`). `test/handling.test.ts` checks each with keyboard-style drivers.
 - **Switching cars**: `applySetting.car` in `main()` calls `Session.setCar`, which destroys the old `Car` (body +
   mesh), builds a new one, swaps the timing store and resets to the grid; then it re-applies the gearbox/TC settings.
   `session.car` is replaced, so closures must read it at call time, never keep it.

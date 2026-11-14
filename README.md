@@ -23,21 +23,22 @@ The autopilot isn't part of the game itself.
 ## Main menu
 
 The game opens on a menu: **Drive**, plus settings for car, gears (automatic/manual),
-steering (keyboard/mouse), camera, traction control, and sound. Settings are remembered. Your best lap for the chosen car is shown, with a
+steering (keyboard/mouse), camera, traction control, countersteer assist (drift car), and sound. Settings are remembered. Your best lap for the chosen car is shown, with a
 **Reset best times** option (click twice to confirm). While driving, **Esc** or **P** opens it as a pause menu
 (Resume / Restart session). Mouse or keyboard (↑ ↓ ← → Enter) both work in the menu.
 
 ## Cars
 
 - **F1**: light, huge downforce and grip, 8 gears, 12,500 rpm. Stable and fast.
-- **Drift car**: a heavy rear-drive coupe with almost no downforce and a torquey 7,500 rpm V8 in 6 gears. The rear
-  is loose at cornering speeds (it firms up towards top speed so the straights stay stable), breaks away under
-  power, and steps out when you brake while turning. Its traction control is lenient, so the throttle can still
-  swing the rear with TC on; turn it off (T) for big slides. A countersteer assist turns the front wheels into the
-  slide for you: hold the steering key and the car settles into a drift at about 30° on opposite lock instead of
-  spinning, let go and it straightens up in a second or so. Countersteering yourself still works and is quicker;
-  the assist backs the wheels off as the tail comes back so the car doesn't whip the other way. Its tyres stop
-  harder than they corner: about 1.4 g, 100 km/h to rest in under 30 m. It uses a bonnet camera for the onboard view.
+- **Drift car**: a heavy rear-drive coupe with almost no downforce and a torquey 7,500 rpm V8 in 6 gears. It is
+  stable off the throttle (steering alone won't spin it) and loose on it: at cornering speeds the rear gives up grip
+  under power (it firms up towards top speed so the straights stay stable), and it steps out when you brake while
+  turning. Lifting off gives the rear its grip back, so a slide is caught by lifting and steering into it, and held
+  by opposite lock and feathering the throttle. Its traction control is lenient, so the throttle can still swing
+  the rear with TC on; turn it off (T) for big slides. Nothing steers for you unless you turn on **Countersteer
+  assist** in the menu (off by default): with it, the front wheels turn into a slide by themselves, and holding
+  the steering key settles into a drift at about 30° instead of a spin. Its tyres stop harder than they corner:
+  about 1.4 g, 100 km/h to rest in under 30 m. It uses a bonnet camera for the onboard view.
 
 Each car keeps its own best lap and sector times. Switching car puts you back on the grid.
 

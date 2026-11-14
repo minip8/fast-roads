@@ -1,3 +1,4 @@
+import { CARS } from './cars';
 import { $ } from './dom';
 import { SETTING_DEFS, SETTING_KEYS, type SettingKey, type Settings } from './settings';
 import { clamp, fmtTime, wrapI } from './util';
@@ -19,7 +20,7 @@ export interface MenuHost {
 
 interface MenuItem { el: HTMLElement; run?: () => void; setting?: SettingKey }
 
-// Rows that only matter with mouse steering; dimmed while steering by keyboard.
+// Rows that only matter with mouse steering; dimmed while steering by keyboard (so is the assist row on a car without one).
 const MOUSE_ROWS: SettingKey[] = ['mouseSens', 'mouseDeadzone'];
 
 export class Menu {
@@ -92,7 +93,9 @@ export class Menu {
     const addRow = <K extends SettingKey>(key: K) => {
       const d = SETTING_DEFS[key];
       const row = document.createElement('div');
-      row.className = 'mrow' + (MOUSE_ROWS.includes(key) && host.settings.steering !== 'mouse' ? ' dim' : '');
+      const unused = (MOUSE_ROWS.includes(key) && host.settings.steering !== 'mouse')
+        || (key === 'assist' && CARS[host.settings.car].counterSteer[0] === 0);   // this car has no assist
+      row.className = 'mrow' + (unused ? ' dim' : '');
       const lab = document.createElement('span'); lab.textContent = d.label;
       const seg = document.createElement('div'); seg.className = 'seg';
       for (const [v, text] of d.options) {

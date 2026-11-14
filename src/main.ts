@@ -70,9 +70,9 @@ export async function main() {
     car: (id) => {
       if (session.car.spec.id === id) return;
       session.setCar(CARS[id]);
-      applySetting.gearbox(settings.gearbox); applySetting.tc(settings.tc);
+      applySetting.gearbox(settings.gearbox); applySetting.tc(settings.tc); applySetting.assist(settings.assist);
       hud.clearLaps(); acc = 0;
-      if (id === 'drift') hud.showMsg(`${CARS[id].name}<small>Loose rear: brake while turning to kick it out · TC off (T) for big slides</small>`, 3);
+      if (id === 'drift') hud.showMsg(`${CARS[id].name}<small>Loose rear on the power: brake while turning to kick it out · lift off to catch it · TC off (T) for big slides</small>`, 3);
     },
     gearbox: (v) => { session.car.manual = v === 'manual'; },
     steering: (v) => { input.setMouse(v === 'mouse'); $('mouseSteer').hidden = v !== 'mouse'; },
@@ -80,6 +80,7 @@ export async function main() {
     mouseDeadzone: (v) => { input.mouse.deadzone = MOUSE_DEADZONE[v]; },
     camera: (v) => { cam.mode = v; },
     tc: (v) => { session.car.tc = v === 'on'; },
+    assist: (v) => { session.car.assist = v === 'on'; },
     sound: (v) => { audio.setMuted(v === 'off'); },
   };
   const setSetting = <K extends SettingKey>(key: K, value: Settings[K]) => {

@@ -32,7 +32,10 @@ export interface CarSpec {
   // span (rad) of slide past fromSlip. Gain 0 turns it off.
   counterSteer: [gain: number, fromSlip: number, damp: number, span: number];
   tcSlack: number;                          // wheelspin traction control still allows (share of tyre grip)
-  rearLoose: [share: number, fadedBy: number];   // rear grip lost at low speed, faded out by this speed (m/s)
+  spinLat: number;                          // share of its cornering force a spinning driven tyre keeps (0 = friction circle only)
+  // rear grip lost at low speed on the throttle, faded out by this speed (m/s); offThrottle = share of that loss
+  // that remains when coasting (1 = the same on and off the throttle)
+  rearLoose: [share: number, fadedBy: number, offThrottle: number];
   pac: PacejkaCoeffs;                       // lateral tyre curve (rear, and front unless pacFront is set)
   pacFront?: PacejkaCoeffs;
   // engine and gearbox
@@ -75,7 +78,8 @@ export const CARS: Record<CarId, CarSpec> = {
     brakeKick: 0,                     // rear grip lost when braking while turning (see Car.step)
     counterSteer: [0, 1, 0, 1],       // countersteer assist off: [gain, rear slide (rad) it starts from, damp, span]
     tcSlack: 0.04,                    // wheelspin traction control still allows (share of tyre grip)
-    rearLoose: [0, 1],                // rear grip lost at low speed: [share, speed (m/s) it has faded out by]
+    spinLat: 0,                       // cornering force kept under wheelspin (0 = plain friction circle)
+    rearLoose: [0, 1, 1],             // rear grip lost at low speed: [share, speed (m/s) it has faded out by, off-throttle share]
     pac: { B: 11, C: 1.45, E: 0.15 },
     gearTop: [0, 26, 36, 45, 54, 63, 72, 81, 90],   // m/s at redline per gear
     redline: 12500, idle: 4500,
@@ -114,13 +118,17 @@ export const CARS: Record<CarId, CarSpec> = {
     ClA: 0.3, CdA: 0.75, aeroFront: 0.45, rho: 1.225,
     brakeMax: 22000, brakeFront: 0.68,   // front-biased, so braking doesn't swap the ends
     gripFront: 0.66, gripRear: 0.74,   // the rear must out-grip the front at speed or the car turns itself round
-    rearLoose: [0.24, 50],             // ...but loses this share of grip at low speed, fading out by this speed (m/s)
+    // ...but loses this share of grip at low speed on the throttle (fading out by this speed, m/s), and about a
+    // third of that when coasting: lifting off gives the rear its grip back, which is how a slide is caught
+    rearLoose: [0.24, 50, 0.35],
     absMin: 0.3,
     brakeGrip: 1.35,                   // the tyres stop harder than they corner (about 1.4 g)
-    brakeKick: 0.15,
-    counterSteer: [1.2, 0.14, 0.3, 0.45],   // catches slides past ~8 deg of rear slip; a held key settles near 30 deg
+    brakeKick: 0.25,
+    // optional assist (off unless the player turns it on): catches slides past ~8 deg; a held key settles near 30 deg
+    counterSteer: [1.2, 0.14, 0.3, 0.45],
     tcSlack: 0.25,                     // lenient TC: the throttle can still swing the rear
-    pac: { B: 9, C: 1.6, E: 0.1 },     // rear: grip drops off more past the peak, so slides keep going
+    spinLat: 0.75,                     // wheelspin leaves the rear some cornering force, so power slides build gradually
+    pac: { B: 9, C: 1.35, E: 0.1 },    // rear: grip barely drops off past the peak, so a big slide can still be caught
     pacFront: { B: 10, C: 1.25, E: 0.1 },   // front: holds grip when over-steered, so it doesn't wash wide
     gearTop: [0, 14, 22, 30, 39, 49, 60],
     redline: 7500, idle: 1000,
@@ -128,7 +136,7 @@ export const CARS: Record<CarId, CarSpec> = {
     shiftPoint: 7200, overRev: 7700, shiftLightsFrom: 5200,
     launchRpm: 3500, engineBrake: 600, reverseForce: 4500, reverseTop: 12,
     // steerLock is the wheels' full travel; the driver's own lock is less, the rest is for the countersteer assist
-    steerLock: 0.9, steerAnalog: [0.6, 90], steerKeys: [0.5, 50], steerRateKeys: 1.8,
+    steerLock: 0.9, steerAnalog: [0.6, 90], steerKeys: [0.5, 50], steerRateKeys: 2.6,   // quick keys: opposite lock in about 0.2 s
     angDamp: 0.25,
     // Cross-plane V8 at 7,500 rpm: strong half orders give the lumpy burble, darker overall.
     sound: {

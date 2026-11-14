@@ -57,6 +57,7 @@ export class Car {
   private steerIn = 0;                      // the driver's part of the wheel angle (steer adds the countersteer assist)
   private rearSlip = 0; private slipRate = 0;   // rear slide angle (rad) and its smoothed rate, for the assist
   tc = true; manual = false;                // gearbox is automatic unless manual
+  assist = false;                           // countersteer assist (only cars whose spec has one); off unless the player turns it on
   pendingShift = 0; shiftDenied = false;    // queued manual shifts; set when a downshift would over-rev
   shiftTimer = 0; private revTimer = 0;
   forceSurface?: number;                    // testing: pretend every wheel is on this surface
@@ -158,7 +159,7 @@ export class Car {
     //   key settles into a slide instead of a spin.
     const [csGain, csFrom, csDamp, csSpan] = this.spec.counterSteer;
     let own = this.steerIn, assist = 0, unwind = 0;
-    if (csGain > 0 && inp.steerAngle == null && vF > 2) {
+    if (this.assist && csGain > 0 && inp.steerAngle == null && vF > 2) {
       const rearSlip = Math.atan2(this.vel.dot(this.left) + this.angv.dot(this.up) * this.spec.zRear, Math.max(vF, 5));
       this.slipRate += ((rearSlip - this.rearSlip) / dt - this.slipRate) * 0.25;
       this.rearSlip = rearSlip;
@@ -267,9 +268,11 @@ export class Car {
     const mc = this.spec.mass / 4;
     // Braking while steering costs the rear some grip (brakeKick = share lost at full brake + ~9 deg of steer),
     // so the tail steps out. Going straight it does nothing, so straight-line braking stays stable.
-    const [loose, looseV] = this.spec.rearLoose;
+    // The rear is also loose at cornering speeds (firm at top speed), fully on the throttle and by the offThrottle
+    // share of that when coasting, so lifting off gives the rear its grip back.
+    const [loose, looseV, looseOff] = this.spec.rearLoose;
     const rearGrip = (1 - this.spec.brakeKick * clamp(brake, 0, 1) * clamp(Math.abs(this.steerIn) / 0.15, 0, 1))
-      * (1 - loose * clamp(1 - Math.abs(vF) / looseV, 0, 1));   // loose rear at cornering speeds, firm at top speed
+      * (1 - loose * clamp(1 - Math.abs(vF) / looseV, 0, 1) * (looseOff + (1 - looseOff) * clamp(throttle, 0, 1)));
     let plough = 0;
     for (const w of this.wheels) {
       if (!w.grounded) { w.slip = 0; w.omega *= 0.99; continue; }
@@ -313,6 +316,9 @@ export class Car {
       if (tot > Fmax && tot > 0) {
         slide = tot / Fmax - 1;
         const k = Fmax / tot; Fx *= k; Fy *= k;
+        // A spinning driven tyre still holds some of its cornering force (spinLat), so power slides build gradually.
+        const keep = this.spec.spinLat * Math.min(1, Fmax / Math.max(Math.abs(Fy / k), 1));
+        if (Fdrive > 0 && k < keep) { Fy *= keep / k; Fx = Math.sign(Fx) * Math.sqrt(Math.max(0, Fmax * Fmax - Fy * Fy)); }
       }
       // no overshoot at low speed: never reverse the corner's lateral velocity in one step
       const maxFy = (mc * Math.abs(vy)) / dt;
