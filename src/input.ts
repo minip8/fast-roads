@@ -10,6 +10,9 @@ export const MOUSE_CURVE = 1.7;      // >1 keeps small movements near the centre
 // Dead zone: fraction of half the width around the centre that does nothing.
 export const MOUSE_DEADZONE = { off: 0, small: 0.03, medium: 0.08, large: 0.15 };
 
+// Gamepad steering: stick dead zone (share of travel) and response curve (>1 = gentle near the centre).
+export const PAD_DEADZONE = 0.08, PAD_CURVE = 1.4;
+
 export type MouseSensitivity = keyof typeof MOUSE_RANGE;
 export type MouseDeadzone = keyof typeof MOUSE_DEADZONE;
 
@@ -76,8 +79,10 @@ export class Input {
     for (const p of pads) {
       if (!p) continue;
       const ax = p.axes[0] || 0, rtv = p.buttons[7]?.value || 0, ltv = p.buttons[6]?.value || 0;
-      if (Math.abs(ax) > 0.08 || rtv > 0.05 || ltv > 0.05) {
-        st.steer = -Math.sign(ax) * Math.pow((Math.abs(ax) - 0.08) / 0.92, 1.4) * (Math.abs(ax) > 0.08 ? 1 : 0);
+      if (Math.abs(ax) > PAD_DEADZONE || rtv > 0.05 || ltv > 0.05) {
+        // Inside the dead zone the stick is centred (the curve's base would be negative, and its power NaN).
+        const t = Math.max(0, (Math.abs(ax) - PAD_DEADZONE) / (1 - PAD_DEADZONE));
+        st.steer = t > 0 ? -Math.sign(ax) * Math.pow(t, PAD_CURVE) : 0;
         st.throttle = Math.max(st.throttle, rtv); st.brake = Math.max(st.brake, ltv); st.analog = true;
       }
       const map: [number, string][] = [[3, 'KeyC'], [2, 'KeyR'], [8, 'Enter'], [9, 'KeyP'], [5, 'KeyE'], [4, 'KeyQ']];
