@@ -43,6 +43,9 @@ Run `npm run typecheck` and `npm test` before committing.
 ## Architecture (`src/`)
 
 `index.html` is just the page markup (HUD, menu); styles are in `src/style.css`. Modules:
+- `boot.ts`: the entry point; checks for WebAssembly/WebGL 2, then `import('./main')` and calls `main()`. Startup
+  failures (missing feature, failed chunk or wasm download, other errors) go to `startup.ts`, which shows a message
+  with a retry button in `#loadState`. The build preloads the dynamically imported chunks from `index.html`.
 - `config.ts`: constants, surfaces, collision groups
 - `util.ts`: math and formatting helpers
 - `cars.ts`: car specs (`CarSpec`)

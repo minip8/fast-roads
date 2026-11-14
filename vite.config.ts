@@ -26,9 +26,36 @@ function rapierWasmFile(): Plugin {
   };
 }
 
+// boot.ts loads the game with a dynamic import (so a failed download can be reported). List the game's chunks and
+// the physics .wasm in index.html, so the browser fetches them alongside the boot module instead of after it.
+function preloadGame(): Plugin {
+  return {
+    name: 'preload-game',
+    apply: 'build',
+    transformIndexHtml: {
+      order: 'post',
+      handler(_html, { bundle, chunk: entry }) {
+        if (!bundle || !entry) return;
+        const files = new Set<string>();
+        const add = (f: string) => {
+          const c = bundle[f];
+          if (c?.type !== 'chunk' || files.has(f) || f === entry.fileName || entry.imports.includes(f)) return;
+          files.add(f); c.imports.forEach(add);
+        };
+        entry.dynamicImports.forEach(add);
+        const wasm = Object.values(bundle).filter((a) => a.type === 'asset' && a.fileName.endsWith('.wasm'));
+        return [
+          ...[...files].map((f) => ({ tag: 'link', attrs: { rel: 'modulepreload', crossorigin: true, href: `./${f}` }, injectTo: 'head' as const })),
+          ...wasm.map((a) => ({ tag: 'link', attrs: { rel: 'preload', as: 'fetch', type: 'application/wasm', crossorigin: true, href: `./${a.fileName}` }, injectTo: 'head' as const })),
+        ];
+      },
+    },
+  };
+}
+
 export default defineConfig({
   base: './',   // so the built dist/ folder works from any path
-  plugins: [rapierWasmFile()],
+  plugins: [rapierWasmFile(), preloadGame()],
   build: {
     chunkSizeWarningLimit: 600,   // the three.js chunk is ~530 kB minified
     rolldownOptions: {

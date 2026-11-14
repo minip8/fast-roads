@@ -14,19 +14,20 @@ import { Menu } from './menu';
 import { loadSettings, nextOption, saveSettings, SETTING_KEYS, type SettingKey, type Settings } from './settings';
 import { needsReset, stepPhysics } from './sim';
 import { buildStage } from './stage';
+import { StartupError } from './startup';
 import { Timing } from './timing';
 import { buildTrack, buildTrackColliders, parseCSV } from './track';
 import { clamp } from './util';
 
 // ============================================================================
-// Main: wires the modules together and runs the game loop
+// Main: wires the modules together and runs the game loop. Started by boot.ts.
 // ============================================================================
 // Test hook (see CLAUDE.md); set in main().
 declare global { interface Window { __game?: unknown } }
 
-async function main() {
+export async function main() {
   const params = new URLSearchParams(location.search);
-  await RAPIER.init();
+  await RAPIER.init().catch((err: unknown) => { throw new StartupError('physics', 'Rapier failed to initialise', { cause: err }); });
   $('loadState').textContent = 'Building circuit…';
   await new Promise((r) => setTimeout(r, 0));   // let the loading text paint
 
@@ -190,11 +191,3 @@ async function main() {
   };
   requestAnimationFrame(frame);
 }
-
-main().catch((err) => {
-  console.error(err);
-  const ls = document.getElementById('loadState');
-  if (!ls) return;
-  ls.className = 'err';
-  ls.textContent = 'Failed to start: ' + (err instanceof Error ? err.message : String(err)) + ' (needs WebGL)';
-});
