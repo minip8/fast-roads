@@ -46,6 +46,9 @@ Run `npm run typecheck` and `npm test` before committing.
 - `boot.ts`: the entry point; checks for WebAssembly/WebGL 2, then `import('./main')` and calls `main()`. Startup
   failures (missing feature, failed chunk or wasm download, other errors) go to `startup.ts`, which shows a message
   with a retry button in `#loadState`. The build preloads the dynamically imported chunks from `index.html`.
+- `sw.js`: service worker template (plain JS). The build writes `dist/sw.js` with the list of every output file to
+  precache; `boot.ts` registers it in production only. `index.html` is network-first, everything else cache-first.
+  `public/` holds the icon and web app manifest.
 - `config.ts`: constants, surfaces, collision groups
 - `util.ts`: math and formatting helpers
 - `cars.ts`: car specs (`CarSpec`)

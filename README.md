@@ -13,6 +13,10 @@ Needs Node.js. Install once, then start the dev server and open the URL it print
     npm test           # headless physics tests (lap times, handling)
     npm run build      # type-check + static build in dist/ (host anywhere; `npm run preview` serves it locally)
 
+The built game works from any sub-path of any static host, and keeps working offline after the first visit: a small
+service worker (`src/sw.js`, production builds only) caches the build; the page itself is always fetched fresh when
+online, so a new deploy shows up on the next load.
+
 For development, append `?autopilot` to the URL to skip the menu and watch the built-in driver lap the circuit.
 The autopilot isn't part of the game itself.
 

@@ -1,6 +1,7 @@
 /// <reference types="vitest/config" />
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { defineConfig, type Plugin } from 'vite';
 
 // Rapier's -compat package inlines its WebAssembly as a 2 MB base64 string. In the production build, swap that for
@@ -53,9 +54,32 @@ function preloadGame(): Plugin {
   };
 }
 
+// Writes dist/sw.js (from src/sw.js) with the list of every built file to precache, and a version that changes
+// whenever any of them does, so a new deploy installs a new service worker.
+function serviceWorker(): Plugin {
+  let root = '', outDir = '';
+  return {
+    name: 'service-worker',
+    apply: 'build',
+    configResolved(config) { root = config.root; outDir = resolve(root, config.build.outDir); },
+    closeBundle() {
+      const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true })
+        .flatMap((e) => (e.isDirectory() ? walk(join(d, e.name)) : [join(d, e.name)]));
+      const files = walk(outDir).map((f) => relative(outDir, f).split(sep).join('/')).filter((f) => f !== 'sw.js').sort();
+      const hash = createHash('sha256');
+      for (const f of files) hash.update(f).update(readFileSync(join(outDir, f)));
+      const urls = files.map((f) => (f === 'index.html' ? './' : './' + f));
+      const src = readFileSync(resolve(root, 'src/sw.js'), 'utf8')
+        .replace('__VERSION__', JSON.stringify(hash.digest('hex').slice(0, 12)))
+        .replace('__FILES__', JSON.stringify(urls));
+      writeFileSync(join(outDir, 'sw.js'), src);
+    },
+  };
+}
+
 export default defineConfig({
   base: './',   // so the built dist/ folder works from any path
-  plugins: [rapierWasmFile(), preloadGame()],
+  plugins: [rapierWasmFile(), preloadGame(), serviceWorker()],
   build: {
     chunkSizeWarningLimit: 600,   // the three.js chunk is ~530 kB minified
     rolldownOptions: {

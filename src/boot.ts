@@ -6,6 +6,11 @@
 // ============================================================================
 import { showStartupError, StartupError, unsupportedReason } from './startup';
 
+// Offline support (see src/sw.js), registered once the page has loaded so it doesn't compete with the game download.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch(() => { /* works without it */ }); });
+}
+
 const reason = unsupportedReason();
 if (reason) showStartupError(new StartupError('unsupported', reason));
 else {
