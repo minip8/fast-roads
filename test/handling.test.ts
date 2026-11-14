@@ -144,23 +144,21 @@ describe('drift car', () => {
     expect(car.vel.length() * 3.6).toBeLessThan(95);                // entered at 72 km/h; used to leave at 112
   });
 
-  it('the throttle steps the tail out: past 20 deg within 1.5 s with TC off, and it keeps going if held', async () => {
+  it('the throttle steps the tail out: past 20 deg within 1.5 s with TC off, on to 40 and no further than 60', async () => {
     const r = await holdKey(65, 1, { tc: false });
     expect(r.at20).toBeGreaterThan(0.3);              // builds, rather than snapping
     expect(r.at20).toBeLessThan(1.5);
-    expect(r.max).toBeGreaterThan(60);
+    expect(r.max).toBeGreaterThan(40);
+    expect(r.max).toBeLessThan(60);
   });
 
-  it('the tail goes a long way out and then digs in: a held key slides past 35 deg but does not spin', async () => {
+  it('the tail goes a long way out and then digs in: a held key slides past 30 deg but does not spin', async () => {
     for (const kmh of [65, 90, 130]) {
       const r = await holdKey(kmh, 0);
-      expect(r.max).toBeGreaterThan(35);
-      expect(r.max).toBeLessThan(60);
+      expect(r.max).toBeGreaterThan(30);
+      expect(r.max).toBeLessThan(50);
       expect(r.speed).toBeGreaterThan(0);             // still nose-first after 4 s (it scrubs most of its speed off)
     }
-    const power = await holdKey(65, 1, { tc: false });   // on the power it goes further, and still hangs on
-    expect(power.max).toBeGreaterThan(55);
-    expect(power.max).toBeLessThan(80);
   });
 
   it('opposite lock catches a big slide: from 40 deg it never gets past 55 and is straight again within 4 s', async () => {
@@ -170,12 +168,13 @@ describe('drift car', () => {
     expect(r.speed).toBeGreaterThan(3);
   });
 
-  // Power the tail out to 35 deg (TC off), then hold the opposite key with or without the throttle for 3 s.
-  async function onOppositeLock(throttle: number) {
+  // Power the tail out to 35 deg (TC off), then hold `key` (-1 = opposite lock while it slides, 0 = none) with or
+  // without the throttle for 5 s. `late` is the average slide over the last 3 s.
+  async function fromPowerSlide(throttle: number, key: -1 | 0 = -1) {
     const { car, drive } = await session('drift', { tc: false, walls: false });
     car.forceSurface = S_ASPHALT;
-    let upToSpeed = false, t0 = -1, now = 0, max = 0, at1 = 0, straightAt = -1;
-    drive(14, (c, t) => {
+    let upToSpeed = false, t0 = -1, now = 0, max = 0, at1 = 0, straightAt = -1, late = 0, n = 0;
+    drive(16, (c, t) => {
       now = t;
       upToSpeed ||= c.speedF >= 18;
       if (!upToSpeed) return { throttle: 1, brake: 0, steer: 0, analog: true, steerAngle: 0, autoGears: true };
@@ -187,19 +186,26 @@ describe('drift car', () => {
       max = Math.max(max, Math.abs(out));
       if (t - t0 <= 1) at1 = out;
       if (straightAt < 0 && Math.abs(out) < 8) straightAt = t - t0;
-      return { throttle, brake: 0, steer: out > 6 ? -1 : 0, analog: false, autoGears: true };   // opposite key while it slides
-    }, () => t0 >= 0 && now - t0 > 3);
-    return { max, at1, straightAt, end: Math.abs(rearSlide(car)), speed: car.speedF };
+      if (t - t0 > 2) { late += out; n++; }
+      return { throttle, brake: 0, steer: out > 6 ? key : 0, analog: false, autoGears: true };
+    }, () => t0 >= 0 && now - t0 > 5);
+    return { max, at1, straightAt, late: late / n, end: Math.abs(rearSlide(car)), speed: car.speedF };
   }
 
-  it('opposite lock on the power holds the slide; lifting brings it back', async () => {
-    const held = await onOppositeLock(1);
-    expect(held.at1).toBeGreaterThan(30);             // still well sideways a second later (it used to be straight by then)
-    expect(held.max).toBeLessThan(65);                // and not on its way round
-    const lifted = await onOppositeLock(0);
-    expect(lifted.straightAt).toBeGreaterThan(0.8);   // comes back progressively, not in a snap
+  it('a slide holds for as long as the throttle is down, on opposite lock or with the wheel straight', async () => {
+    for (const key of [-1, 0] as const) {
+      const held = await fromPowerSlide(1, key);
+      expect(held.late).toBeGreaterThan(22);          // seconds 2-5: still about 30 deg out (it used to be straight within 1-4 s)
+      expect(held.late).toBeLessThan(42);
+      expect(held.max).toBeLessThan(60);              // and never on its way round (wheel straight, it used to spin within 1 s)
+    }
+  });
+
+  it('lifting off brings a slide back in about a second, without a snap', async () => {
+    const lifted = await fromPowerSlide(0);
+    expect(lifted.straightAt).toBeGreaterThan(0.8);
     expect(lifted.straightAt).toBeLessThan(2.2);
-    expect(lifted.end).toBeLessThan(6);               // and stays straight
+    expect(lifted.end).toBeLessThan(6);               // and it stays straight
   });
 
   it('a slide is caught by lifting off and steering into it', async () => {

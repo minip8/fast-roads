@@ -37,7 +37,8 @@ export interface CarSpec {
   // rear grip lost at low speed when on the throttle or steering into the turn, faded out by this speed (m/s);
   // offThrottle = share of that loss that remains otherwise (1 = always the same)
   rearLoose: [share: number, fadedBy: number, offThrottle: number];
-  rearCatch: [from: number, by: number];    // slide angles (rad) between which that looseness fades out again
+  // slide angles (rad) between which that looseness fades out again, and the share of extra rear grip gained by then
+  rearCatch: [from: number, by: number, extra: number];
   pac: PacejkaCoeffs;                       // lateral tyre curve (rear, and front unless pacFront is set)
   pacFront?: PacejkaCoeffs;
   // engine and gearbox
@@ -82,7 +83,7 @@ export const CARS: Record<CarId, CarSpec> = {
     counterSteer: [0, 1, 0, 1],       // countersteer assist off: [gain, rear slide (rad) it starts from, damp, span]
     tcSlack: 0.04,                    // wheelspin traction control still allows (share of tyre grip)
     spinLat: 0,                       // cornering force kept under wheelspin (0 = plain friction circle)
-    rearCatch: [9, 10],
+    rearCatch: [9, 10, 0],
     rearLoose: [0, 1, 1],             // rear grip lost at low speed: [share, speed (m/s) it has faded out by, off-throttle share]
     pac: { B: 11, C: 1.45, E: 0.15 },
     gearTop: [0, 26, 36, 45, 54, 63, 72, 81, 90],   // m/s at redline per gear
@@ -128,7 +129,9 @@ export const CARS: Record<CarId, CarSpec> = {
     // into the turn, and about a third of that otherwise: lifting off and steering into a slide gives the rear its
     // grip back, which is how a slide is caught
     rearLoose: [0.34, 50, 0.35],
-    rearCatch: [0.35, 0.8],            // ...and past 20 deg of slide the looseness fades, gone by 46: the tail digs in
+    // ...and past 20 deg of slide the looseness fades, gone by 46 with 15% more grip on top: the tail digs in, so a
+    // slide settles at about 30 deg for as long as the throttle is down instead of running on round
+    rearCatch: [0.35, 0.8, 0.15],
     absMin: 0.3,
     brakeGrip: 1.08,                   // the tyres stop a little harder than they corner (about 1.4 g)
     driveGrip: 1.12,                   // ...and put power down a little better too
@@ -148,9 +151,9 @@ export const CARS: Record<CarId, CarSpec> = {
     launchRpm: 3500, engineBrake: 480, reverseForce: 3600, reverseTop: 12,
     // steerLock is the wheels' full travel; steering into a corner uses less, the rest is for opposite lock
     steerLock: 0.9, steerAnalog: [0.6, 90], steerKeys: [0.5, 50], steerRateKeys: 2.6,   // quick keys: opposite lock in about 0.2 s
-    // opposite lock: 0.55 of the slide angle, which balances the sliding rear rather than overpowering it (so a
-    // slide can be held on the throttle and comes back when you lift), wound on up to twice as fast
-    counterLock: [0.55, 2],
+    // opposite lock: 0.4 of the slide angle, which leaves the slide to the throttle (held with it down, back when
+    // you lift) rather than dragging the nose straight, wound on up to twice as fast
+    counterLock: [0.4, 2],
     angDamp: 0.25,
     // Cross-plane V8 at 7,500 rpm: strong half orders give the lumpy burble, darker overall.
     sound: {

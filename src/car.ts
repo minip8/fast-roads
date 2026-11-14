@@ -291,12 +291,12 @@ export class Car {
     // into a slide gives the rear its grip back.
     // Past rearCatch's first angle of slide the looseness fades, gone by its second: the tail goes a long way out
     // but then digs in rather than coming all the way round.
-    const [loose, looseV, looseOff] = this.spec.rearLoose, [catchFrom, catchBy] = this.spec.rearCatch;
+    const [loose, looseV, looseOff] = this.spec.rearLoose, [catchFrom, catchBy, catchExtra] = this.spec.rearCatch;
     const dug = clamp((Math.abs(slide) - catchFrom) / (catchBy - catchFrom), 0, 1);
     const into = clamp(Math.abs(this.steerIn) / 0.15, 0, 1) * clamp(-Math.sign(this.steerIn) * vyRear / 0.5, 0, 1);
     // The looseness is sideways only: traction in a straight line is not reduced (driveGrip is divided by it below).
     const looseK = 1 - loose * (1 - dug) * clamp(1 - Math.abs(vF) / looseV, 0, 1) * (looseOff + (1 - looseOff) * Math.max(clamp(throttle, 0, 1), into));
-    const rearGrip = (1 - this.spec.brakeKick * clamp(brake, 0, 1) * clamp(Math.abs(this.steerIn) / 0.15, 0, 1)) * looseK;
+    const rearGrip = (1 - this.spec.brakeKick * clamp(brake, 0, 1) * clamp(Math.abs(this.steerIn) / 0.15, 0, 1)) * looseK * (1 + catchExtra * dug);
     let plough = 0;
     for (const w of this.wheels) {
       if (!w.grounded) { w.slip = 0; w.omega *= 0.99; continue; }
