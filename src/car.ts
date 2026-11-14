@@ -150,12 +150,19 @@ export class Car {
     if (inp.steerAngle != null) target = inp.steerAngle;
     else {
       const [lock, halfV] = inp.analog ? this.spec.steerAnalog : this.spec.steerKeys;
-      // Opposite lock reaches further, and the keys wind it on faster, than steering into a corner: by up to
-      // counterLock's gain as the slide grows to its angle. The driver still has to steer into the slide, but there
-      // is always enough lock to catch it, and it winds itself off as the tail comes back.
-      const [clGain, clBy] = this.spec.counterLock;
-      if (inp.steer * slide > 0) counter = 1 + clGain * clamp(Math.abs(slide) / clBy, 0, 1);
-      target = inp.steer * counter * lock / (1 + Math.max(0, vF) / halfV);
+      target = inp.steer * lock / (1 + Math.max(0, vF) / halfV);
+      // Opposite lock follows the slide: steering into a slide turns the wheels counterLock's first number times the
+      // slide angle (so the lock always suits how far the tail is out), and the keys wind it on up to its second
+      // number times faster. Below about 0.8 the front tyres balance the sliding rear instead of overpowering it, so
+      // held opposite lock holds the slide and the throttle decides whether it grows or comes back; at 1 or more
+      // the fronts drag the nose round and the slide ends at once.
+      const [clPer, clRate] = this.spec.counterLock;
+      if (clPer > 0 && inp.steer * slide > 0) {
+        // Blended in between 8 and 16 deg of slide, so ordinary changes of direction keep the normal lock.
+        const w = clamp((Math.abs(slide) - 0.14) / 0.14, 0, 1);
+        target = lerp(target, inp.steer * clPer * Math.abs(slide), w);
+        counter = 1 + (clRate - 1) * w;
+      }
     }
     target = clamp(target, -this.spec.steerLock, this.spec.steerLock);
     const rate = inp.analog || inp.steerAngle != null ? 6 : (Math.abs(target) < Math.abs(this.steerIn) ? 3.2 : 2.2) * counter * this.spec.steerRateKeys / (1 + Math.max(0, vF) / 30);

@@ -48,7 +48,7 @@ export interface CarSpec {
   launchRpm: number; engineBrake: number; reverseForce: number; reverseTop: number;   // reverse drive (N), fading out by reverseTop (m/s)
   // steering: [lock (rad), speed (m/s) at which the lock halves]
   steerLock: number; steerAnalog: [number, number]; steerKeys: [number, number]; steerRateKeys: number;
-  counterLock: [gain: number, bySlide: number];   // extra lock when steering into a slide: up to 1 + gain times, reached at this slide angle (rad)
+  counterLock: [perSlide: number, rate: number];   // steering into a slide: lock per radian of slide, and how much faster the keys wind it on
   angDamp: number;
   sound: EngineVoice;                       // engine and tyre sound (audioGraph.ts)
   // autopilot
@@ -148,7 +148,9 @@ export const CARS: Record<CarId, CarSpec> = {
     launchRpm: 3500, engineBrake: 480, reverseForce: 3600, reverseTop: 12,
     // steerLock is the wheels' full travel; steering into a corner uses less, the rest is for opposite lock
     steerLock: 0.9, steerAnalog: [0.6, 90], steerKeys: [0.5, 50], steerRateKeys: 2.6,   // quick keys: opposite lock in about 0.2 s
-    counterLock: [1.0, 0.35],          // opposite lock: up to twice the reach (and key speed) by 20 deg of slide
+    // opposite lock: 0.55 of the slide angle, which balances the sliding rear rather than overpowering it (so a
+    // slide can be held on the throttle and comes back when you lift), wound on up to twice as fast
+    counterLock: [0.55, 2],
     angDamp: 0.25,
     // Cross-plane V8 at 7,500 rpm: strong half orders give the lumpy burble, darker overall.
     sound: {

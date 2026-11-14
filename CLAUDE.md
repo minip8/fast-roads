@@ -116,8 +116,11 @@ Run `npm run typecheck` and `npm test` before committing.
     instead of spinning; without it, more looseness meant unrecoverable slides.
   - the rear tyre curve barely falls off past its peak (`pac.C` 1.35; at 1.6 any slide beyond the keyboard's
     steering lock was a spin).
-  - opposite lock reaches further and arrives faster as the slide grows (`counterLock`): the keyboard's normal lock
-    at speed is smaller than a big slide's angle, so without it countersteering could not reverse the front tyres.
+  - opposite lock follows the slide angle (`counterLock`, blended in from 8 to 16 deg of slide): the keyboard's
+    normal lock at speed is smaller than a big slide's angle, so a fixed lock cannot catch one. The ratio matters:
+    at 0.55 the fronts balance the sliding rear, so opposite lock plus throttle holds a slide and lifting recovers
+    it in about a second; at 0.85 or more (or twice the normal lock) the slide ended in under a second whatever the
+    throttle did.
   - wheelspin leaves the rear most of its cornering force (`spinLat`). With a low `spinLat` and generous `driveGrip`
     a sliding car spends its rear tyres on gaining speed, so its path barely curves while the nose swings round.
   Yaw damping (`angDamp`) is not the lever for fishtailing: enough of it to matter kills the rotation.

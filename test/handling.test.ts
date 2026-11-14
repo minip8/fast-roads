@@ -170,11 +170,36 @@ describe('drift car', () => {
     expect(r.speed).toBeGreaterThan(3);
   });
 
-  it('opposite lock reaches further than steering into a corner', async () => {
-    const r = await slide((deg) => Math.sign(deg), { from: 30 });   // full opposite key throughout
-    const { car } = await session('drift');
-    const normal = car.spec.steerKeys[0] / (1 + 25 / car.spec.steerKeys[1]);   // the keys' lock at 90 km/h
-    expect(Math.abs(r.wheel)).toBeGreaterThan(normal * 1.3);
+  // Power the tail out to 35 deg (TC off), then hold the opposite key with or without the throttle for 3 s.
+  async function onOppositeLock(throttle: number) {
+    const { car, drive } = await session('drift', { tc: false, walls: false });
+    car.forceSurface = S_ASPHALT;
+    let upToSpeed = false, t0 = -1, now = 0, max = 0, at1 = 0, straightAt = -1;
+    drive(14, (c, t) => {
+      now = t;
+      upToSpeed ||= c.speedF >= 18;
+      if (!upToSpeed) return { throttle: 1, brake: 0, steer: 0, analog: true, steerAngle: 0, autoGears: true };
+      const out = -rearSlide(c);                      // tail out, in a left turn
+      if (t0 < 0) {
+        if (out < 35) return { throttle: 1, brake: 0, steer: 1, analog: false, autoGears: true };
+        t0 = t;
+      }
+      max = Math.max(max, Math.abs(out));
+      if (t - t0 <= 1) at1 = out;
+      if (straightAt < 0 && Math.abs(out) < 8) straightAt = t - t0;
+      return { throttle, brake: 0, steer: out > 6 ? -1 : 0, analog: false, autoGears: true };   // opposite key while it slides
+    }, () => t0 >= 0 && now - t0 > 3);
+    return { max, at1, straightAt, end: Math.abs(rearSlide(car)), speed: car.speedF };
+  }
+
+  it('opposite lock on the power holds the slide; lifting brings it back', async () => {
+    const held = await onOppositeLock(1);
+    expect(held.at1).toBeGreaterThan(30);             // still well sideways a second later (it used to be straight by then)
+    expect(held.max).toBeLessThan(65);                // and not on its way round
+    const lifted = await onOppositeLock(0);
+    expect(lifted.straightAt).toBeGreaterThan(0.8);   // comes back progressively, not in a snap
+    expect(lifted.straightAt).toBeLessThan(2.2);
+    expect(lifted.end).toBeLessThan(6);               // and stays straight
   });
 
   it('a slide is caught by lifting off and steering into it', async () => {

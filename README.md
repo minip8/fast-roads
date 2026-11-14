@@ -36,8 +36,10 @@ steering (keyboard/mouse), camera, traction control, countersteer assist (drift 
   top speed so the straights stay stable), and it steps out further when you brake while turning. The tail goes a
   long way out: turning in off the throttle puts it 20° out in under a second and 40° soon after. Past that it digs
   in rather than coming all the way round, so a held slide hangs at 40–45° off the throttle and around 65–70° on it.
-  Steering into the slide brings it back: opposite lock reaches up to twice as far (and the keys wind it on twice as
-  fast) as steering into a corner, and lifting off gives the rear its grip back. Spinning the rear wheels costs
+  Opposite lock follows the slide: steering into it turns the wheels a little over half the slide angle (wound on
+  up to twice as fast as normal steering), which balances the sliding rear rather than overpowering it. So with the
+  throttle down, opposite lock holds the slide for a few seconds as it slowly comes back; lift off and the rear gets
+  its grip back and the car straightens in a second or so. Spinning the rear wheels costs
   little cornering force, so in a power slide the car keeps turning (its path follows its nose) rather than gaining
   speed. Its traction control is lenient, so the throttle can still swing the rear with TC on; turn it off (T) for
   bigger slides. Nothing steers for you unless you turn on **Countersteer assist** in the menu (off by default):
