@@ -18,5 +18,5 @@ export function stepPhysics(world: RAPIER.World, car: Car, timing: Timing, inp: 
   timing.tick(prevXZ, currXZ, simTime, DT, car);
 }
 
-// The car needs putting back on track: fell through the world, or flipped and stopped.
-export const needsReset = (car: Car) => car.pos.y < -5 || (car.up.y < -0.3 && car.speedF < 2);
+// The car needs putting back on track: fell through the world, flipped and stopped, or stuck on its side.
+export const needsReset = (car: Car) => car.pos.y < -5 || (car.up.y < -0.3 && car.speedF < 2) || car.tipped > 1.5;

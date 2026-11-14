@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DriveInput } from '../src/car';
 import type { CarId } from '../src/cars';
@@ -55,6 +56,18 @@ describe('reverse', () => {
       expect(car.speedF).toBeGreaterThan(0);
     });
   }
+});
+
+it('a car left on its side is put back on its wheels', async () => {
+  const { car, drive } = await session('drift');   // the drift car's boxy body rests on its side; the F1 tips back
+  const roll = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2);
+  car.body.setRotation(car.quat.clone().multiply(roll), true);
+  car.body.setTranslation({ x: car.pos.x, y: car.spec.hull[0] + 0.05, z: car.pos.z }, true);
+  car.readState();
+  drive(1, () => ({ throttle: 0, brake: 0, steer: 0, analog: false }));
+  expect(Math.abs(car.up.y)).toBeLessThan(0.1);      // settled on its side; no instant reset
+  drive(1.5, () => ({ throttle: 0, brake: 0, steer: 0, analog: false }));
+  expect(car.up.y).toBeGreaterThan(0.99);
 });
 
 describe('input', () => {

@@ -58,6 +58,7 @@ export class Car {
   pendingShift = 0; shiftDenied = false;    // queued manual shifts; set when a downshift would over-rev
   shiftTimer = 0; private revTimer = 0;
   forceSurface?: number;                    // testing: pretend every wheel is on this surface
+  tipped = 0;                               // seconds spent on its side or roof at walking pace (see needsReset)
   // physics state, refreshed by readState()
   proj: TrackPos = { i: -1, lat: 0, s: 0 };
   pos = new THREE.Vector3(); quat = new THREE.Quaternion(); vel = new THREE.Vector3(); angv = new THREE.Vector3();
@@ -114,7 +115,7 @@ export class Car {
     this.body.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true);
     this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
-    this.gear = 1; this.steer = 0; this.shiftTimer = 0;
+    this.gear = 1; this.steer = 0; this.shiftTimer = 0; this.tipped = 0;
     for (const w of this.wheels) { w.comp = w.prevComp = 0.025; w.omega = 0; w.muBlend = SURF[S_ASPHALT].mu; w.rrBlend = SURF[S_ASPHALT].rr; w.decelBlend = 0; }
     this.proj.i = -1;
     this.readState();
@@ -136,6 +137,7 @@ export class Car {
     this.readState();
     projectOnTrack(tr, this.pos.x, this.pos.z, this.proj.i, this.proj);
     const v = this.vel.length(), vF = this.speedF;
+    this.tipped = this.up.y < 0.3 && v < 2 ? this.tipped + dt : 0;
 
     // --- steering (speed-sensitive for keyboard)
     let target;
