@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { buildBrakeMarkers } from './brakeMarkers';
+import { setCarEnvironment } from './carMeshes';
 import { buildScenery, buildSky } from './scenery';
 import type { Track } from './track';
 import { buildTrackMeshes } from './trackMeshes';
@@ -26,6 +27,16 @@ export function buildStage(canvas: HTMLCanvasElement, track: Track) {
 
   const sunDir = new THREE.Vector3(-0.45, 0.62, 0.35).normalize();
   const sky = buildSky(scene, sunDir);
+  // Blurred sky-and-ground environment for car paint, glass and rims (cars only; the circuit keeps its lighting).
+  {
+    const envScene = new THREE.Scene(), pmrem = new THREE.PMREMGenerator(renderer);
+    envScene.add(new THREE.Mesh(new THREE.SphereGeometry(50, 32, 16), sky.material));
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(45, 32), new THREE.MeshBasicMaterial({ color: new THREE.Color().setRGB(0.16, 0.2, 0.13) }));
+    ground.rotation.x = -Math.PI / 2; ground.position.y = -2;
+    envScene.add(ground);
+    setCarEnvironment(pmrem.fromScene(envScene, 0.02).texture);
+    pmrem.dispose(); ground.geometry.dispose(); ground.material.dispose();
+  }
   scene.add(new THREE.HemisphereLight(0xcfe3ff, 0x5a6a40, 1.1));
   const sun = new THREE.DirectionalLight(0xfff1dc, 3.0);
   sun.castShadow = true;
