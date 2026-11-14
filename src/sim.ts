@@ -16,11 +16,23 @@ const STUCK_SECS = 3;     // the autopilot below 1 m/s for this long (against a 
 type XZ = { x: number; z: number };
 const prevXZ: XZ = { x: 0, z: 0 }, currXZ: XZ = { x: 0, z: 0 };
 
+// A NaN or infinity reaching Rapier poisons the body for the rest of the session, so a bad input (a driver bug, an odd
+// gamepad) is replaced by a neutral one. Valid input is passed through untouched.
+const neutral: DriveInput = { throttle: 0, brake: 0, steer: 0, analog: false, steerAngle: null };
+let warned = false;
+function finiteInput(inp: DriveInput): DriveInput {
+  const ok = Number.isFinite(inp.throttle) && Number.isFinite(inp.brake) && Number.isFinite(inp.steer)
+    && (inp.steerAngle == null || Number.isFinite(inp.steerAngle));
+  if (ok) return inp;
+  if (!warned) { warned = true; console.warn('Ignoring non-finite drive input', { ...inp }); }
+  return { ...neutral, autoGears: inp.autoGears };
+}
+
 // One fixed physics tick: car forces, Rapier step, then lap timing (crossings are interpolated within the tick).
 export function stepPhysics(world: RAPIER.World, car: Car, timing: Timing, inp: DriveInput, simTime: number) {
   car.prevPos.copy(car.pos); car.prevQuat.copy(car.quat);
   prevXZ.x = car.pos.x; prevXZ.z = car.pos.z;
-  car.step(DT, inp);
+  car.step(DT, finiteInput(inp));
   world.step();
   car.readState();
   currXZ.x = car.pos.x; currXZ.z = car.pos.z;

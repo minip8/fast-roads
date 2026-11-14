@@ -70,6 +70,19 @@ it('a car left on its side is put back on its wheels', async () => {
   expect(car.up.y).toBeGreaterThan(0.99);
 });
 
+it('non-finite drive input is ignored instead of breaking the physics', async () => {
+  const { car, drive } = await session('f1');
+  car.forceSurface = S_ASPHALT;
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  drive(1, () => ({ throttle: 1, brake: 0, steer: 0, analog: true, steerAngle: 0, autoGears: true }));
+  const v0 = car.speedF;
+  drive(0.2, () => ({ throttle: NaN, brake: Infinity, steer: NaN, analog: true, steerAngle: NaN }));
+  drive(0.5, () => ({ throttle: 1, brake: 0, steer: 0, analog: true, steerAngle: 0, autoGears: true }));
+  expect([car.pos.x, car.pos.y, car.pos.z, car.speedF].every(Number.isFinite)).toBe(true);
+  expect(car.speedF).toBeGreaterThan(v0);           // still drives afterwards
+  vi.restoreAllMocks();
+});
+
 describe('input', () => {
   afterEach(() => { vi.unstubAllGlobals(); });
 
