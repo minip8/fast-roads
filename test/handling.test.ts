@@ -110,7 +110,7 @@ describe('drift car', () => {
     const r = await slide(() => 0);
     expect(r.max).toBeLessThan(50);
     expect(r.end).toBeLessThan(6);
-    expect(r.speed).toBeGreaterThan(5);
+    expect(r.speed).toBeGreaterThan(2);               // still rolling forwards, not spun
   });
 
   it('reaches 100 km/h in under 4.8 s', async () => {
@@ -120,6 +120,28 @@ describe('drift car', () => {
     drive(10, (_c, now) => { t = now; return { throttle: 1, brake: 0, steer: 0, analog: true, steerAngle: 0, autoGears: true }; }, () => car.speedF >= 100 / 3.6);
     expect(t).toBeGreaterThan(3.8);
     expect(t).toBeLessThan(4.8);                      // 5.7 s before the extra traction and torque
+  });
+
+  it('in a power slide the direction of travel follows the nose: it turns at over 25 deg/s without gaining speed', async () => {
+    const { car, drive } = await session('drift', { tc: false, walls: false });
+    car.forceSurface = S_ASPHALT;
+    car.assist = true;                                // the assist holds a steady ~26 deg slide, which makes this repeatable
+    let upToSpeed = false, t0 = -1, now = 0, turned = 0, course: number | null = null, slideSum = 0, n = 0;
+    drive(14, (c, t) => {
+      now = t;
+      upToSpeed ||= c.speedF >= 20;
+      if (!upToSpeed) return { throttle: 1, brake: 0, steer: 0, analog: true, steerAngle: 0, autoGears: true };
+      if (t0 < 0) t0 = t;
+      if (t - t0 > 1.5) {
+        const dir = Math.atan2(c.vel.x, c.vel.z);
+        if (course != null) turned += Math.abs(Math.atan2(Math.sin(dir - course), Math.cos(dir - course)));
+        course = dir; slideSum += Math.abs(rearSlide(c)); n++;
+      }
+      return { throttle: 1, brake: 0, steer: 1, analog: false, autoGears: true };
+    }, () => t0 >= 0 && now - t0 > 6);
+    expect(slideSum / n).toBeGreaterThan(20);                       // sideways throughout
+    expect(turned * 180 / Math.PI / 4.5).toBeGreaterThan(25);       // 19 deg/s before the grip and wheelspin changes
+    expect(car.vel.length() * 3.6).toBeLessThan(95);                // entered at 72 km/h; used to leave at 112
   });
 
   it('the throttle steps the tail out: past 20 deg within 1.5 s with TC off, and it keeps going if held', async () => {

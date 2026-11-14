@@ -31,7 +31,7 @@ Run `npm run typecheck` and `npm test` before committing.
   driver?, until?)` calls `Session.tick` with the autopilot or a `(car, simTime) => DriveInput` function, exactly as
   the game loop does, including the automatic resets; `until` stops early once the test has what it measures.
 - The simulation is deterministic, and Node and the browser agree to the millisecond. `test/laps.ts` pins
-  autopilot lap times (F1 1:59.659, drift car 172.433 s with TC on, 172.452 s off), so any physics or tuning change
+  autopilot lap times (F1 1:59.659, drift car 161.442 s with TC on, 161.441 s off), so any physics or tuning change
   shows up there. When a change is intended, check the handling still makes sense, then update the expected times.
   Each lap is run by its own `laps-*.test.ts` file so the three (about 12–18 s each) run in parallel.
 - `test/handling.test.ts` holds loose-bound checks of tuning intent: the drift car's brake-and-turn kick, a stable
@@ -105,7 +105,8 @@ Run `npm run typecheck` and `npm test` before committing.
   back when they lift and straighten or countersteer (`rearLoose` off-throttle share; with the rear firm whenever
   coasting the car understeered on entry). It also needs a rear tyre curve that barely falls off past its peak
   (`pac.C` 1.35; at 1.6 any slide beyond the keyboard's steering lock was a spin), and wheelspin that leaves the
-  rear some cornering force (`spinLat`). `test/handling.test.ts` checks each with keyboard-style drivers.
+  rear most of its cornering force (`spinLat`). With a low `spinLat` and generous `driveGrip` a sliding car spends
+  its rear tyres on gaining speed, so its path barely curves while the nose swings round ("feels heavy"). `test/handling.test.ts` checks each with keyboard-style drivers.
 - **Switching cars**: `applySetting.car` in `main()` calls `Session.setCar`, which destroys the old `Car` (body +
   mesh), builds a new one, swaps the timing store and resets to the grid; then it re-applies the gearbox/TC settings.
   `session.car` is replaced, so closures must read it at call time, never keep it.

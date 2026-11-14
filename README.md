@@ -31,15 +31,17 @@ steering (keyboard/mouse), camera, traction control, countersteer assist (drift 
 
 - **F1**: light, huge downforce and grip, 8 gears, 12,500 rpm. Stable and fast.
 - **Drift car**: a heavy rear-drive coupe with almost no downforce and a torquey 7,500 rpm V8 in 6 gears
-  (0–100 km/h in about 4.4 s). It is oversteery: at cornering speeds the rear gives up grip whenever you ask the car
+  (0–100 km/h in about 3.9 s, about 1.2 g of cornering grip). It is oversteery: at cornering speeds the rear gives up grip whenever you ask the car
   to rotate, by steering into a corner or by using the throttle (it firms up towards top speed so the straights
   stay stable), and it steps out further when you brake while turning. Turning in off the throttle puts the tail
   about 20° out within a second. Lifting off and straightening the wheel, or steering into the slide, gives the
-  rear its grip back, so that is how a slide is caught; opposite lock and feathering the throttle holds one. Its
+  rear its grip back, so that is how a slide is caught; opposite lock and feathering the throttle holds one.
+  Spinning the rear wheels costs little cornering force, so in a power slide the car keeps turning (its path
+  follows its nose) rather than gaining speed. Its
   traction control is lenient, so the throttle can still swing the rear with TC on; turn it off (T) for big slides.
   Nothing steers for you unless you turn on **Countersteer assist** in the menu (off by default): with it, the
   front wheels turn into a slide by themselves, and holding the steering key settles into a drift at about 30°
-  instead of a spin. Its tyres stop harder than they corner: about 1.4 g, 100 km/h to rest in under 30 m. It uses a
+  instead of a spin. It stops at about 1.4 g, 100 km/h to rest in under 30 m. It uses a
   bonnet camera for the onboard view.
 
 Each car keeps its own best lap and sector times. Switching car puts you back on the grid.

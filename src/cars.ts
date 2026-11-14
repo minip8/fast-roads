@@ -118,19 +118,21 @@ export const CARS: Record<CarId, CarSpec> = {
     arbFront: 14000, arbRear: 26000,   // stiffer rear bar: the rear lets go first in corners
     ClA: 0.3, CdA: 0.75, aeroFront: 0.45, rho: 1.225,
     brakeMax: 22000, brakeFront: 0.68,   // front-biased, so braking doesn't swap the ends
-    gripFront: 0.66, gripRear: 0.74,   // the rear must out-grip the front at speed or the car turns itself round
+    gripFront: 0.86, gripRear: 0.96,   // the rear must out-grip the front at speed or the car turns itself round
     // ...but loses this share of grip at low speed (fading out by this speed, m/s) on the throttle or when steering
     // into the turn, and about a third of that otherwise: lifting off and steering into a slide gives the rear its
     // grip back, which is how a slide is caught
     rearLoose: [0.27, 50, 0.35],
     absMin: 0.3,
-    brakeGrip: 1.35,                   // the tyres stop harder than they corner (about 1.4 g)
-    driveGrip: 1.3,                    // ...and put power down better than they corner
+    brakeGrip: 1.08,                   // the tyres stop a little harder than they corner (about 1.4 g)
+    driveGrip: 1.12,                   // ...and put power down a little better too
     brakeKick: 0.25,
     // optional assist (off unless the player turns it on): catches slides past ~8 deg; a held key settles near 30 deg
     counterSteer: [1.2, 0.14, 0.3, 0.45],
     tcSlack: 0.25,                     // lenient TC: the throttle can still swing the rear
-    spinLat: 0.75,                     // wheelspin leaves the rear some cornering force, so power slides build gradually
+    // wheelspin leaves the rear most of its cornering force: power slides build gradually, and a sliding car turns
+    // (its path follows its nose) instead of spending the rear tyres on gaining speed
+    spinLat: 0.9,
     pac: { B: 9, C: 1.35, E: 0.1 },    // rear: grip barely drops off past the peak, so a big slide can still be caught
     pacFront: { B: 10, C: 1.25, E: 0.1 },   // front: holds grip when over-steered, so it doesn't wash wide
     gearTop: [0, 14, 22, 30, 39, 49, 60],
@@ -147,7 +149,7 @@ export const CARS: Record<CarId, CarSpec> = {
       harmonics: [0.6, 1, 0.5, 0.45, 0.3, 0.28, 0.16, 0.15, 0.1, 0.08, 0.06, 0.05],
       detune: 9, level: 0.2, coast: 0.4, bright: [2.5, 7], body: [260, 1.0, 2, 5], rough: 0.22, squealHz: 780,
     },
-    autoGrip: 0.65, autoLong: 0.75, autoCounter: 0.9, autoLift: 6,
+    autoGrip: 0.6, autoLong: 0.75, autoCounter: 0.9, autoLift: 6,
     hull: [0.82, 0.28, 2.15, 0, 0.18, 0],
     parts: [[0.7, 0.2, 0.95, 0, 0.53, -0.35]],
     tyreW: [0.25, 0.27],
