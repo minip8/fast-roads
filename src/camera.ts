@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { _v1, _v2, _v3, type Car } from './car';
+import type { Car } from './car';
 import { S_ASPHALT, S_GRAVEL } from './config';
 import type { Stage } from './stage';
 import { clamp } from './util';
@@ -10,7 +10,7 @@ import { clamp } from './util';
 export const CAM_MODES = ['onboard', 'chase', 'far'] as const;   // C cycles in this order
 export type CamMode = (typeof CAM_MODES)[number];
 
-const _shake = new THREE.Vector3();
+const _shake = new THREE.Vector3(), _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
 
 export class CameraRig {
   mode: CamMode = 'onboard';

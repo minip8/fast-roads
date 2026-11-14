@@ -9,7 +9,7 @@ import { clamp, lerp } from './util';
 // ============================================================================
 // Car
 // ============================================================================
-export const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
+const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
 
 // What a driver (keyboard/mouse/gamepad, or the autopilot) asks of the car each physics tick.
 export interface DriveInput {
