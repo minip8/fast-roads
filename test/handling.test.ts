@@ -103,6 +103,15 @@ describe('drift car', () => {
     expect((await holdKey(65, 0)).max).toBeLessThan(20);
   });
 
+  it('reaches 100 km/h in under 4.8 s', async () => {
+    const { car, drive } = await session('drift');
+    car.forceSurface = S_ASPHALT;
+    let t = 0;
+    drive(10, (_c, now) => { t = now; return { throttle: 1, brake: 0, steer: 0, analog: true, steerAngle: 0, autoGears: true }; }, () => car.speedF >= 100 / 3.6);
+    expect(t).toBeGreaterThan(3.8);
+    expect(t).toBeLessThan(4.8);                      // 5.7 s before the extra traction and torque
+  });
+
   it('the throttle steps the tail out: past 20 deg within 1.5 s with TC off, and it keeps going if held', async () => {
     const r = await holdKey(65, 1, { tc: false });
     expect(r.at20).toBeGreaterThan(0.3);              // builds, rather than snapping

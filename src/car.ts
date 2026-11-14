@@ -299,7 +299,8 @@ export class Car {
 
       // longitudinal: drive (rear), brakes, rolling + surface drag
       let Fdrive = w.front ? 0 : drive / 2;
-      if (this.tc && Fdrive > 0) Fdrive = Math.min(Fdrive, Math.sqrt(Math.max(0, Fmax * Fmax - Fy * Fy)) * 0.97 + this.spec.tcSlack * Fmax);
+      const dg = this.spec.driveGrip;                         // like brakeGrip, for putting power down
+      if (this.tc && Fdrive > 0) Fdrive = Math.min(Fdrive, dg * (Math.sqrt(Math.max(0, Fmax * Fmax - Fy * Fy)) * 0.97 + this.spec.tcSlack * Fmax));
       // ABS: cornering force keeps priority; brakes get the grip that's left, but never less than absMin.
       // brakeGrip stretches the friction circle for braking only: the tyres stop harder than they corner.
       const bg = this.spec.brakeGrip;
@@ -310,7 +311,7 @@ export class Car {
       let Fx = Fdrive + Fres;
 
       // friction circle
-      const gx = Fx * vx < 0 ? bg : 1;                        // braking force gets the stretched limit; drive doesn't
+      const gx = Fx * vx < 0 ? bg : dg;                       // the friction circle, stretched along the wheel
       const tot = Math.hypot(Fx / gx, Fy);
       let slide = 0;
       if (tot > Fmax && tot > 0) {
@@ -318,7 +319,7 @@ export class Car {
         const k = Fmax / tot; Fx *= k; Fy *= k;
         // A spinning driven tyre still holds some of its cornering force (spinLat), so power slides build gradually.
         const keep = this.spec.spinLat * Math.min(1, Fmax / Math.max(Math.abs(Fy / k), 1));
-        if (Fdrive > 0 && k < keep) { Fy *= keep / k; Fx = Math.sign(Fx) * Math.sqrt(Math.max(0, Fmax * Fmax - Fy * Fy)); }
+        if (Fdrive > 0 && k < keep) { Fy *= keep / k; Fx = Math.sign(Fx) * gx * Math.sqrt(Math.max(0, Fmax * Fmax - Fy * Fy)); }
       }
       // no overshoot at low speed: never reverse the corner's lateral velocity in one step
       const maxFy = (mc * Math.abs(vy)) / dt;

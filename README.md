@@ -30,7 +30,8 @@ steering (keyboard/mouse), camera, traction control, countersteer assist (drift 
 ## Cars
 
 - **F1**: light, huge downforce and grip, 8 gears, 12,500 rpm. Stable and fast.
-- **Drift car**: a heavy rear-drive coupe with almost no downforce and a torquey 7,500 rpm V8 in 6 gears. It is
+- **Drift car**: a heavy rear-drive coupe with almost no downforce and a torquey 7,500 rpm V8 in 6 gears
+  (0–100 km/h in about 4.4 s). It is
   stable off the throttle (steering alone won't spin it) and loose on it: at cornering speeds the rear gives up grip
   under power (it firms up towards top speed so the straights stay stable), and it steps out when you brake while
   turning. Lifting off gives the rear its grip back, so a slide is caught by lifting and steering into it, and held

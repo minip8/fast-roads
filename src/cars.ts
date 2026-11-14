@@ -26,6 +26,7 @@ export interface CarSpec {
   gripFront: number; gripRear: number;
   absMin: number;                           // brakes always get at least this share of a tyre's grip
   brakeGrip: number;                        // braking grip relative to cornering grip (1 = the same)
+  driveGrip: number;                        // traction under power relative to cornering grip (1 = the same)
   brakeKick: number;                        // rear grip lost when braking while turning
   // Countersteer assist for the player (see Car.step): wheel angle added per radian of rear slide past fromSlip
   // (rad); damp (s) times how fast the slide is changing; and the driver's steering into the slide fades out over
@@ -74,7 +75,7 @@ export const CARS: Record<CarId, CarSpec> = {
     brakeMax: 42000, brakeFront: 0.55,
     gripFront: 1.0, gripRear: 1.1,     // rear tyres are wider
     absMin: 0.45,                     // brakes always get at least this share of a tyre's grip
-    brakeGrip: 1,                     // braking grip relative to cornering grip
+    brakeGrip: 1, driveGrip: 1,       // braking grip and traction relative to cornering grip
     brakeKick: 0,                     // rear grip lost when braking while turning (see Car.step)
     counterSteer: [0, 1, 0, 1],       // countersteer assist off: [gain, rear slide (rad) it starts from, damp, span]
     tcSlack: 0.04,                    // wheelspin traction control still allows (share of tyre grip)
@@ -123,6 +124,7 @@ export const CARS: Record<CarId, CarSpec> = {
     rearLoose: [0.24, 50, 0.35],
     absMin: 0.3,
     brakeGrip: 1.35,                   // the tyres stop harder than they corner (about 1.4 g)
+    driveGrip: 1.3,                    // ...and put power down better than they corner
     brakeKick: 0.25,
     // optional assist (off unless the player turns it on): catches slides past ~8 deg; a held key settles near 30 deg
     counterSteer: [1.2, 0.14, 0.3, 0.45],
@@ -132,7 +134,7 @@ export const CARS: Record<CarId, CarSpec> = {
     pacFront: { B: 10, C: 1.25, E: 0.1 },   // front: holds grip when over-steered, so it doesn't wash wide
     gearTop: [0, 14, 22, 30, 39, 49, 60],
     redline: 7500, idle: 1000,
-    torque: [[1000, 300], [2500, 400], [4000, 470], [5000, 480], [6500, 450], [7500, 400], [7800, 0]],
+    torque: [[1000, 345], [2500, 460], [4000, 540], [5000, 552], [6500, 518], [7500, 460], [7800, 0]],
     shiftPoint: 7200, overRev: 7700, shiftLightsFrom: 5200,
     launchRpm: 3500, engineBrake: 600, reverseForce: 4500, reverseTop: 12,
     // steerLock is the wheels' full travel; the driver's own lock is less, the rest is for the countersteer assist
