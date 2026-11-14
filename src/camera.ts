@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { _v1, _v2, _v3, type Car } from './car';
+import { S_ASPHALT, S_GRAVEL } from './config';
 import type { Stage } from './stage';
 import { clamp } from './util';
 
@@ -9,44 +10,68 @@ import { clamp } from './util';
 export const CAM_MODES = ['onboard', 'chase', 'far'] as const;   // C cycles in this order
 export type CamMode = (typeof CAM_MODES)[number];
 
+const _shake = new THREE.Vector3();
+
 export class CameraRig {
   mode: CamMode = 'onboard';
-  private readonly pos = new THREE.Vector3();
+  private readonly off = new THREE.Vector3();    // chase: smoothed camera offset from the car (world axes)
   private readonly look = new THREE.Vector3();
   private readonly fwd = new THREE.Vector3(0, 0, 1);
+  private y = 0;                                  // chase: smoothed car height, so kerb hops don't jolt the view
+  private fov = 66;
+  private rumble = 0;                             // 0..1, eased: how rough the surface under the car is
+  private t = 0;                                  // shake phase: advances with distance driven, so a paused car is still
+  private readonly lastP = new THREE.Vector3();
   private init = false;
 
   constructor(private readonly stage: Stage) {}
 
   // Snap the chase camera behind the car next frame (after a reset or teleport).
-  reset() { this.init = false; this.pos.set(0, 0, 0); }
+  reset() { this.init = false; }
 
   update(dt: number, car: Car) {
-    const { camera, sky, sun, sunDir } = this.stage;
+    const { camera, sky } = this.stage;
     const root = car.mesh.root, p = root.position;
     const fwd = _v1.set(0, 0, 1).applyQuaternion(root.quaternion);
+    const speed = Math.abs(car.speedF);
+    this.t += Math.min(p.distanceTo(this.lastP), 5) / 30; this.lastP.copy(p);
+
+    // Surface rumble: a light shake on kerbs, grass and gravel, growing with speed.
+    let rough = 0;
+    for (const w of car.wheels) if (w.grounded && w.surf !== S_ASPHALT) rough += w.surf === S_GRAVEL ? 1 : 0.6;
+    this.rumble += (clamp(rough / 4, 0, 1) * clamp(speed / 30, 0, 1) - this.rumble) * (1 - Math.exp(-dt * 10));
+    const t = this.t, amp = this.rumble * 0.018;
+    _shake.set(Math.sin(t * 71) + Math.sin(t * 113) * 0.5, Math.sin(t * 89 + 1) + Math.sin(t * 131 + 2) * 0.5, 0).multiplyScalar(amp);
+
+    let fov: number;
     if (this.mode === 'onboard') {
       const upv = _v2.set(0, 1, 0).applyQuaternion(root.quaternion);
       const cam = car.spec.cam;
       camera.position.copy(p).addScaledVector(upv, cam.up).addScaledVector(fwd, -cam.back);
       camera.lookAt(_v3.copy(camera.position).addScaledVector(fwd, 10).addScaledVector(upv, -cam.down));
-      camera.fov = 78;
+      camera.position.add(_shake);
+      fov = 76 + clamp(speed, 0, 90) * 0.05;
     } else {
+      // Heading is smoothed (the car visibly yaws and slides in front of the camera), but the camera is attached to
+      // the car's position rather than chasing it, so it stays the same distance behind at any speed.
       const flat = _v2.set(fwd.x, 0, fwd.z).normalize();
-      if (!this.init) { this.fwd.copy(flat); this.init = true; }
-      this.fwd.lerp(flat, 1 - Math.exp(-dt * 7)).normalize();
-      const far = this.mode === 'far', dist = far ? 9.5 : 6.2, h = far ? 3.0 : 1.75;
-      const target = _v3.copy(p).addScaledVector(this.fwd, -dist); target.y = p.y + h;
-      if (!this.pos.lengthSq()) this.pos.copy(target);
-      this.pos.lerp(target, 1 - Math.exp(-dt * 14));
-      camera.position.copy(this.pos);
-      this.look.copy(p).addScaledVector(this.fwd, 4); this.look.y = p.y + 0.6;
+      const far = this.mode === 'far';
+      const dist = (far ? 9.5 : 6.2) + clamp(speed, 0, 90) * (far ? 0.016 : 0.01), h = far ? 3.0 : 1.75;
+      if (!this.init) { this.fwd.copy(flat); this.y = p.y; this.init = true; this.off.set(0, 0, 0); }
+      this.fwd.lerp(flat, 1 - Math.exp(-dt * 6)).normalize();
+      this.y += (p.y - this.y) * (1 - Math.exp(-dt * 12));
+      const target = _v3.copy(this.fwd).multiplyScalar(-dist); target.y = h;
+      if (!this.off.lengthSq()) this.off.copy(target);
+      this.off.lerp(target, 1 - Math.exp(-dt * 10));
+      camera.position.set(p.x + this.off.x, this.y + this.off.y, p.z + this.off.z).add(_shake);
+      this.look.copy(p).addScaledVector(this.fwd, 4); this.look.y = this.y + 0.6;
       camera.lookAt(this.look);
-      camera.fov = 66 + clamp(car.speedF, 0, 90) * 0.12;
+      fov = 64 + clamp(speed, 0, 90) * 0.1;
     }
-    camera.updateProjectionMatrix();
+    // ease FOV changes (mode switches, sudden stops)
+    this.fov += (fov - this.fov) * (1 - Math.exp(-dt * 6));
+    if (Math.abs(camera.fov - this.fov) > 1e-3) { camera.fov = this.fov; camera.updateProjectionMatrix(); }
     sky.position.copy(camera.position);
-    sun.position.copy(p).addScaledVector(sunDir, 250);
-    sun.target.position.copy(p);
+    this.stage.followSun(p, camera.getWorldDirection(_v2));
   }
 }
