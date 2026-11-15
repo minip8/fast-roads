@@ -1,6 +1,6 @@
-import type { Car } from './car';
 import type { Track } from './track';
 import { lerp } from './util';
+import type { Vehicle } from './vehicle';
 
 // ============================================================================
 // Lap timing
@@ -60,7 +60,7 @@ export class Timing {
     if (this.lapStart != null && this.valid) { this.valid = false; this.invalidReason = reason; this.events.push({ type: 'invalid', reason }); }
   }
   // Called once per physics tick. t0 = sim time at start of tick.
-  tick(prev: { x: number; z: number }, curr: { x: number; z: number }, t0: number, dt: number, car: Car) {
+  tick(prev: { x: number; z: number }, curr: { x: number; z: number }, t0: number, dt: number, car: Vehicle) {
     const rx = curr.x - prev.x, rz = curr.z - prev.z;
     for (let k = 0; k < 3; k++) {
       const ln = this.lines[k];

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { S_GRASS, S_GRAVEL } from './config';
-import type { Car } from './car';
 import { clamp, lerp } from './util';
+import type { Vehicle } from './vehicle';
 
 // ============================================================================
 // Dust kicked up by wheels on grass / gravel (purely visual)
@@ -72,7 +72,7 @@ export class Dust {
     this.age[k] = 0; this.life[k] = (gravel ? 1.0 : 0.8) + Math.random() * 0.7;
     this.a0[k] = gravel ? 0.42 : 0.26; this.s0[k] = 0.5; this.s1[k] = (gravel ? 2.8 : 2.0) * (0.8 + Math.random() * 0.4);
   }
-  update(dt: number, car: Car, camera: THREE.PerspectiveCamera, renderer: THREE.WebGLRenderer) {
+  update(dt: number, car: Vehicle, camera: THREE.PerspectiveCamera, renderer: THREE.WebGLRenderer) {
     this.mat.uniforms.uScale.value = (renderer.domElement.height * 0.5) / Math.tan((camera.fov * Math.PI) / 360);
     if (dt <= 0) return;
     const v = car.vel, speed = Math.hypot(v.x, v.z);

@@ -3,12 +3,13 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 import { autopilot } from '../src/autopilot';
-import type { Car, DriveInput } from '../src/car';
-import { CARS, type CarId } from '../src/cars';
+import { Car } from '../src/car';
+import { CARS, type AnyCarSpec, type CarId, type CarSpec } from '../src/cars';
 import { DT, G_WALL } from '../src/config';
 import { Session } from '../src/sim';
 import { buildTrack, parseCSV, type Track } from '../src/track';
 import { TRACKS, type TrackId } from '../src/tracks';
+import type { DriveInput, Vehicle } from '../src/vehicle';
 
 const tracks: Partial<Record<TrackId, Track>> = {};
 
@@ -27,11 +28,22 @@ export async function session(carId: CarId, { tc = true, walls = true, track = '
 
   // Drive for `seconds`, or until `until()` is true after a tick; the default driver is the autopilot. Same ticks and
   // resets as the game loop.
-  const drive = (seconds: number, driver?: ((car: Car, t: number) => DriveInput) | null, until?: () => boolean) => {
+  const drive = (seconds: number, driver?: ((car: Vehicle, t: number) => DriveInput) | null, until?: () => boolean) => {
     for (let k = 0, n = Math.round(seconds / DT); k < n; k++) {
       s.tick(driver ? driver(car, s.simTime) : autopilot(car, tr), !driver);
       if (until?.()) return;
     }
   };
   return { track: tr, world, car, timing, drive };
+}
+
+// For tests that reach into our own physics (the Rapier body, its tuning numbers): the car or spec as ours, or a
+// failed test if the car runs on another engine.
+export function ourCar(car: Vehicle): Car {
+  if (!(car instanceof Car)) throw new Error(`${car.spec.id} does not run on our physics`);
+  return car;
+}
+export function ourSpec(spec: AnyCarSpec): CarSpec {
+  if (spec.physics !== 'rapier') throw new Error(`${(spec as { id: string }).id} does not run on our physics`);
+  return spec;
 }

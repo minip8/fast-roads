@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Car, DriveInput } from '../src/car';
 import type { CarId } from '../src/cars';
 import { DT, S_ASPHALT } from '../src/config';
 import { Input } from '../src/input';
-import { session } from './harness';
+import type { DriveInput, Vehicle } from '../src/vehicle';
+import { ourCar, session } from './harness';
 
 // Accelerate down the start straight to v0 (m/s), then hold `input` for 1.2 s.
 // Returns the largest slip angle (degrees between heading and direction of travel) during that time.
@@ -40,7 +40,7 @@ describe('handling', () => {
 });
 
 // Where the rear axle is going relative to where the car points (degrees): the size of a slide.
-const rearSlide = (c: Car) => Math.atan2(c.vel.dot(c.left) + c.angv.dot(c.up) * c.spec.zRear, Math.max(Math.abs(c.speedF), 3)) * 180 / Math.PI;
+const rearSlide = (c: Vehicle) => Math.atan2(c.vel.dot(c.left) + c.angv.dot(c.up) * c.spec.zRear, Math.max(Math.abs(c.speedF), 3)) * 180 / Math.PI;
 
 describe('drift car', () => {
   const straight: DriveInput = { throttle: 1, brake: 0, steer: 0, analog: true, steerAngle: 0, autoGears: true };
@@ -254,8 +254,8 @@ describe('reverse', () => {
       const pedals = (throttle: number, brake: number): DriveInput => ({ throttle, brake, steer: 0, analog: true, steerAngle: 0, autoGears: true });
       drive(6, () => pedals(0, 1));                  // hold brake: stops, engages reverse, backs up
       expect(car.gear).toBe(0);
-      expect(-car.speedF).toBeGreaterThan(0.7 * car.spec.reverseTop);
-      expect(-car.speedF).toBeLessThan(car.spec.reverseTop);
+      expect(-car.speedF).toBeGreaterThan(0.7 * ourCar(car).spec.reverseTop);
+      expect(-car.speedF).toBeLessThan(ourCar(car).spec.reverseTop);
       const v0 = -car.speedF;
       drive(1, () => pedals(0, 0));                  // coasting backwards: engine braking slows it
       expect(-car.speedF).toBeLessThan(v0 - 0.2);
@@ -267,7 +267,7 @@ describe('reverse', () => {
 });
 
 it('a car left on its side is put back on its wheels', async () => {
-  const { car, drive } = await session('drift');   // the drift car's boxy body rests on its side; the F1 tips back
+  const s = await session('drift'), car = ourCar(s.car), { drive } = s;   // the drift car's boxy body rests on its side; the F1 tips back
   const roll = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2);
   car.body.setRotation(car.quat.clone().multiply(roll), true);
   car.body.setTranslation({ x: car.pos.x, y: car.spec.hull[0] + 0.05, z: car.pos.z }, true);

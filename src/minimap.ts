@@ -1,6 +1,6 @@
-import type { Car } from './car';
 import type { Timing } from './timing';
 import type { Track } from './track';
+import type { Vehicle } from './vehicle';
 
 // ============================================================================
 // Minimap: the circuit and timing lines drawn once, the car arrow on top each frame
@@ -40,7 +40,7 @@ export class Minimap {
   private x(x: number) { return this.offX + (x - this.bounds.minX) * this.scale; }
   private y(z: number) { return this.offZ + (z - this.bounds.minZ) * this.scale; }
 
-  draw(car: Car) {
+  draw(car: Vehicle) {
     const c = this.ctx;
     c.clearRect(0, 0, this.canvas.width, this.canvas.height);
     c.drawImage(this.base, 0, 0);

@@ -1,4 +1,4 @@
-import { CARS } from './cars';
+import { CARS, hasAssist } from './cars';
 import { $ } from './dom';
 import { SETTING_DEFS, SETTING_KEYS, type SettingKey, type Settings } from './settings';
 import { clamp, fmtTime, wrapI } from './util';
@@ -94,7 +94,7 @@ export class Menu {
       const d = SETTING_DEFS[key];
       const row = document.createElement('div');
       const unused = (MOUSE_ROWS.includes(key) && host.settings.steering !== 'mouse')
-        || (key === 'assist' && CARS[host.settings.car].counterSteer[0] === 0);   // this car has no assist
+        || (key === 'assist' && !hasAssist(CARS[host.settings.car]));   // this car has no assist
       row.className = 'mrow' + (unused ? ' dim' : '');
       const lab = document.createElement('span'); lab.textContent = d.label;
       const seg = document.createElement('div'); seg.className = 'seg';

@@ -5,20 +5,14 @@ import type { CarMesh } from './carMeshes';
 import type { BrushTyre, CarSpec } from './cars';
 import { pointAt, projectOnTrack, surfaceAt, trackLimitOut, type SurfaceRes, type Track, type TrackPos } from './track';
 import { clamp, lerp } from './util';
+import type { DriveInput, Vehicle } from './vehicle';
 
 // ============================================================================
 // Car
 // ============================================================================
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
 
-// What a driver (keyboard/mouse/gamepad, or the autopilot) asks of the car each physics tick.
-export interface DriveInput {
-  throttle: number; brake: number;   // 0..1
-  steer: number;                     // -1 (right) .. 1 (left), scaled by the car's speed-sensitive lock
-  analog: boolean;                   // analog input: faster steering, different lock curve
-  steerAngle?: number | null;        // direct wheel angle (rad), overrides steer (autopilot)
-  autoGears?: boolean;               // force the automatic gearbox (autopilot)
-}
+export type { DriveInput } from './vehicle';
 
 export interface Wheel {
   name: string; front: boolean;
@@ -54,7 +48,8 @@ export function engineTorque(spec: CarSpec, rpm: number) {
   return 0;
 }
 
-export class Car {
+// Our physics: a Rapier rigid body with raycast suspension and our own tyre, engine and gearbox model on top.
+export class Car implements Vehicle {
   readonly world: RAPIER.World; readonly track: Track; readonly scene: THREE.Scene; readonly spec: CarSpec;
   readonly wheels: Wheel[];
   readonly body: RAPIER.RigidBody;

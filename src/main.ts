@@ -2,7 +2,6 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { EngineAudio } from './audio';
 import { autopilot } from './autopilot';
 import { CameraRig } from './camera';
-import type { Car, DriveInput } from './car';
 import { CARS } from './cars';
 import { DT, MAX_STEPS_PER_FRAME } from './config';
 import { $ } from './dom';
@@ -18,18 +17,19 @@ import type { Timing } from './timing';
 import { buildTrack, parseCSV, type Track } from './track';
 import { TRACKS } from './tracks';
 import { clamp } from './util';
+import type { DriveInput, Vehicle } from './vehicle';
 
 // ============================================================================
 // Main: wires the modules together and runs the game loop. Started by boot.ts.
 // ============================================================================
 // Test hook (see CLAUDE.md), set in main(): drive the game from the console or a headless browser.
-type Driver = boolean | ((car: Car, simTime: number) => DriveInput);   // true = autopilot, false = live input
+type Driver = boolean | ((car: Vehicle, simTime: number) => DriveInput);   // true = autopilot, false = live input
 export interface ProbeSample { t: number; s: number; kmh: number; g: number; lat: number; y: number; up: number }
 export interface GameHook {
   simulate(seconds: number, driver?: Driver, probeSecs?: number | null): ProbeSample[];
   setAutopilot(on: boolean): void;
   setSetting<K extends SettingKey>(key: K, value: Settings[K]): void;
-  readonly car: Car;                 // a getter: switching car replaces the object
+  readonly car: Vehicle;             // a getter: switching car replaces the object
   readonly simTime: number;
   readonly session: Session; readonly timing: Timing; readonly track: Track; readonly input: Input;
   readonly autopilot: typeof autopilot;

@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import type { Car } from './car';
 import { S_ASPHALT, S_GRAVEL } from './config';
 import type { Stage } from './stage';
 import { clamp } from './util';
+import type { Vehicle } from './vehicle';
 
 // ============================================================================
 // Camera rig: onboard (fixed to the car), or a smoothed chase camera
@@ -29,7 +29,7 @@ export class CameraRig {
   // Snap the chase camera behind the car next frame (after a reset or teleport).
   reset() { this.init = false; }
 
-  update(dt: number, car: Car) {
+  update(dt: number, car: Vehicle) {
     const { camera, sky } = this.stage;
     const root = car.mesh.root, p = root.position;
     const fwd = _v1.set(0, 0, 1).applyQuaternion(root.quaternion);

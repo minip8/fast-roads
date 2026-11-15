@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { buildSpeedProfile } from '../src/autopilot';
 import { CARS } from '../src/cars';
 import { SETTING_DEFS } from '../src/settings';
-import { session } from './harness';
+import { ourSpec, session } from './harness';
 
 describe.each(Object.entries(CARS))('%s', (key, spec) => {
   it('is listed under its own id, with its own best-times key, in the Car menu', () => {
@@ -13,20 +13,25 @@ describe.each(Object.entries(CARS))('%s', (key, spec) => {
     expect(SETTING_DEFS.car.options).toContainEqual([spec.id, spec.name]);
   });
 
-  it('has a consistent engine, gearbox and shift lights', () => {
-    const rpms = spec.torque.map(([rpm]) => rpm);
-    expect(rpms).toEqual([...rpms].sort((a, b) => a - b));
-    expect(spec.gearTop.slice(1)).toEqual([...spec.gearTop.slice(1)].sort((a, b) => a - b));
+  it('has consistent shift lights and an engine voice', () => {
     expect(spec.idle).toBeLessThan(spec.shiftLightsFrom);
     expect(spec.shiftLightsFrom).toBeLessThan(spec.shiftPoint);
     expect(spec.shiftPoint).toBeLessThan(spec.redline);
-    expect(spec.redline).toBeLessThan(spec.overRev);
     expect(spec.sound.firingDiv).toBeGreaterThan(0);
     expect(spec.sound.harmonics.length).toBeGreaterThan(0);
   });
 
-  it('has a tyre curve: Pacejka coefficients or a brush tyre', () => {
-    expect(spec.pac ?? spec.brush).toBeDefined();
+  // Our physics' own numbers (cars on another engine bring their own).
+  it.runIf(spec.physics === 'rapier')('has a consistent engine and gearbox', () => {
+    const ours = ourSpec(spec), rpms = ours.torque.map(([rpm]) => rpm);
+    expect(rpms).toEqual([...rpms].sort((a, b) => a - b));
+    expect(ours.gearTop.slice(1)).toEqual([...ours.gearTop.slice(1)].sort((a, b) => a - b));
+    expect(ours.redline).toBeLessThan(ours.overRev);
+  });
+
+  it.runIf(spec.physics === 'rapier')('has a tyre curve: Pacejka coefficients or a brush tyre', () => {
+    const ours = ourSpec(spec);
+    expect(ours.pac ?? ours.brush).toBeDefined();
   });
 
   it('builds a body with four wheels, and an autopilot plan', async () => {

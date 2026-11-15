@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Batch } from './batch';
-import type { CarSpec } from './cars';
+import type { CarInfo } from './cars';
 
 // Car bodies. Built in Node too (the tests construct cars), so nothing here may touch the DOM.
 export interface CarMesh {
@@ -39,7 +39,7 @@ function taper(w: number, h: number, l: number, back: [number, number], front: [
 }
 const B = (w: number, h: number, l: number) => new THREE.BoxGeometry(w, h, l);
 
-export function buildCarMesh(spec: CarSpec): CarMesh {
+export function buildCarMesh(spec: CarInfo): CarMesh {
   const root = new THREE.Group(), bodyGroup = new THREE.Group();
   root.add(bodyGroup);
   const body = mat({ color: 0xff6a13, roughness: 0.3, metalness: 0.25 });
@@ -88,7 +88,7 @@ export function buildCarMesh(spec: CarSpec): CarMesh {
 
 // Four wheels (pivot for steer/suspension, spinner for rolling) shared by every car body. The tyre has rounded
 // shoulders and the rim has spokes, so you can see the wheels turn.
-function buildWheels(root: THREE.Group, spec: CarSpec, colors: { rim: number; stripe?: number }): CarMesh['wheels'] {
+function buildWheels(root: THREE.Group, spec: CarInfo, colors: { rim: number; stripe?: number }): CarMesh['wheels'] {
   const tyreMat = mat({ color: 0x1c1c1e, roughness: 0.82, envMapIntensity: 0.3 });
   const rimMat = mat({ color: colors.rim, roughness: 0.35, metalness: 0.6 });
   const stripeMat = colors.stripe === undefined ? null : mat({ color: colors.stripe, roughness: 0.6 });
@@ -147,7 +147,7 @@ function extrude(sh: THREE.Shape, width: number, bevel: number) {
 }
 
 // Rear-drive coupe. Origin is the centre of mass (0.45 m above the road); wheel centres sit at y = -0.12.
-export function buildDriftMesh(spec: CarSpec): CarMesh {
+export function buildDriftMesh(spec: CarInfo): CarMesh {
   const root = new THREE.Group(), bodyGroup = new THREE.Group();
   root.add(bodyGroup);
   const body = mat({ color: 0xf2f4f7, roughness: 0.3, metalness: 0.1 });
@@ -189,7 +189,7 @@ export function buildDriftMesh(spec: CarSpec): CarMesh {
 
 // GT3 coupe: long bonnet, cabin set back, wide arches standing above it, splitter, diffuser and a full-width rear
 // wing. Origin is the centre of mass (0.40 m above the road); the floor is at y = -0.33.
-export function buildGt3Mesh(spec: CarSpec): CarMesh {
+export function buildGt3Mesh(spec: CarInfo): CarMesh {
   const root = new THREE.Group(), bodyGroup = new THREE.Group();
   root.add(bodyGroup);
   const body = mat({ color: 0x0e6b57, roughness: 0.28, metalness: 0.3 });

@@ -1,10 +1,10 @@
-import type { Car } from './car';
 import { DT, SURF } from './config';
 import { $ } from './dom';
 import { Minimap, type Bounds } from './minimap';
 import type { Timing } from './timing';
 import type { Track } from './track';
 import { clamp, fmtDelta, fmtSec, fmtTime } from './util';
+import type { Vehicle } from './vehicle';
 
 // ============================================================================
 // In-game HUD: lap/sector timing, messages, dash (shift lights, pedals, gear, speed), minimap
@@ -20,7 +20,7 @@ function setStyle(el: HTMLElement, prop: 'left' | 'height', value: string) {
 }
 
 export interface HudFrame {
-  car: Car; timing: Timing;
+  car: Vehicle; timing: Timing;
   simTime: number; alpha: number;   // physics time and interpolation fraction into the next tick
   dt: number; autoOn: boolean; paused: boolean;
   mouseSteer: number | null;        // mouse steering position, or null when mouse steering is off
@@ -108,7 +108,7 @@ export class Hud {
   }
 
   // Shift lights fill from the car's shiftLightsFrom to its auto-upshift point, then all flash; pedal bars.
-  private updateDash(car: Car) {
+  private updateDash(car: Vehicle) {
     const n = car.gear === 0 ? 0 : Math.round(clamp((car.rpm - car.spec.shiftLightsFrom) / (car.spec.shiftPoint - car.spec.shiftLightsFrom), 0, 1) * 15);
     if (n !== this.litCount) { this.lights.forEach((d, k) => d.classList.toggle('on', k < n)); this.litCount = n; }
     const sl = this.el.shiftLights, flashing = n === 15;

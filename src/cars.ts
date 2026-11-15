@@ -9,28 +9,51 @@ export interface PacejkaCoeffs { B: number; C: number; E: number }
 export interface BrushTyre { peak: number; peakGain: number; fz0: number; loadExp: number; level: number; slope: number }
 type Box = [hx: number, hy: number, hz: number, x: number, y: number, z: number];
 
-// Car specs. Every per-car number (physics, engine, sound, autopilot, cameras) lives here, so cars can differ.
-// Values that only one car uses are neutral on the others (e.g. brakeKick 0), so behaviour stays per-car.
-export interface CarSpec {
+// The physics engines a car can run on: 'rapier' is ours (Car in car.ts). createVehicle (sim.ts) builds each.
+export type PhysicsId = 'rapier';
+
+// What the rest of the game reads from a car's spec, whichever engine drives it: the menu and best times, the body
+// for the meshes and autopilot, the engine for the HUD and sound, the cameras, and what the autopilot plans with.
+export interface CarInfo {
   id: CarId; name: string;
   hint?: string;                            // how to drive it, shown under the name when the player switches to it
   storeKey: string;                         // this car's suffix on the circuit's localStorage key for best times
-  mesh: (spec: CarSpec) => CarMesh;
+  physics: PhysicsId;                       // which engine drives it
+  mesh: (spec: CarInfo) => CarMesh;
   // body
   mass: number;
-  inertia: { x: number; y: number; z: number };   // pitch, yaw, roll (body axes)
   comHeight: number; wheelRadius: number; trackHalf: number;
-  forceHeight: number;                      // m above the road at which the tyres' grip acts on the body: above 0, the car rolls and pitches less than its centre of mass height says
   zFront: number; zRear: number;            // axle positions relative to the centre of mass (m)
+  // aero and grip (the autopilot's speed plan)
+  ClA: number; rho: number;
+  gripFront: number; gripRear: number;
+  // engine: rpm range, auto upshift point and the shift lights' start
+  redline: number; idle: number;
+  shiftPoint: number; shiftLightsFrom: number;
+  sound: EngineVoice;                       // engine and tyre sound (audioGraph.ts)
+  // autopilot
+  autoGrip: number; autoLong: number; autoCounter: number; autoLift: number;
+  autoUndersteer: number;                   // extra lock the autopilot adds per m/s2 of cornering (rad), for a car that understeers
+  // visuals
+  tyreW: [front: number, rear: number];
+  cam: { up: number; back: number; down: number };   // onboard camera offset
+}
+
+// Car specs for our physics. Every per-car number (physics, engine, sound, autopilot, cameras) lives here, so cars
+// can differ. Values that only one car uses are neutral on the others (e.g. brakeKick 0), so behaviour stays per-car.
+export interface CarSpec extends CarInfo {
+  physics: 'rapier';
+  // body
+  inertia: { x: number; y: number; z: number };   // pitch, yaw, roll (body axes)
+  forceHeight: number;                      // m above the road at which the tyres' grip acts on the body: above 0, the car rolls and pitches less than its centre of mass height says
   hull: Box;                                // main collider (hits ground and walls)
   parts: Box[];                             // wall-only colliders
   // suspension
   suspLen: number; kFront: number; kRear: number; damp: number; arbFront: number; arbRear: number;
   // aero
-  ClA: number; CdA: number; aeroFront: number; rho: number;
+  CdA: number; aeroFront: number;
   // brakes and grip
   brakeMax: number; brakeFront: number;
-  gripFront: number; gripRear: number;
   absMin: number;                           // brakes always get at least this share of a tyre's grip
   brakeGrip: number;                        // braking grip relative to cornering grip (1 = the same)
   driveGrip: number;                        // traction under power relative to cornering grip (1 = the same)
@@ -53,9 +76,8 @@ export interface CarSpec {
   brush?: { front: BrushTyre; rear: BrushTyre };   // brush tyres instead: their own curve and load sensitivity
   // engine and gearbox
   gearTop: number[];                        // m/s at redline per gear (index 0 unused)
-  redline: number; idle: number;
   torque: [rpm: number, nm: number][];
-  shiftPoint: number; overRev: number; shiftLightsFrom: number;
+  overRev: number;
   launchRpm: number; engineBrake: number; reverseForce: number; reverseTop: number;   // reverse drive (N), fading out by reverseTop (m/s)
   // what the engine has to spin up besides moving the car (kg m2): engine and gearbox at the crank, and the four wheels
   rotInertia: [engine: number, wheels: number];
@@ -66,23 +88,22 @@ export interface CarSpec {
   counterLock: [perSlide: number, rate: number];   // steering into a slide: lock per radian of slide, and how much faster the keys wind it on
   angDamp: number;
   yawCap: [margin: number, latAccel: number, gain: number];   // soft limit on yaw rate: margin (rad/s) over latAccel (m/s2) / speed; excess decays at gain (1/s); gain 0 = off
-  sound: EngineVoice;                       // engine and tyre sound (audioGraph.ts)
-  // autopilot
-  autoGrip: number; autoLong: number; autoCounter: number; autoLift: number;
-  autoUndersteer: number;                   // extra lock the autopilot adds per m/s2 of cornering (rad), for a car that understeers
-  // visuals
-  tyreW: [front: number, rear: number];
-  cam: { up: number; back: number; down: number };   // onboard camera offset
 }
 
+// A spec for any engine: a union of each engine's spec type, told apart by `physics`.
+export type AnyCarSpec = CarSpec;
+
 export type CarId = 'f1' | 'drift' | 'gt3';
+
+// Whether the Countersteer assist setting does anything on this car.
+export const hasAssist = (spec: AnyCarSpec) => spec.physics === 'rapier' && spec.counterSteer[0] !== 0;
 
 const GT3_CAMBER = 1.03;  // cornering grip the outside tyres gain from the camber they run (-3.5 deg front, -2.5 rear)
 const GT3_TORQUE = 1.04; // LibreCorsa's fit of the engine to the reference laps
 
-export const CARS: Record<CarId, CarSpec> = {
+export const CARS: Record<CarId, AnyCarSpec> = {
   f1: {
-    id: 'f1', name: 'F1', storeKey: '', mesh: buildCarMesh,
+    id: 'f1', name: 'F1', storeKey: '', physics: 'rapier', mesh: buildCarMesh,
     mass: 798,
     inertia: { x: 950, y: 1050, z: 260 },   // pitch, yaw, roll (body axes)
     comHeight: 0.30, forceHeight: 0.12,
@@ -135,7 +156,7 @@ export const CARS: Record<CarId, CarSpec> = {
   // Rear-drive coupe: light, little downforce, lots of torque, loose rear. The tail swings a long way out and digs
   // in before it comes all the way round; opposite lock brings it back. Best with TC off.
   drift: {
-    id: 'drift', name: 'Drift car', storeKey: '.drift', mesh: buildDriftMesh,
+    id: 'drift', name: 'Drift car', storeKey: '.drift', physics: 'rapier', mesh: buildDriftMesh,
     hint: 'The throttle slides it: turn in on the power and the tail swings out and holds · lift off to straighten',
     mass: 1000,
     inertia: { x: 1360, y: 1700, z: 384 },   // enough yaw inertia that the tail swings rather than snaps
@@ -202,7 +223,7 @@ export const CARS: Record<CarId, CarSpec> = {
   // acceleration and understeer LibreCorsa measures from its own simulation (test/gt3.test.ts holds the table):
   // GT3_CAMBER, brakeMax, brakeGrip and steerComply.
   gt3: {
-    id: 'gt3', name: 'GT3', storeKey: '.gt3', mesh: buildGt3Mesh,
+    id: 'gt3', name: 'GT3', storeKey: '.gt3', physics: 'rapier', mesh: buildGt3Mesh,
     hint: 'Heavy and planted: brake early and in a straight line, and wait for the nose before the power',
     mass: 1385,                               // 1360 kg with driver, plus the 25 kg of fuel aboard on the reference laps
     inertia: { x: 1791, y: 2039, z: 470 },    // a 1.78 x 0.99 x 3.85 m box of 1360 kg

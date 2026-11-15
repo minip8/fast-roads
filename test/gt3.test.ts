@@ -3,10 +3,10 @@
 // sustained cornering g, braking g and full-throttle g by speed, and the understeer gradient. The same manoeuvres are
 // run here, on flat asphalt with no walls, and must land on LibreCorsa's numbers.
 import { describe, expect, it } from 'vitest';
-import type { Car, DriveInput } from '../src/car';
 import { CARS } from '../src/cars';
 import { DT, S_ASPHALT } from '../src/config';
-import { session } from './harness';
+import type { DriveInput, Vehicle } from '../src/vehicle';
+import { ourCar, ourSpec, session } from './harness';
 
 // [km/h, LibreCorsa's simulator, the real car (MoTeC logs)]
 const LATERAL_G = [[81, 1.71, 1.70], [99, 1.75, 1.79], [117, 1.80, 1.79], [153, 1.92, 2.13], [171, 1.98, 2.01]];
@@ -15,14 +15,14 @@ const THROTTLE_G = [[63, 0.85, 0.95], [99, 0.83, 0.77], [135, 0.60, 0.64], [171,
 const UNDERSTEER_DEG_PER_G = 1.42;                     // road-wheel angle per g beyond the geometric one; real car 1.44
 const RPM_PER_MS = [[2, 181.2], [3, 141.3], [4, 115.3], [5, 100.8]];
 
-const spec = CARS.gt3, G = 9.81, DEG = 180 / Math.PI;
+const spec = ourSpec(CARS.gt3), G = 9.81, DEG = 180 / Math.PI;
 
 // The car on open asphalt, already moving at v0 (m/s).
 async function rolling(v0: number) {
   const s = await session('gt3', { walls: false });
   const { car } = s;
   car.forceSurface = S_ASPHALT;
-  car.body.setLinvel({ x: car.fwd.x * v0, y: 0, z: car.fwd.z * v0 }, true);
+  ourCar(car).body.setLinvel({ x: car.fwd.x * v0, y: 0, z: car.fwd.z * v0 }, true);
   return s;
 }
 const input = (throttle: number, brake: number, steerAngle: number): DriveInput => ({ throttle, brake, steer: 0, analog: true, steerAngle, autoGears: true });
@@ -34,7 +34,7 @@ async function cornering(kmh: number, secs = 14) {
   const full = 0.9 * spec.steerLock * Math.min(1, 1.6 * (81 / kmh) ** 2);   // enough lock for the limit at this speed
   const window: number[] = [], pts: [number, number][] = [];
   let pedal = 0.3, best = 0, steer = 0, prev = car.vel.clone(), sum = 0;
-  drive(secs, (c: Car, t) => {
+  drive(secs, (c: Vehicle, t) => {
     pedal = Math.max(0, Math.min(1, pedal + (c.vel.length() < v ? 0.02 : -0.02)));
     steer = Math.min(1, t / secs) * full;
     return input(pedal, 0, steer);
