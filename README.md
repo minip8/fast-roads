@@ -1,7 +1,7 @@
 # Fast Roads
 
 Browser time-trial racer on real circuit layouts. Prototype covering build steps 1–3:
-two circuits (Albert Park in Melbourne and Silverstone), two cars (a downforce open-wheel car and a rear-drive drift car), and lap/sector
+two circuits (Albert Park in Melbourne and Silverstone), three cars (a downforce open-wheel car, a rear-drive drift car and a GT3 coupe), and lap/sector
 timing with track limits.
 
 ## Run
@@ -49,12 +49,38 @@ steering (keyboard/mouse), camera, traction control, countersteer assist (drift 
   Nothing steers for you unless you turn on **Countersteer assist** in the menu (off by default). It stops at about
   1.4 g, 100 km/h to rest in under 30 m. It uses a bonnet camera for the onboard view.
 
+- **GT3**: a 1,385 kg front-engined V8 coupe on slicks, with a splitter, diffuser and rear wing. It is the
+  Mercedes-AMG GT3 of [LibreCorsa](https://github.com/KhazP/librecorsa), an open-source simulator whose GT3 is fitted
+  to real GT3 telemetry: the mass, wheelbase, weight distribution, springs, anti-roll bars, tyre data, brakes, engine,
+  gearing and downforce are that car's numbers, run through this game's physics. Driven through the manoeuvres
+  LibreCorsa measures its own car with, it lands on the same figures (`test/gt3.test.ts`):
+
+  | | Speed (km/h) | Here | LibreCorsa | Real car |
+  | --- | --- | --- | --- | --- |
+  | Cornering (g) | 81 / 99 / 117 / 153 / 171 | 1.71 / 1.75 / 1.79 / 1.90 / 1.95 | 1.71 / 1.75 / 1.80 / 1.92 / 1.98 | 1.70 / 1.79 / 1.79 / 2.13 / 2.01 |
+  | Braking (g) | 99 / 117 / 153 / 189 / 225 / 243 | 1.76 / 1.82 / 1.94 / 2.04 / 2.15 / 2.18 | 1.66 / 1.77 / 1.95 / 2.11 / 2.17 / 2.18 | 1.68 / 1.72 / 1.83 / 2.03 / 2.11 / 2.12 |
+  | Full throttle (g) | 63 / 99 / 135 / 171 / 207 / 243 | 0.82 / 0.84 / 0.61 / 0.44 / 0.31 / 0.19 | 0.85 / 0.83 / 0.60 / 0.43 / 0.31 / 0.20 | 0.95 / 0.77 / 0.64 / 0.45 / 0.30 / 0.19 |
+  | Understeer (°/g) | | 1.40 | 1.42 | 1.44 |
+
+  The real-car column is what LibreCorsa extracted from GT3 telemetry logs. Understeer is the extra steering the car
+  needs for every g it corners at, which is what makes it feel heavy and calm next to the F1. 0–100 km/h takes
+  3.6 s, 0–200 km/h 9.5 s, top speed is about 308 km/h, and it stops from 100 km/h in 23 m.
+  - **It runs out of front grip first.** Too fast into a corner and the nose pushes wide; the tail stays behind you.
+    A held steering key corners near the limit at any speed, and braking while turning stays stable.
+  - **The tyres peak early and stay there.** Grip peaks at about 6° of slip (the F1's at about 10°) and then falls
+    only to 85%, so over-driving costs time rather than the car.
+  - **Power does not spin it.** With traction control on or off, full throttle from the middle of a corner pushes
+    the nose wide instead of swinging the tail. LibreCorsa's car can be spun on the power with its traction control
+    off; this game has no wheelspin model, so that part of its handling is missing here.
+  What is not carried over: tyre temperature, pressure and wear, suspension geometry, the limited-slip differential,
+  ride-height-dependent downforce and wet weather. The body is this game's own; LibreCorsa's car model is not used.
+
 Each car keeps its own best lap and sector times at each circuit. Switching car puts you back on the grid.
 
 ## HUD
 
 Bottom right: F1-style shift lights (5 green, 5 red, 5 blue) fill towards the shift point and all flash there
-(where the automatic box shifts up: 12,250 rpm in the F1, 7,200 in the drift car); throttle (green) and brake (red) bars show how hard each pedal is
+(where the automatic box shifts up: 12,250 rpm in the F1, 7,200 in the drift car, 7,500 in the GT3); throttle (green) and brake (red) bars show how hard each pedal is
 applied; then the gear and speed.
 
 ## Controls
@@ -92,6 +118,8 @@ and override the mouse while held.
 - **Physics**: Rapier rigid body (fixed 120 Hz step, interpolated rendering). Custom raycast suspension with
   anti-roll bars, simplified Pacejka lateral curve with load sensitivity, friction circle, downforce and drag ∝ v²,
   torque curve + 8-speed gearbox (automatic, or manual with over-rev-protected downshifts), per-surface grip. Walls are static cuboid colliders.
+  The GT3 swaps in a brush tyre curve with power-law load sensitivity, steering that flexes under cornering force,
+  and the inertia of its engine and wheels (which takes about a tenth of its push in first gear).
   Grass has about 64% of the asphalt's grip and gravel about half. Both add a ploughing deceleration (grass ~0.08 g,
   gravel ~0.6 g) that's applied mostly at the centre of mass, so dropping two wheels off doesn't yank the car round,
   and it fades below ~90 km/h so you can drive out: flat out, the F1 still reaches ~200 km/h on grass and ~80 km/h
@@ -99,7 +127,7 @@ and override the mouse while held.
   Grip eases between surfaces over ~0.1 s instead of switching instantly at the track edge.
   Off-track you get a grass rumble or gravel crunch and dust behind the wheels (visual only; the body stays steady).
 - **Sound**: all synthesised with Web Audio, no samples. Each car has its own engine voice (a smooth V6 in the F1, a
-  lumpy V8 in the drift car) that brightens under load, cuts briefly on upshifts, blips on downshifts and stutters on
+  lumpy V8 in the drift car, a harder, brighter V8 in the GT3) that brightens under load, cuts briefly on upshifts, blips on downshifts and stutters on
   the rev limiter. Tyres squeal as they near the limit of grip on asphalt and kerbs (cornering or wheelspin), which is
   the cue to catch a slide; kerbs rumble at the strip rate, road and wind noise rise with speed, and hard impacts
   thud. Sound starts on the first click or key press (browser autoplay rules), fades out while paused, and stops
@@ -126,3 +154,4 @@ change to handling shows up. In the browser, `window.__game.simulate(seconds, tr
 Elevation (Albert Park is flat and Silverstone nearly so; Spa/COTA will need SRTM data), pit lane, ghosts, leaderboards, multiplayer.
 
 Track data: [TUMFTM/racetrack-database](https://github.com/TUMFTM/racetrack-database) (LGPL-3.0).
+GT3 car data and reference measurements: [KhazP/librecorsa](https://github.com/KhazP/librecorsa) (MIT).

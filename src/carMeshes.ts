@@ -127,6 +127,25 @@ function buildWheels(root: THREE.Group, spec: CarSpec, colors: { rim: number; st
   return wheels;
 }
 
+// Side profile (z forward, y up) for `extrude`, with arches cut into the floor line at the given axles.
+function profile(pts: [number, number][], arches: number[], arch: { y: number; r: number; bottom: number }) {
+  const sh = new THREE.Shape();
+  sh.moveTo(pts[0][0], pts[0][1]);
+  for (let k = 1; k < pts.length; k++) {
+    sh.lineTo(pts[k][0], pts[k][1]);
+    if (k === 1) {   // along the floor, rear to front
+      const a = Math.asin((arch.bottom - arch.y) / arch.r), dx = Math.cos(a) * arch.r;
+      for (const z of arches) { sh.lineTo(z - dx, arch.bottom); sh.absarc(z, arch.y, arch.r, Math.PI - a, a, true); }
+    }
+  }
+  return sh;
+}
+// A side profile extruded across the car to `width`, centred, with bevelled edges.
+function extrude(sh: THREE.Shape, width: number, bevel: number) {
+  const g = new THREE.ExtrudeGeometry(sh, { depth: width - 2 * bevel, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelOffset: -bevel, bevelSegments: 2, curveSegments: 10 });
+  return g.rotateY(-Math.PI / 2).translate((width - 2 * bevel) / 2, 0, 0);   // shape x -> +z, depth -> -x, centred
+}
+
 // Rear-drive coupe. Origin is the centre of mass (0.45 m above the road); wheel centres sit at y = -0.12.
 export function buildDriftMesh(spec: CarSpec): CarMesh {
   const root = new THREE.Group(), bodyGroup = new THREE.Group();
@@ -137,24 +156,7 @@ export function buildDriftMesh(spec: CarSpec): CarMesh {
   const accent = mat({ color: 0xff6a13, roughness: 0.35, metalness: 0.2 });
   const { add, done } = parts(bodyGroup);
 
-  // Side profile (z forward, y up), extruded across the car, with arches cut over both axles.
-  const side = (pts: [number, number][], arches: number[], arch: { y: number; r: number; bottom: number }) => {
-    const sh = new THREE.Shape();
-    sh.moveTo(pts[0][0], pts[0][1]);
-    for (let k = 1; k < pts.length; k++) {
-      sh.lineTo(pts[k][0], pts[k][1]);
-      if (k === 1) {   // along the floor, rear to front
-        const a = Math.asin((arch.bottom - arch.y) / arch.r), dx = Math.cos(a) * arch.r;
-        for (const z of arches) { sh.lineTo(z - dx, arch.bottom); sh.absarc(z, arch.y, arch.r, Math.PI - a, a, true); }
-      }
-    }
-    return sh;
-  };
-  const extrude = (sh: THREE.Shape, width: number, bevel: number) => {
-    const g = new THREE.ExtrudeGeometry(sh, { depth: width - 2 * bevel, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelOffset: -bevel, bevelSegments: 2, curveSegments: 10 });
-    return g.rotateY(-Math.PI / 2).translate((width - 2 * bevel) / 2, 0, 0);   // shape x -> +z, depth -> -x, centred
-  };
-  const lower = side([[-2.16, -0.22], [-2.08, -0.3], [2.05, -0.3], [2.2, -0.15], [2.2, 0.05], [2.12, 0.2], [0.75, 0.36], [-1.5, 0.38], [-2.06, 0.36], [-2.18, 0.2]],
+  const lower = profile([[-2.16, -0.22], [-2.08, -0.3], [2.05, -0.3], [2.2, -0.15], [2.2, 0.05], [2.12, 0.2], [0.75, 0.36], [-1.5, 0.38], [-2.06, 0.36], [-2.18, 0.2]],
     [spec.zRear, spec.zFront], { y: -0.12, r: 0.37, bottom: -0.3 });
   add(extrude(lower, 1.64, 0.05), body, 0, 0, 0);
   const cabin = new THREE.Shape([new THREE.Vector2(0.78, 0.35), new THREE.Vector2(-0.05, 0.74), new THREE.Vector2(-0.95, 0.74), new THREE.Vector2(-1.52, 0.37)]);
@@ -182,5 +184,62 @@ export function buildDriftMesh(spec: CarSpec): CarMesh {
   });
   const brakeLight = tails[1];   // both lights share tailMat, so lighting one lights both
   const wheels = buildWheels(root, spec, { rim: 0xb8bec6 });
+  return { root, wheels, brakeLight };
+}
+
+// GT3 coupe: long bonnet, cabin set back, wide arches standing above it, splitter, diffuser and a full-width rear
+// wing. Origin is the centre of mass (0.40 m above the road); the floor is at y = -0.33.
+export function buildGt3Mesh(spec: CarSpec): CarMesh {
+  const root = new THREE.Group(), bodyGroup = new THREE.Group();
+  root.add(bodyGroup);
+  const body = mat({ color: 0x0e6b57, roughness: 0.28, metalness: 0.3 });
+  const dark = mat({ color: 0x16181c, roughness: 0.5, metalness: 0.3, envMapIntensity: 0.35 });
+  const carbon = mat({ color: 0x24272c, roughness: 0.35, metalness: 0.5, envMapIntensity: 0.35 });
+  const glass = mat({ color: 0x1b2633, roughness: 0.08, metalness: 0.6, envMapIntensity: 1, transparent: true, opacity: 0.45, depthWrite: false });
+  const accent = mat({ color: 0xf2d21b, roughness: 0.35, metalness: 0.2 });
+  const { add, done } = parts(bodyGroup);
+  const wheelY = spec.wheelRadius - spec.comHeight, arch = { y: wheelY, r: spec.wheelRadius + 0.05, bottom: -0.33 };
+
+  // Centre section: low nose, long bonnet rising to the windscreen, tail.
+  const core = profile([[-2.3, -0.2], [-2.22, -0.33], [2.1, -0.33], [2.3, -0.26], [2.3, -0.1], [2.08, 0.1], [0.5, 0.32], [-1.6, 0.4], [-2.28, 0.38], [-2.36, 0.2]], [], arch);
+  add(extrude(core, 1.46, 0.05), body, 0, 0, 0);
+  // Flanks: sills and the arches over each axle, standing above the bonnet and the tail.
+  const flank = profile([[-2.3, -0.18], [-2.22, -0.33], [2.06, -0.33], [2.26, -0.25], [2.26, -0.06], [2.02, 0.26], [spec.zFront, 0.42], [0.5, 0.36], [-0.6, 0.36],
+    [spec.zRear, 0.46], [-2.26, 0.42], [-2.34, 0.2]], [spec.zRear, spec.zFront], arch);
+  for (const s of [-1, 1]) add(extrude(flank, 0.32, 0.04), body, s * 0.86, 0, 0);
+  const cabin = new THREE.Shape([new THREE.Vector2(0.48, 0.31), new THREE.Vector2(-0.3, 0.8), new THREE.Vector2(-1.0, 0.8), new THREE.Vector2(-1.95, 0.39)]);
+  add(extrude(cabin, 1.34, 0.04), glass, 0, 0, 0);
+  add(B(1.26, 0.035, 0.72), body, 0, 0.815, -0.65);                                  // roof
+  add(B(0.3, 0.06, 0.4), dark, 0, 0.85, -0.5);                                       // roof scoop
+  for (const s of [-1, 1]) {
+    add(B(0.05, 0.05, 0.94), body, s * 0.64, 0.565, 0.09, 0.56);                      // A-pillars
+    add(B(0.06, 0.05, 1.04), body, s * 0.65, 0.6, -1.47, -0.41);                      // C-pillars
+    add(B(0.05, 0.09, 0.14), body, s * 0.84, 0.5, 0.42);                               // mirrors
+    add(B(0.26, 0.012, 0.5), dark, s * 0.36, 0.25, 1.2, 0.14);                        // bonnet vents
+    add(B(0.3, 0.02, 0.2), carbon, s * 0.93, -0.12, 2.24, -0.2);                      // dive planes
+    add(B(0.07, 0.08, 1.9), carbon, s * 0.98, -0.3, 0.05);                            // side skirts
+    add(B(0.04, 0.16, 0.5), dark, s * 1.025, -0.02, 0.62);                            // vent behind the front wheel
+    add(B(0.035, 0.36, 0.34), carbon, s * 0.52, 0.6, -2.12);                          // wing pylons
+    add(B(0.03, 0.3, 0.46), carbon, s * 0.99, 0.8, -2.24);                            // wing end plates
+  }
+  add(B(0.3, 0.012, 1.56), accent, 0, 0.24, 1.3, 0.139);                             // bonnet stripe
+  add(B(0.3, 0.012, 0.72), accent, 0, 0.836, -0.65);                                 // roof stripe
+  add(B(1.98, 0.03, 0.42), carbon, 0, -0.33, 2.24);                                  // splitter
+  add(B(1.1, 0.14, 0.02), dark, 0, -0.16, 2.305);                                    // grille
+  add(B(1.96, 0.045, 0.4), carbon, 0, 0.79, -2.24, 0.1);                             // rear wing
+  add(B(1.96, 0.03, 0.1), accent, 0, 0.84, -2.44, 0.5);                              // gurney flap
+  add(B(1.7, 0.2, 0.5), carbon, 0, -0.24, -2.16, -0.3);                              // diffuser
+  for (const x of [-0.6, -0.2, 0.2, 0.6]) add(B(0.025, 0.2, 0.5), dark, x, -0.24, -2.3, -0.3);   // diffuser strakes
+  add(new THREE.CylinderGeometry(0.05, 0.05, 0.1, 10), dark, 0.99, -0.26, 0.2, 0, 0, Math.PI / 2);   // side exhaust
+  const headMat = new THREE.MeshStandardMaterial({ color: 0x777766, emissive: 0xfff4d0, emissiveIntensity: 0.6 });
+  for (const s of [-1, 1]) add(B(0.22, 0.07, 0.03), headMat, s * 0.86, 0.1, 2.16, -0.9);
+  done();
+  const tailMat = new THREE.MeshStandardMaterial({ color: 0x400000, emissive: 0xff1010, emissiveIntensity: 0.4 });
+  for (const s of [-1, 1]) {
+    const t = new THREE.Mesh(B(0.5, 0.06, 0.03), tailMat); t.position.set(s * 0.6, 0.27, -2.335); bodyGroup.add(t);
+  }
+  const brakeLight = new THREE.Mesh(B(0.3, 0.04, 0.03), tailMat);   // shares tailMat, so lighting it lights all three
+  brakeLight.position.set(0, 0.05, -2.37); bodyGroup.add(brakeLight);
+  const wheels = buildWheels(root, spec, { rim: 0x1b1d21, stripe: 0xf2d21b });
   return { root, wheels, brakeLight };
 }

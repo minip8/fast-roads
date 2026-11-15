@@ -247,7 +247,7 @@ describe('drift car', () => {
 });
 
 describe('reverse', () => {
-  for (const id of ['f1', 'drift'] as const) {
+  for (const id of ['f1', 'drift', 'gt3'] as const) {
     it(`${id}: reverse tops out at reverseTop, and the throttle stops it`, async () => {
       const { car, drive } = await session(id);
       car.forceSurface = S_ASPHALT;

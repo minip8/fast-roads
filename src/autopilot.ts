@@ -37,7 +37,9 @@ export function autopilot(car: Car, tr: Track, lat = 0): DriveInput {
   // counter-steer: point the wheels toward where the car is actually going when the tail is out
   const beta = Math.atan2(car.vel.dot(car.left), Math.max(Math.abs(car.speedF), 3));
   const slide = Math.sign(beta) * Math.max(0, Math.abs(beta) - 0.07);   // ignore the normal few degrees of slip
-  const steerAngle = Math.atan((2 * wb * Math.sin(a)) / Ld) + car.spec.autoCounter * slide;
+  // Pure pursuit asks for a path curvature (2 sin a / Ld). A neutral car gets it from the geometric wheel angle; one
+  // that understeers needs more the harder it corners.
+  const steerAngle = Math.atan((2 * wb * Math.sin(a)) / Ld) + car.spec.autoCounter * slide + car.spec.autoUndersteer * v * v * (2 * Math.sin(a)) / Ld;
   const profs = tr.speedProfiles || (tr.speedProfiles = {});
   const prof = profs[car.spec.id] || (profs[car.spec.id] = buildSpeedProfile(tr, car.spec));
   const vt = prof[pointAt(tr, s + 4 + v * 0.12).i];

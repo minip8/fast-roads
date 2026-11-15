@@ -18,7 +18,7 @@ dev and the tests use the inline copy.
     npm install
     npm run dev         # dev server; ?autopilot in the URL skips the menu and lets the built-in driver lap
     npm run typecheck   # tsc for src/, then for test/ (only test/ gets Node types)
-    npm test            # Vitest, headless physics (~20 s: the test files run in parallel)
+    npm test            # Vitest, headless physics (~35 s: the test files run in parallel)
     npx vitest run test/handling.test.ts -t 'F1'   # one file / one test by name
     npm run build       # typecheck + static build in dist/ (base './'); npm run preview serves it
 
@@ -33,12 +33,16 @@ Run `npm run typecheck` and `npm test` before committing.
 - The simulation is deterministic, and Node and the browser agree to the millisecond. `test/laps.ts` pins
   autopilot lap times (F1 1:59.659, drift car 157.751 s with TC on, 157.726 s off), so any physics or tuning change
   shows up there. When a change is intended, check the handling still makes sense, then update the expected times.
-  It also pins the autopilot at Silverstone (F1 129.714 s, drift car 170.275 s). Each lap is run by its own
-  `laps-*.test.ts` file so the five (about 12–25 s each) run in parallel. `session(carId, { track })` picks the
+  It also pins the autopilot at Silverstone (F1 129.714 s, drift car 170.275 s) and the GT3 at both circuits
+  (Melbourne 131.738 s, Silverstone 142.291 s). Each lap is run by its own `laps-*.test.ts` file so the seven (about
+  12–35 s each) run in parallel. `session(carId, { track })` picks the
   circuit (Melbourne by default).
 - `test/handling.test.ts` holds loose-bound checks of tuning intent: the drift car's brake-and-turn kick, a stable
   F1. `car.forceSurface = S_ASPHALT` keeps manoeuvres off grass. Keep them short (about 1–2 s after the manoeuvre):
   the start straight is walled (`walls: false` removes the barriers for manoeuvres that need the room).
+- `test/gt3.test.ts` holds the GT3 to the car it is taken from: LibreCorsa's published cornering, braking and
+  full-throttle g by speed and its understeer gradient (its `docs/physics/README.md`), measured here with the same
+  manoeuvres on open asphalt (`rolling(v0)` starts the car at speed). Retune the GT3 against that table, not by feel.
 - In the browser, `window.__game` exposes `simulate(seconds, driver, probeSecs)`, `car` (a getter: the car object is
   replaced when you switch cars), `simTime`, `session`, `timing`, `track`, `input`, `setSetting(key, value)` and
   `setAutopilot` (the `GameHook` type in `main.ts`). Use it for checks that need the page (menu, HUD, settings), e.g.
@@ -87,15 +91,30 @@ Run `npm run typecheck` and `npm test` before committing.
   `buildTrack` turns it into a closed spline sampled every ~2 m (arrays `X, Z, TX, TZ, NX, NZ, K, S, WL, WR`, kerb/
   gravel/barrier offsets). Almost everything works in track coordinates `(s, lat)` via `projectOnTrack` / `pointAt`.
 - **Car specs (`CARS`)**: every physics, engine, gearbox, steering, collider, camera, sound and autopilot number for
-  each car (`f1`, `drift`), plus its mesh builder, its engine voice (`sound`, an `EngineVoice` from `audioGraph.ts`)
+  each car (`f1`, `drift`, `gt3`), plus its mesh builder, its engine voice (`sound`, an `EngineVoice` from `audioGraph.ts`)
   and its lap-time `storeKey`. The `Car` class reads only `this.spec`, so a new car is a new spec entry
   (`test/cars.test.ts` checks each spec fits the menu, gearbox, mesh and autopilot). Behaviour toggled per car uses
   neutral defaults on the F1 (e.g. `brakeKick: 0`, `brakeGrip: 1`, `driveGrip: 1`, `rearLoose` share 0,
   `counterLock: [0, 1]`, `spinLat: 0`, `spinDrive: 0`, `yawCap` gain 0, `counterSteer` gain 0, `autoCounter: 0`,
-  optional `pacFront`), so F1 handling stays identical.
+  `steerComply: 0`, `rotInertia: [0, 0]`, `autoUndersteer: 0`, optional `pacFront` and `brush`), so F1 handling stays
+  identical. `forceHeight` (0.12 on the F1 and drift car) is how far above the road the tyres' grip acts on the body:
+  it cuts their load transfer to that of a lower centre of mass.
+- **GT3**: LibreCorsa's Mercedes-AMG GT3 (`src/lib/sim/gt3/AmgGt3Config.ts` in github.com/KhazP/librecorsa, MIT).
+  Its data goes straight into the spec; what this physics lacked to reproduce that car was added as opt-in fields:
+  `brush` (Fiala brush tyre curve per axle, with power-law load sensitivity, instead of `pac`), `steerComply`
+  (steering flex, most of its understeer gradient; filtered over `COMPLY_T` because at 120 Hz the flex and the
+  cornering force would otherwise chase each other), `rotInertia` (engine and wheel inertia, taken off the drive
+  force at the car's own acceleration) and `forceHeight: 0` (full load transfer; with their tyre grip unscaled this
+  is what put the cornering g on their numbers). Four values are fitted rather than copied: `GT3_CAMBER` (their
+  tyres gain about 3% cornering grip from camber, which is not modelled), `brakeGrip` (0.825: their car brakes at a
+  lower share of its cornering grip than the tyre data alone says), `brakeMax` (94% of their brake torque, which is
+  what their car uses at speed) and `steerComply` (theirs is 0.28 deg/kN; 0.34 here also stands in for their bump
+  steer). Not modelled: tyre heat/pressure/wear, suspension geometry, the
+  differential, ride-height aero. There is no wheelspin model either, so the GT3 cannot be spun on the power even
+  with TC off (theirs can). The autopilot adds lock for the understeer (`autoUndersteer`), or it runs wide at speed.
 - **Car physics (`Car.step`)**: Rapier rigid body at a fixed 120 Hz (`DT`), with custom physics on top:
   - raycast suspension with anti-roll bars
-  - Pacejka lateral curve with load sensitivity
+  - Pacejka lateral curve with load sensitivity (or a brush tyre: `spec.brush`)
   - friction circle with ABS-style brake priority, stretched along the wheel by `brakeGrip` / `driveGrip`
   - optional countersteer assist for the player's steering (`counterSteer`, enabled by `car.assist` from the
     Countersteer assist setting, off by default); the autopilot's `steerAngle` bypasses it, so assist tuning does

@@ -79,7 +79,8 @@ export async function main() {
       session.setCar(CARS[id]);
       applySetting.gearbox(settings.gearbox); applySetting.tc(settings.tc); applySetting.assist(settings.assist);
       hud.clearLaps(); acc = 0;
-      if (id === 'drift') hud.showMsg(`${CARS[id].name}<small>The throttle slides it: turn in on the power and the tail swings out and holds · lift off to straighten</small>`, 3);
+      const { name, hint } = CARS[id];
+      if (hint) hud.showMsg(`${name}<small>${hint}</small>`, 3);
     },
     gearbox: (v) => { session.car.manual = v === 'manual'; },
     steering: (v) => { input.setMouse(v === 'mouse'); $('mouseSteer').hidden = v !== 'mouse'; },

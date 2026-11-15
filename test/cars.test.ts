@@ -25,6 +25,10 @@ describe.each(Object.entries(CARS))('%s', (key, spec) => {
     expect(spec.sound.harmonics.length).toBeGreaterThan(0);
   });
 
+  it('has a tyre curve: Pacejka coefficients or a brush tyre', () => {
+    expect(spec.pac ?? spec.brush).toBeDefined();
+  });
+
   it('builds a body with four wheels, and an autopilot plan', async () => {
     const { car, track } = await session(spec.id);
     expect(car.mesh.wheels).toHaveLength(4);
