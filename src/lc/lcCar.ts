@@ -12,8 +12,8 @@ import { VehiclePhysics, type VehicleInputs } from './vendor/sim/f12026-car/Vehi
 // ============================================================================
 // A car on LibreCorsa's engine (src/lc/vendor), as the game sees any car. The engine runs its own fixed 500 Hz
 // steps; each 120 Hz game tick runs four or five of them, with the spec's driver (pedals, steering, aids) around
-// each one. This class owns the gearbox in our conventions (reverse on the brake at a standstill, manual shifts one
-// per tick), the 2026 F1's flaps, and turning the engine's state into ours.
+// each one. This class owns the gearbox in our conventions (reverse on the brake at a standstill, queued manual
+// shifts), the 2026 F1's flaps, and turning the engine's state into ours.
 // ============================================================================
 const H = VehiclePhysics.FIXED_DT;
 const SLIP_PEAK = 1.15;   // our tyre sound's slip at the grip peak; the engine's combinedSlip is 1 there
@@ -59,6 +59,8 @@ export class LcCar implements Vehicle {
   tipped = 0;
   private barriers = true;                  // the engine meets the track's barriers (tests may take them away)
   private revTimer = 0;                     // s the brake has been held at a standstill (reverse after 0.35)
+  private shiftBusy = 0;                    // s until the engine has finished the manual shift under way
+  private flapAsked = false;                // the last engine step asked for the flaps (the engine acts on the rising edge)
   private ticks = 0;                        // engine steps owed, in 1/(game tick rate) units of a second
   private groundFor?: number;               // the forceSurface the engine's ground was built for
   private spawnS?: number;                  // where the first placement put the car: placing it there again is a spawn
@@ -132,7 +134,7 @@ export class LcCar implements Vehicle {
     if (this.groundFor !== this.forceSurface) { this.vehicle.setGround(trackGround(tr, this.forceSurface)); this.groundFor = this.forceSurface; }
     this.vehicle.reset(p.x, p.z, Math.atan2(tr.TX[p.i], tr.TZ[p.i]), spawn ? 0 : 1e-3, false);
     this.driver.reset();
-    this.revTimer = 0; this.tipped = 0; this.ticks = 0; this.progressI = -1;
+    this.revTimer = 0; this.shiftBusy = 0; this.flapAsked = false; this.tipped = 0; this.ticks = 0; this.progressI = -1;
     this.throttle = this.brake = 0;
     this.readState();
     this.proj.i = -1;
@@ -143,6 +145,7 @@ export class LcCar implements Vehicle {
 
   readState() {
     const v = this.vehicle;
+    if (!v.stateIsSane()) return;           // blown up: keep the last good state for timing, camera and the reset
     this.pos.copy(v.position); this.quat.copy(v.quaternion);
     this.vel.copy(v.velocity); this.angv.copy(v.angularVelocity);
     this.up.set(0, 1, 0).applyQuaternion(this.quat);     // the engine's body axes are ours: x left, y up, z forward
@@ -172,17 +175,26 @@ export class LcCar implements Vehicle {
       this.revTimer += dt;
       if (this.revTimer > 0.35) shift = -1;   // down a gear a tick until reverse (a shift under way queues the next)
     } else this.revTimer = 0;
-    if (!autoBox && this.pendingShift !== 0 && shift === 0) {
+    // Manual shifts wait for the one under way: the engine keeps a single paddle press while it shifts, so presses
+    // sent meanwhile would replace each other (three quick presses gave two gears).
+    this.shiftBusy = Math.max(0, this.shiftBusy - dt);
+    if (!autoBox && this.pendingShift !== 0 && shift === 0 && this.shiftBusy <= 0) {
       const dir = Math.sign(this.pendingShift); this.pendingShift -= dir;
       if (dir > 0) { if (g < top) shift = 1; }
       else if (g > 1) { if (this.overRevs(g - 1)) this.shiftDenied = true; else shift = -1; }
       else if (g === 1 && Math.abs(vF) < 1) shift = -1;
+      const gb = this.spec.config.gearbox;
+      if (shift !== 0) this.shiftBusy = shift < 0 ? gb.downshiftTimeS ?? gb.shiftTimeS : gb.shiftTimeS;
     }
     if (autoBox) this.pendingShift = 0;
-    // In reverse the brake pedal drives backwards and the throttle brakes.
-    const reverse = g === -1 ? shift <= 0 : g === 1 && shift < 0;
+    // In reverse the brake pedal drives backwards and the throttle brakes. The pedals swap only while the engine is
+    // in reverse: on the way in (the downshift from first can take 0.1 s) the brake stays the brake, and on the way
+    // out the throttle waits for first gear instead of driving backwards.
     let inp = input;
-    if (reverse) { inp = Object.assign(this.swapped, input); inp.throttle = input.brake; inp.brake = input.throttle; }
+    if (g === -1) {
+      inp = Object.assign(this.swapped, input);
+      inp.throttle = shift > 0 ? 0 : input.brake; inp.brake = shift > 0 ? 0 : input.throttle;
+    }
 
     // --- the engine's fixed steps owed this tick, counted in whole units so they never drift (dt is 1/120 s)
     const tickHz = Math.round(1 / dt), stepHz = Math.round(1 / H);
@@ -195,11 +207,14 @@ export class LcCar implements Vehicle {
       this.driver.inputs(H, out);
       out.shiftUp = k === 0 && shift > 0;
       out.shiftDown = k === 0 && shift < 0;
-      // their autopilot's flap rule, so the flaps work themselves: ask whenever they may open and the foot is down
-      out.drs = this.spec.straightMode && v.telemetry.drsAvailable && !v.drsOpen && out.throttle > 0.95;
+      // Their autopilot's flap rule, so the flaps work themselves: ask whenever they may open and the foot is down.
+      // The engine acts on the request's rising edge and refuses it while the brake is touched, so the request is
+      // dropped every other step and made again: held, one refusal kept the flaps shut for the rest of the straight.
+      out.drs = this.flapAsked = !this.flapAsked && this.spec.straightMode && v.telemetry.drsAvailable && !v.drsOpen && out.throttle > 0.95;
       v.step(H, out);
       this.driver.afterStep(H);
     }
+    if (!v.stateIsSane()) this.tipped = Infinity;   // blown up within this tick: reset before anything renders it
     this.throttle = out.throttle; this.brake = out.brake;
     this.refresh();
   }

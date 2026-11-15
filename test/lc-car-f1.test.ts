@@ -17,6 +17,12 @@ describe('lcf1', () => {
     expect(v.drsOpen).toBe(true);
     drive(0.05, () => inp({ brake: 0.3 }));
     expect(v.drsOpen).toBe(false);
+    // ...and open again when the brake is let go, even if the throttle never lifted (the engine refuses a request
+    // made on the brake, and only looks at a new one)
+    drive(0.1, () => inp({ throttle: 1, brake: 0.2 }));
+    expect(v.drsOpen).toBe(false);
+    drive(0.5, () => inp({ throttle: 1 }), () => v.drsOpen);
+    expect(v.drsOpen).toBe(true);
   });
 
   it('resets its lap energy allowance as it crosses the line', async () => {

@@ -106,7 +106,7 @@ export function lcCarSuite(id: 'lcgt3' | 'lcf1') {
 
     it('is put back on the track (same car, fresh tyres) and restarted (a fresh car)', async () => {
       const { car, track, drive, session: s } = await session(id, { walls: false });
-      const first = lc(car).vehicle;
+      const first = lc(car).vehicle, blanket = first.wheels.map((w) => w.surfaceTempC);
       drive(6, (c, t) => inp({ throttle: cruise(c, 30, 0.6), steerAngle: 0.02 * Math.sin(t) }));
       const v = lc(car).vehicle, battery = v.ersEnergyJ, deployed = v.lapDeployJ, at = car.proj.s;
       expect(v.wheels.some((w) => w.surfaceTempC !== v.wheels[0].surfaceTempC || w.surfaceTempC > 70)).toBe(true);
@@ -117,6 +117,7 @@ export function lcCarSuite(id: 'lcgt3' | 'lcf1') {
       expect([car.gear, car.tipped, car.prevPos.equals(car.pos)]).toEqual([1, 0, true]);
       expect(car.vel.length()).toBeLessThan(0.05);
       expect([v.ersEnergyJ, v.lapDeployJ]).toEqual([battery, deployed]);   // the battery and lap energy are kept
+      expect(v.wheels.map((w) => w.surfaceTempC)).toEqual(blanket);        // ...on tyres back in their blankets
       s.restart();
       const fresh = lc(car).vehicle;
       expect(fresh).not.toBe(first);
@@ -125,28 +126,41 @@ export function lcCarSuite(id: 'lcgt3' | 'lcf1') {
       const grid = pointAt(track, track.L - TRACKS.melbourne.gridBack, 0);
       expect(Math.hypot(car.pos.x - grid.x, car.pos.z - grid.z)).toBeLessThan(0.05);
       expect(car.vel.length()).toBeLessThan(0.05);
-      // An engine state gone non-finite is put back on the track at the next tick
+      // An engine state gone non-finite in the middle of a tick is put back on the track within that tick: nothing
+      // that reads the car afterwards (timing, camera) ever sees it
       drive(2, (c) => inp({ throttle: cruise(c, 15) }));
-      const where = car.proj.s;
+      const where = car.proj.s, step = fresh.step.bind(fresh);
+      let calls = 0;
+      fresh.step = (h, i) => { step(h, i); if (++calls === 3) fresh.velocity.x = Number.NaN; };
+      drive(DT, () => inp());
+      expect([car.pos.x, car.pos.y, car.pos.z, car.vel.x, car.speedF].every(Number.isFinite)).toBe(true);
+      expect(fresh.stateIsSane()).toBe(true);
+      // ...and one gone bad between ticks, at the next tick
       fresh.velocity.x = Number.NaN;
       drive(DT, () => inp());
       expect(finite(car)).toBe(true);
       expect(Math.abs(car.proj.s - where)).toBeLessThan(1);
     });
 
-    it('shifts by hand one gear a tick, refuses a downshift that would over-rev, and reverses on the brake', async () => {
+    it('shifts by hand (every queued press in turn), refuses a downshift that would over-rev, and reverses on the brake', async () => {
       const { car, drive } = await session(id, { walls: false });
       car.forceSurface = S_ASPHALT;
       car.manual = true;
       const manual = (o: Partial<DriveInput>) => inp({ autoGears: false, ...o });
-      // Up into second by hand; the queue is taken one shift a tick
+      // Three quick presses are three gears, each waiting for the shift before it (the engine keeps only one press
+      // while it shifts); then back down to second the same way
       let rpmPerMs = 0;
       drive(10, (c) => { if (c.speedF > 12) rpmPerMs = c.rpm / c.speedF; return manual({ throttle: cruise(c, 15) }); }, () => car.speedF > 14);
       expect(car.gear).toBe(1);
       car.pendingShift = 2;
-      drive(DT, () => manual({ throttle: 0.3 }));
+      drive(2 * DT, () => manual({ throttle: 0.3 }));
       expect([car.gear, car.pendingShift]).toEqual([2, 1]);
-      car.pendingShift = 0;
+      car.pendingShift++;
+      drive(0.5, () => manual({ throttle: 0.3 }));
+      expect([car.gear, car.pendingShift]).toEqual([4, 0]);
+      car.pendingShift = -2;
+      drive(0.5, () => manual({ throttle: 0.3 }));
+      expect([car.gear, car.pendingShift, car.shiftDenied]).toEqual([2, 0, false]);
       // Second gear, faster than first can rev to (redline plus the box's margin, 500 rpm on the GT3, -200 on the F1)
       const margin = lc(car).spec.config.gearbox.downshift?.overRevRpm ?? -200, limit = (car.spec.redline + margin) / rpmPerMs;
       drive(15, () => manual({ throttle: 0.5 }), () => car.speedF > limit * 1.05);
@@ -166,8 +180,9 @@ export function lcCarSuite(id: 'lcgt3' | 'lcf1') {
       drive(10, () => inp({ brake: 0.4 }), () => car.speedF < 0.1);
       drive(0.3, () => inp({ brake: 1 }));
       expect(car.gear).toBe(1);
-      drive(0.2, () => inp({ brake: 1 }));
-      expect(car.gear).toBe(0);
+      let revved = false;                                  // the brake stays the brake until the engine is in reverse
+      drive(0.2, () => inp({ brake: 1 }), () => { revved ||= car.gear > 0 && car.throttle > 0; return false; });
+      expect([car.gear, revved]).toEqual([0, false]);
       const from = car.pos.clone();
       drive(2, () => inp({ brake: 0.3 }));
       expect(car.speedF).toBeLessThan(-3);
