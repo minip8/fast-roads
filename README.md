@@ -23,13 +23,14 @@ The autopilot isn't part of the game itself.
 ## Main menu
 
 The game opens on a menu: **Drive**, plus settings for circuit, car, gears (automatic/manual),
-steering (keyboard/mouse), camera, traction control, countersteer assist (drift car), and sound. Cars marked (LC) run on LibreCorsa's physics. Settings are remembered. Choosing another circuit reloads the game onto it. Your best lap for the chosen car and circuit is shown, with a
+steering (keyboard/mouse), camera, driver camera hands, traction control, countersteer assist (drift car), and sound. Cars marked (LC) run on LibreCorsa's physics. Settings are remembered. Choosing another circuit reloads the game onto it. Your best lap for the chosen car and circuit is shown, with a
 **Reset best times** option (click twice to confirm). While driving, **Esc** or **P** opens it as a pause menu
 (Resume / Restart session). Mouse or keyboard (↑ ↓ ← → Enter) both work in the menu.
 
 Cameras: **Onboard** (above the F1's airbox, on the other cars' bonnets), **Driver** (from the driver's eyes, with
 the cockpit, steering wheel and the driver's arms; the wheel turns with the road wheels at each car's steering
-ratio), **Chase** and **Far**. Every car carries a driver, visible from outside too.
+ratio), **Chase** and **Far**. Every car carries a driver, visible from outside too. The driver's arms and gloves
+are hidden in the Driver camera unless **Driver camera hands** is set to Shown (they always show from outside).
 
 ## Cars
 

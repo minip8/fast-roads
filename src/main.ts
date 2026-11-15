@@ -87,6 +87,7 @@ export async function main() {
     mouseSens: (v) => { input.mouse.range = MOUSE_RANGE[v]; },
     mouseDeadzone: (v) => { input.mouse.deadzone = MOUSE_DEADZONE[v]; },
     camera: (v) => { cam.mode = v; },
+    hands: (v) => { cam.hands = v === 'on'; },
     tc: (v) => { session.car.tc = v === 'on'; },
     assist: (v) => { session.car.assist = v === 'on'; },
     sound: (v) => { audio.setMuted(v === 'off'); },

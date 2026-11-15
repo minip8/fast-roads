@@ -14,6 +14,7 @@ const _shake = new THREE.Vector3(), _v1 = new THREE.Vector3(), _v2 = new THREE.V
 
 export class CameraRig {
   mode: CamMode = 'onboard';
+  hands = false;                                  // show the driver's arms and gloves in the driver camera
   private readonly off = new THREE.Vector3();    // chase: smoothed camera offset from the car (world axes)
   private readonly look = new THREE.Vector3();
   private readonly fwd = new THREE.Vector3(0, 0, 1);
@@ -44,9 +45,11 @@ export class CameraRig {
     _shake.set(Math.sin(t * 71) + Math.sin(t * 113) * 0.5, Math.sin(t * 89 + 1) + Math.sin(t * 131 + 2) * 0.5, 0).multiplyScalar(amp);
 
     let fov: number;
-    car.mesh.cockpit.head.visible = this.mode !== 'driver';   // the camera is inside the helmet
+    const c = car.mesh.cockpit, inside = this.mode === 'driver';
+    c.head.visible = !inside;   // the camera is inside the helmet
+    for (const arm of c.arms) arm.mesh.visible = arm.glove.visible = !inside || this.hands;
     if (this.mode === 'driver') {
-      const upv = _v2.set(0, 1, 0).applyQuaternion(root.quaternion), c = car.mesh.cockpit;
+      const upv = _v2.set(0, 1, 0).applyQuaternion(root.quaternion);
       camera.position.copy(c.eye).applyQuaternion(root.quaternion).add(p);
       camera.lookAt(_v3.copy(camera.position).addScaledVector(fwd, 10).addScaledVector(upv, -c.look));
       camera.position.add(_shake);
