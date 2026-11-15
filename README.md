@@ -90,8 +90,12 @@ steering (keyboard/mouse), camera, traction control, countersteer assist (drift 
     least 250 m while the throttle is down and close on the brakes.
   - **Steering depends on the device.** Keys go through LibreCorsa's keyboard assist, which turns in at a rate set
     by speed and holds the front tyres just under their peak slip: a held key corners at 94–100% of the limit
-    without spinning. Mouse and stick go straight to the steering rack with a speed-sensitive lock, as on the other
-    cars. Pedals from keys and mouse buttons are eased on over about 0.2 s.
+    without spinning. Mouse and stick go straight to the steering rack, as in LibreCorsa, with no scaling for
+    speed: full deflection is always full lock (25° on the GT3, 19° on the F1). The tyres' peak sits well inside
+    that, and further in the faster you go: at about 40% of the travel at 80 km/h on the GT3 and 30% from 150 km/h,
+    and on the F1 at about 53% at 80 km/h, 33% at 150 and 27% at 220. Past it the GT3 scrubs its front tyres and the
+    F1 spins, so at speed steer with small movements (a lower Mouse sensitivity spreads them over more of the
+    screen). Pedals from keys and mouse buttons are eased on over about 0.2 s.
   - **Numbers** (measured in the tests): GT3 0–100 km/h 3.5 s, 1.9 g braking from 200 km/h, 1.6–2.0 g cornering
     from 80 to 220 km/h; F1 0–100 km/h 2.7 s, 2.9 g braking from 200 km/h, 2.0–3.9 g cornering from 80 to 220 km/h.
   They use the GT3 and F1 bodies in other colours and the same engine sounds. Not used from LibreCorsa: weather, tyre

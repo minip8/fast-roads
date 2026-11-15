@@ -24,16 +24,14 @@ interface CarCase {
   // The car's limit at 80, 150 and 220 km/h: steady lateral g at the best constant analog steering position through
   // this driver (speed held, mean over 2.5-3.5 s), measured once with a sweep of rack positions 0.05..0.7 by 0.025
   limitG: [number, number, number];
-  // Most lateral g half deflection may give, as a share of full deflection's, at the same speeds. The tyres' force
-  // curve is steep near the centre (half the peak angle gives about 80 % of the peak force), so asking 1.1-1.3x the
-  // peak at full deflection leaves half 8-20 % short of it. The GT3's lock curve asks up to 1.6x around 80-150 km/h,
-  // past the peak, where full deflection scrubs the fronts and half gives as much (see GT3_DRIVER in driver.ts).
-  halfMax: [number, number, number];
+  // The analog steering position (share of full lock) at that limit, at the same speeds: analog input goes to the
+  // rack unscaled, so the tests steer to these rather than to full deflection (see driver.ts)
+  peakAt: [number, number, number];
   tcFromKmh: number;   // where the TC starts working, plus a margin: the GT3's TC does nothing below 40 km/h
 }
 const CARS: CarCase[] = [
-  { id: 'GT3', config: AMG_GT3_CONFIG, driver: gt3Driver, spec: GT3_DRIVER, wheelbase: 2.65, refSlip: 0.077, limitG: [1.68, 1.88, 2.18], halfMax: [1.05, 1.03, 0.96], tcFromKmh: 45 },
-  { id: 'F1', config: LC26_TUNED_CONFIG, driver: f1Driver, spec: F1_DRIVER, wheelbase: 3.4, refSlip: 0.1, limitG: [2.03, 2.81, 3.95], halfMax: [0.85, 0.95, 0.9], tcFromKmh: 10 },
+  { id: 'GT3', config: AMG_GT3_CONFIG, driver: gt3Driver, spec: GT3_DRIVER, wheelbase: 2.65, refSlip: 0.077, limitG: [1.68, 1.88, 2.18], peakAt: [0.41, 0.31, 0.29], tcFromKmh: 45 },
+  { id: 'F1', config: LC26_TUNED_CONFIG, driver: f1Driver, spec: F1_DRIVER, wheelbase: 3.4, refSlip: 0.1, limitG: [2.03, 2.81, 3.95], peakAt: [0.53, 0.33, 0.27], tcFromKmh: 10 },
 ];
 const SPEEDS = [80, 150, 220] as const;
 const EXIT_KMH = 80;
@@ -58,11 +56,9 @@ function rig(c: CarCase, kmh = 0, withDriver = true) {
       d.afterStep(H);
     }
   };
-  // No driver: the input straight to the engine (+ steer = left in, as DriveInput), analog steering at the driver's lock
-  const [lock, half, floor] = c.spec.analogLock;
-  const raw = (input: DriveInput) => v.step(DT, { throttle: input.throttle, brake: input.brake,
-    steer: -input.steer * (input.analog ? Math.min(1, Math.max(floor, lock / (1 + v.speedMs / half))) : 1) });
-  return { v, d, tick: withDriver ? tick : raw, oneStep: () => oneStep, reset: () => { v.reset(0, 0, 0, kmh / 3.6); d.reset(); frames = steps = 0; },
+  // No driver: the input straight to the engine (+ steer = left in, as DriveInput)
+  const raw = (input: DriveInput) => v.step(DT, { throttle: input.throttle, brake: input.brake, steer: -input.steer });
+  return { v, d, out, tick: withDriver ? tick : raw, oneStep: () => oneStep, reset: () => { v.reset(0, 0, 0, kmh / 3.6); d.reset(); frames = steps = 0; },
            newDriver: () => { d = c.driver(v); } };
 }
 
@@ -124,7 +120,7 @@ export const driverTests = (id: CarCase['id']) => describe(`LibreCorsa driver: $
     // Mid-corner at 80 km/h on a held steering input (about 1.5 g), then full throttle for 2 s
     const exit = (tc: boolean, withDriver = true, analog = true) => {
       const { v, tick } = rig(c, EXIT_KMH, withDriver);
-      const steer = analog ? 0.5 : 1;
+      const steer = analog ? 0.65 * c.peakAt[0] : 1;   // analog: two thirds of the way to the tyres' peak
       for (let t = 0; t < 1.5; t += DT) tick({ throttle: holdSpeed(v, EXIT_KMH), brake: 0, steer, analog }, tc);
       const g0 = v.telemetry.latG, slips: number[] = [];
       let maxBody = 0, minYaw = Infinity;
@@ -200,21 +196,33 @@ export const driverTests = (id: CarCase['id']) => describe(`LibreCorsa driver: $
     });
   });
 
-  it('analog: full deflection corners near the limit, half clearly less', () => {
+  it('analog: the position at the tyres\' peak corners at the limit, half of it clearly less', () => {
     const res = SPEEDS.map((kmh, i) => {
-      const full = corner(1, true, kmh), half = corner(0.5, true, kmh), right = kmh === 150 ? corner(-1, true, kmh) : null;
+      const at = c.peakAt[i], full = corner(at, true, kmh), half = corner(0.5 * at, true, kmh), right = kmh === 150 ? corner(-at, true, kmh) : null;
       log(c.id, 'analog', kmh, { full, half, share: r(full.steady / c.limitG[i]), halfShare: r(half.steady / full.steady) });
       return { full, half, right };
     });
     res.forEach(({ full, half, right }, i) => {
-      expect(full.steady).toBeGreaterThan(0.85 * c.limitG[i]);
+      expect(full.steady).toBeGreaterThan(0.9 * c.limitG[i]);
       expect(full.steady).toBeLessThan(1.05 * c.limitG[i]);
       expect(full.bodyDeg).toBeLessThan(8);
       expect(full.yawAfter).toBeLessThan(0.05);
-      expect(half.steady).toBeLessThan(c.halfMax[i] * full.steady);
+      expect(half.steady).toBeLessThan(0.9 * full.steady);
       expect(half.steady).toBeGreaterThan(0.3 * full.steady);
       if (right) expect(Math.abs(right.steady + full.steady)).toBeLessThan(0.02 * full.steady);
     });
+  });
+
+  it('analog: the input is the rack position, the same at any speed', () => {
+    // What the engine is sent (its steer is + = right) is the input itself at 30 km/h and at 250 km/h alike, once
+    // the rack-rate limit has caught up; at low speed the front wheels turn that share of full lock (at speed the
+    // GT3's steering flexes under the cornering force, so its wheels turn less than the rack asks)
+    for (const kmh of [30, 250]) for (const steer of [0.05, -0.3, 1]) {
+      const { v, out, tick } = rig(c, kmh);
+      for (let t = 0; t < 0.6; t += DT) tick({ throttle: holdSpeed(v, kmh), brake: 0, steer, analog: true });
+      expect(out.steer).toBe(-steer);
+      if (kmh === 30 && steer === 0.05) expect(0.5 * (v.wheels[0].steerRad + v.wheels[1].steerRad) / v.maxSteerRad).toBeCloseTo(0.05, 2);
+    }
   });
 
   it('steerAngle: a fixed road-wheel angle gives the geometric path at low speed', () => {

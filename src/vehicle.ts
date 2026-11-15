@@ -11,7 +11,7 @@ import type { TrackPos } from './track';
 // What a driver (keyboard/mouse/gamepad, or the autopilot) asks of the car each physics tick.
 export interface DriveInput {
   throttle: number; brake: number;   // 0..1
-  steer: number;                     // -1 (right) .. 1 (left), scaled by the car's speed-sensitive lock
+  steer: number;                     // -1 (right) .. 1 (left); each engine turns it into a wheel angle its own way
   analog: boolean;                   // analog input: faster steering, different lock curve
   steerAngle?: number | null;        // direct wheel angle (rad), overrides steer (autopilot)
   autoGears?: boolean;               // force the automatic gearbox (autopilot)

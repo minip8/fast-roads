@@ -9,7 +9,7 @@ import type { VehicleInputs, VehiclePhysics } from './vendor/sim/f12026-car/Vehi
 // The driver of a LibreCorsa-engine car (EngineDriver): the game's DriveInput (+ steer = left) to the engine's
 // VehicleInputs (+ steer = right), by device:
 //   keys (analog false)       pedal ramps; LibreCorsa's keyboard steering assist, then the rack-rate limit
-//   analog (mouse, gamepad)   pedal ramps (mouse buttons are keys too); input x a speed-sensitive lock, rate-limited
+//   analog (mouse, gamepad)   pedal ramps (mouse buttons are keys too); the input straight to the rack, rate-limited
 //   steerAngle (autopilot)    pedals as given; the angle straight to the road wheels
 // ABS is always on at the car's semi_pro dial, TC at its semi_pro dial or off, for the autopilot too (LibreCorsa's
 // drives through the same aids). With TC off the throttle's slip help acts on keys and analog pedals alike. Steering
@@ -23,16 +23,14 @@ export interface DriverCar {
   keyboardSteer: KeyboardSteerProfile;
   padLateralMu: number;              // grip the keyboard assist's yaw-rate guard assumes
   steerRatio: number;                // rim deg per road-wheel deg, for the rack-rate limit
-  // Analog steering: full deflection asks for lock / (1 + speed / halfSpeed) of full rack lock (halfSpeed in m/s),
-  // never less than floor. LibreCorsa sends the mouse to the rack unscaled; with our screen-position mouse that is
-  // twitchy at speed.
-  analogLock: readonly [lock: number, halfSpeed: number, floor: number];
 }
 
+// Analog steering (mouse, stick) goes to the rack as it is, at any speed, as LibreCorsa's does: full deflection is
+// full lock (25.4 deg on the GT3, 19.3 on the F1). The tyres' cornering peak sits well inside that, and further in the
+// faster the car goes: at 0.65 of the travel at 50 km/h on the GT3, 0.41 at 80, 0.31 at 150 and 0.29 from 220 up; on
+// the F1 at 0.53 at 80 km/h, 0.33 at 150, 0.27 at 220 and 0.225 at 280. Past it the GT3 scrubs its fronts; the F1 spins.
+
 // Mercedes-AMG GT3: profile values from AmgGt3Sim.ts (its steerRatio is unset, so the adapter's default 12.6).
-// Analog lock: the steady-cornering peak needs 0.65 of rack lock at 50 km/h, 0.41 at 80, 0.33 at 120, 0.31 at 150
-// and 0.29 from 220 up (its steering flex and understeer keep the need from falling further). Full deflection asks
-// 1.15-1.4 times that (most around 80 km/h), on the floor from about 150 km/h.
 export const GT3_DRIVER: DriverCar = {
   electronics: AMG_GT3_ELECTRONICS,
   tcMinSpeedMs: AMG_GT3_ELECTRONICS.tcMinSpeedKmh / 3.6,
@@ -40,12 +38,9 @@ export const GT3_DRIVER: DriverCar = {
   keyboardSteer: { lowSpeedRate: 1.6, highSpeedRate: 1.05, returnRate: 1.1 },
   padLateralMu: 1.5,
   steerRatio: 12.6,
-  analogLock: [1.6, 12, 0.35],
 };
 
 // LC26 2026 F1 car: profile values from Lc26Sim.ts (keyboard curve OPEN_WHEEL_KEYBOARD_STEER in keyboard-steer.ts).
-// Analog lock: the peak needs 0.53 of rack lock at 80 km/h, 0.33 at 150, 0.27 at 220 and 0.225 at 280; full
-// deflection asks 1.1-1.3 times that (full lock up to 40 km/h).
 export const F1_DRIVER: DriverCar = {
   electronics: F1_ELECTRONICS,
   tcMinSpeedMs: 2,
@@ -53,7 +48,6 @@ export const F1_DRIVER: DriverCar = {
   keyboardSteer: { lowSpeedRate: 1.3, highSpeedRate: 0.8, returnRate: 1 },
   padLateralMu: 1.75,
   steerRatio: 14,
-  analogLock: [2, 11, 0],
 };
 
 class LcDriver implements EngineDriver {
@@ -105,8 +99,7 @@ class LcDriver implements EngineDriver {
       steer = Math.max(-1, Math.min(1, -this.angle / v.maxSteerRad));
       this.rack.cmd = steer;   // a hand-back is rate-limited from here
     } else if (this.analog) {
-      const [lock, half, floor] = this.car.analogLock;
-      steer = this.rack.step(-this.steer * Math.min(1, Math.max(floor, lock / (1 + v.speedMs / half))), h);
+      steer = this.rack.step(-this.steer, h);
     } else {
       if (!this.keysEngaged) this.keys.reset();   // the assist takes over from a clean state, as theirs does
       steer = this.rack.step(this.keys.update(-Math.sign(this.steer), this.brake, h), h);

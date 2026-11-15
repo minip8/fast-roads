@@ -145,8 +145,9 @@ Run `npm run typecheck` and `npm test` before committing.
     per-track grid and no search hint, so they are stateless, which the engine's settle memo requires.
   - `lc/engineDriver.ts` (the contract), `lc/driver.ts`, `lc/aids.ts`, `lc/steering.ts`: our port of what
     LibreCorsa's game adapter does around the engine, run every 2 ms step because the aid filters are tuned for
-    500 Hz. Keys: pedal ramps and LibreCorsa's keyboard steering assist. Analog (mouse, stick): the input times a
-    speed-sensitive lock with a floor (`analogLock`, per car; LibreCorsa sends the mouse to the rack unscaled).
+    500 Hz. Keys: pedal ramps and LibreCorsa's keyboard steering assist. Analog (mouse, stick): the input is the
+    rack position, rate-limited and not scaled by speed, as LibreCorsa's (the owner asked for the speed-sensitive
+    lock these cars first had to be removed; the tyres' peak is at 0.2-0.5 of the travel, see `driver.ts`).
     Autopilot `steerAngle`: straight to the road wheels. ABS is always on; the TC setting switches TC between the
     car's "semi_pro" dial and off. Per-car numbers are `GT3_DRIVER` / `F1_DRIVER`.
   - The engine's axes are ours (x left, y up, z forward) but its steering input is + = right, and its reverse gear
