@@ -6,6 +6,7 @@ import { autopilot } from '../src/autopilot';
 import { Car } from '../src/car';
 import { CARS, type AnyCarSpec, type CarId, type CarSpec } from '../src/cars';
 import { DT, G_WALL } from '../src/config';
+import { LcCar } from '../src/lc/lcCar';
 import { Session } from '../src/sim';
 import { buildTrack, parseCSV, type Track } from '../src/track';
 import { TRACKS, type TrackId } from '../src/tracks';
@@ -24,6 +25,7 @@ export async function session(carId: CarId, { tc = true, walls = true, track = '
     const handles: number[] = [];
     world.forEachCollider((c) => { if ((c.collisionGroups() >>> 16) & G_WALL) handles.push(c.handle); });
     for (const h of handles) world.removeCollider(world.getCollider(h), false);
+    if (car instanceof LcCar) car.setBarriers(false);   // LibreCorsa's engine meets the barriers without Rapier
   }
 
   // Drive for `seconds`, or until `until()` is true after a tick; the default driver is the autopilot. Same ticks and
@@ -34,7 +36,7 @@ export async function session(carId: CarId, { tc = true, walls = true, track = '
       if (until?.()) return;
     }
   };
-  return { track: tr, world, car, timing, drive };
+  return { track: tr, world, car, timing, drive, session: s };
 }
 
 // For tests that reach into our own physics (the Rapier body, its tuning numbers): the car or spec as ours, or a

@@ -1,5 +1,10 @@
 import type { EngineVoice } from './audioGraph';
-import { buildCarMesh, buildDriftMesh, buildGt3Mesh, type CarMesh } from './carMeshes';
+import { buildCarMesh, buildDriftMesh, buildGt3Mesh, type CarMesh, type Paint } from './carMeshes';
+import type { EngineDriverFactory } from './lc/engineDriver';
+import { rawDriver } from './lc/rawDriver';
+import { compoundData, type CarPhysicsConfig } from './lc/vendor/sim/f12026-car/F12026CarConfig';
+import { LC26_TUNED_CONFIG } from './lc/vendor/sim/f12026-car/Lc26Tune';
+import { AMG_GT3_CONFIG } from './lc/vendor/sim/gt3/AmgGt3Config';
 
 export interface PacejkaCoeffs { B: number; C: number; E: number }
 // One axle's brush tyre (`brush` in car.ts). Cornering force peaks at slip angle `peak` (rad) when the tyre carries
@@ -9,8 +14,9 @@ export interface PacejkaCoeffs { B: number; C: number; E: number }
 export interface BrushTyre { peak: number; peakGain: number; fz0: number; loadExp: number; level: number; slope: number }
 type Box = [hx: number, hy: number, hz: number, x: number, y: number, z: number];
 
-// The physics engines a car can run on: 'rapier' is ours (Car in car.ts). createVehicle (sim.ts) builds each.
-export type PhysicsId = 'rapier';
+// The physics engines a car can run on: 'rapier' is ours (Car in car.ts), 'lc' LibreCorsa's (LcCar in lc/lcCar.ts).
+// createVehicle (sim.ts) builds each.
+export type PhysicsId = 'rapier' | 'lc';
 
 // What the rest of the game reads from a car's spec, whichever engine drives it: the menu and best times, the body
 // for the meshes and autopilot, the engine for the HUD and sound, the cameras, and what the autopilot plans with.
@@ -90,16 +96,54 @@ export interface CarSpec extends CarInfo {
   yawCap: [margin: number, latAccel: number, gain: number];   // soft limit on yaw rate: margin (rad/s) over latAccel (m/s2) / speed; excess decays at gain (1/s); gain 0 = off
 }
 
-// A spec for any engine: a union of each engine's spec type, told apart by `physics`.
-export type AnyCarSpec = CarSpec;
+// A car on LibreCorsa's engine: its car data, as theirs, and what our adapter (LcCar) adds around it. The CarInfo
+// geometry is read from the car data (lcBody).
+export interface LcSpec extends CarInfo {
+  physics: 'lc';
+  config: CarPhysicsConfig;                 // LibreCorsa's car (each car built gets its own copy)
+  driver: EngineDriverFactory;              // pedals, steering and aids between our DriveInput and the engine
+  fuelKg: number;                           // on board at the start (their garage default); never burnt
+  turbo: boolean;
+  straightMode: boolean;                    // 2026 F1: flaps fitted, opening by themselves on every straight
+}
 
-export type CarId = 'f1' | 'drift' | 'gt3';
+// A spec for any engine: a union of each engine's spec type, told apart by `physics`.
+export type AnyCarSpec = CarSpec | LcSpec;
+
+export type CarId = 'f1' | 'drift' | 'gt3' | 'lcgt3' | 'lcf1';
 
 // Whether the Countersteer assist setting does anything on this car.
 export const hasAssist = (spec: AnyCarSpec) => spec.physics === 'rapier' && spec.counterSteer[0] !== 0;
 
 const GT3_CAMBER = 1.03;  // cornering grip the outside tyres gain from the camber they run (-3.5 deg front, -2.5 rear)
 const GT3_TORQUE = 1.04; // LibreCorsa's fit of the engine to the reference laps
+
+// V6 turbo at 12,500 rpm: smooth, even orders, bright and nasal.
+const F1_VOICE: EngineVoice = {
+  firingDiv: 20,
+  harmonics: [0.12, 1, 0.18, 0.55, 0.1, 0.36, 0.07, 0.22, 0.05, 0.14, 0.03, 0.09, 0.02, 0.05],
+  detune: 6, level: 0.17, coast: 0.42, bright: [2.2, 6.5], body: [1500, 1.2, 1, 4], rough: 0.06, squealHz: 950,
+};
+// Flat-out 6.2 l V8 at 7,900 rpm: the drift car's lumpy half orders, but harder and brighter.
+const GT3_VOICE: EngineVoice = {
+  firingDiv: 15,
+  harmonics: [0.5, 1, 0.45, 0.6, 0.3, 0.4, 0.2, 0.25, 0.12, 0.14, 0.08, 0.08],
+  detune: 7, level: 0.2, coast: 0.4, bright: [2.6, 8], body: [320, 1.1, 2, 5], rough: 0.16, squealHz: 850,
+};
+
+// The body numbers of a LibreCorsa car from its data, for our meshes and autopilot: mass with its fuel, centre of
+// mass height, axles from the wheelbase and weight split, the mean of the two axles' track and soft tyre radius.
+function lcBody(config: CarPhysicsConfig, fuelKg: number) {
+  const ch = config.chassis, t = compoundData(config, config.compoundSlots.soft);
+  return {
+    mass: ch.totalMassKg + fuelKg, comHeight: ch.cgHeight,
+    zFront: ch.wheelbase * (1 - ch.frontWeightFraction), zRear: -ch.wheelbase * ch.frontWeightFraction,
+    trackHalf: (ch.trackWidthFront + ch.trackWidthRear) / 4, wheelRadius: (t.front.radius + t.rear.radius) / 2,
+    tyreW: [t.front.width, t.rear.width] as [number, number],
+  };
+}
+const LC_GT3_PAINT: Paint = { body: 0xc3c7cc, accent: 0x00a19b, stripe: 0x00a19b };   // silver, teal
+const LC_F1_PAINT: Paint = { body: 0x1b2a4e, accent: 0xe8112d, stripe: 0xf5f5f5 };   // navy, red
 
 export const CARS: Record<CarId, AnyCarSpec> = {
   f1: {
@@ -138,12 +182,7 @@ export const CARS: Record<CarId, AnyCarSpec> = {
     counterLock: [0, 1],
     angDamp: 0.4,
     yawCap: [0, 0, 0],
-    // V6 turbo at 12,500 rpm: smooth, even orders, bright and nasal.
-    sound: {
-      firingDiv: 20,
-      harmonics: [0.12, 1, 0.18, 0.55, 0.1, 0.36, 0.07, 0.22, 0.05, 0.14, 0.03, 0.09, 0.02, 0.05],
-      detune: 6, level: 0.17, coast: 0.42, bright: [2.2, 6.5], body: [1500, 1.2, 1, 4], rough: 0.06, squealHz: 950,
-    },
+    sound: F1_VOICE,
     autoGrip: 0.68, autoLong: 1.2,   // autopilot's assumed lateral grip share / braking (g)
     autoCounter: 0,                  // autopilot counter-steer per radian of slide
     autoLift: 0,                     // autopilot throttle cut per radian of slide
@@ -269,17 +308,45 @@ export const CARS: Record<CarId, AnyCarSpec> = {
     counterLock: [0, 1],
     angDamp: 0.3,
     yawCap: [0, 0, 0],
-    // Flat-out 6.2 l V8 at 7,900 rpm: the drift car's lumpy half orders, but harder and brighter.
-    sound: {
-      firingDiv: 15,
-      harmonics: [0.5, 1, 0.45, 0.6, 0.3, 0.4, 0.2, 0.25, 0.12, 0.14, 0.08, 0.08],
-      detune: 7, level: 0.2, coast: 0.4, bright: [2.6, 8], body: [320, 1.1, 2, 5], rough: 0.16, squealHz: 850,
-    },
+    sound: GT3_VOICE,
     autoGrip: 0.72, autoLong: 1.25, autoCounter: 0, autoLift: 0,
     autoUndersteer: 0.0025,                   // its 1.4 deg/g
     hull: [0.95, 0.22, 2.3, 0, 0.05, -0.04],
     parts: [[0.72, 0.2, 0.95, 0, 0.5, -0.45], [0.95, 0.05, 0.2, 0, 0.8, -2.2]],   // cabin, rear wing
     tyreW: [0.315, 0.325],
     cam: { up: 0.5, back: -0.7, down: 0.3 },   // bonnet camera, ahead of the windscreen
+  },
+  // LibreCorsa's own Mercedes-AMG GT3 on their engine (src/lc/vendor), in place of our physics: the car the gt3 above
+  // is fitted to.
+  lcgt3: {
+    id: 'lcgt3', name: 'GT3 · LibreCorsa', storeKey: '.lcgt3', physics: 'lc', mesh: (spec) => buildGt3Mesh(spec, LC_GT3_PAINT),
+    config: AMG_GT3_CONFIG, driver: rawDriver, fuelKg: 50, turbo: false, straightMode: false,
+    ...lcBody(AMG_GT3_CONFIG, 50),
+    rho: 1.225,                               // sea level, as their adapter runs it
+    ClA: 2.5,                                 // measured on the engine: 1.53 N per (m/s)^2 of downforce at 108-252 km/h
+    // Their autopilot's cornering mu 1.6 (AmgGt3Sim), over our asphalt's 1.65 that the plan multiplies by
+    gripFront: 1.6 / 1.65, gripRear: 1.6 / 1.65,
+    autoGrip: 0.85, autoLong: 1.2,            // 0.85 of their envelope's 1.7 g low-speed braking, as their plan takes it
+    autoCounter: 0, autoLift: 0,
+    autoUndersteer: 0.0025,                   // the 1.41 deg/g their reference manoeuvre measures on this engine
+    redline: 7900, idle: 2100, shiftPoint: 7500, shiftLightsFrom: 6200,   // their limiter, idle, upshift and shift lights
+    sound: GT3_VOICE,
+    cam: { up: 0.5, back: -0.7, down: 0.3 },
+  },
+  // LibreCorsa's 2026 F1 car (the LC26, tuned) on their engine: 768 kg, a hybrid that deploys and harvests by itself
+  // (RAC mode), and flaps that open on every straight.
+  lcf1: {
+    id: 'lcf1', name: 'F1 2026 · LibreCorsa', storeKey: '.lcf1', physics: 'lc', mesh: (spec) => buildCarMesh(spec, LC_F1_PAINT),
+    config: LC26_TUNED_CONFIG, driver: rawDriver, fuelKg: 35, turbo: true, straightMode: true,
+    ...lcBody(LC26_TUNED_CONFIG, 35),
+    rho: 1.225,
+    ClA: 5.0,                                 // measured on the engine, flaps shut: 2.75 N per (m/s)^2 at 108 km/h, 3.19 from 180
+    gripFront: 1.63 / 1.65, gripRear: 1.63 / 1.65,   // their autopilot's cornering mu 1.63 (Lc26Sim)
+    autoGrip: 0.85, autoLong: 1.2,            // 0.85 of their envelope's 1.6 g low-speed braking
+    autoCounter: 0, autoLift: 0,
+    autoUndersteer: 0,                        // their plan computes none for it
+    redline: 12500, idle: 4000, shiftPoint: 12200, shiftLightsFrom: 10800,
+    sound: F1_VOICE,
+    cam: { up: 0.98, back: 0.3, down: 1.1 },
   },
 };

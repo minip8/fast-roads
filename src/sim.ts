@@ -3,6 +3,7 @@ import type * as THREE from 'three';
 import { Car } from './car';
 import type { AnyCarSpec, CarInfo } from './cars';
 import { DT } from './config';
+import { LcCar } from './lc/lcCar';
 import { Timing } from './timing';
 import { buildTrackColliders, type Track } from './track';
 import type { TrackDef } from './tracks';
@@ -48,7 +49,8 @@ export const needsReset = (car: Vehicle) => car.pos.y < -5 || (car.up.y < -0.3 &
 export function createVehicle(world: RAPIER.World, track: Track, scene: THREE.Scene, spec: AnyCarSpec): Vehicle {
   switch (spec.physics) {
     case 'rapier': return new Car(world, track, scene, spec);
-    default: { const unhandled: never = spec.physics; throw new Error(`No physics engine '${unhandled as string}' (${(spec as CarInfo).id})`); }
+    case 'lc': return new LcCar(world, track, scene, spec);
+    default: { const unhandled: never = spec, s = unhandled as CarInfo; throw new Error(`No physics engine '${s.physics}' (${s.id})`); }
   }
 }
 
