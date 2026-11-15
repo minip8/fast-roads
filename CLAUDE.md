@@ -33,8 +33,9 @@ Run `npm run typecheck` and `npm test` before committing.
 - The simulation is deterministic, and Node and the browser agree to the millisecond. `test/laps.ts` pins
   autopilot lap times (F1 1:59.659, drift car 157.751 s with TC on, 157.726 s off), so any physics or tuning change
   shows up there. When a change is intended, check the handling still makes sense, then update the expected times.
-  It also pins the autopilot at Silverstone (F1 129.714 s, drift car 170.275 s) and the GT3 at both circuits
-  (Melbourne 131.738 s, Silverstone 142.291 s). Each lap is run by its own `laps-*.test.ts` file so the seven (about
+  It also pins the autopilot at Silverstone (F1 129.714 s, drift car 170.275 s), the GT3 at both circuits
+  (Melbourne 131.738 s, Silverstone 142.291 s) and the two LibreCorsa-engine cars at both (`lcgt3` 134.846 s and
+  145.035 s, `lcf1` 116.910 s and 124.326 s). Each lap is run by its own `laps-*.test.ts` file so the eleven (about
   12–35 s each) run in parallel. `session(carId, { track })` picks the
   circuit (Melbourne by default).
 - `test/handling.test.ts` holds loose-bound checks of tuning intent: the drift car's brake-and-turn kick, a stable
@@ -43,6 +44,13 @@ Run `npm run typecheck` and `npm test` before committing.
 - `test/gt3.test.ts` holds the GT3 to the car it is taken from: LibreCorsa's published cornering, braking and
   full-throttle g by speed and its understeer gradient (its `docs/physics/README.md`), measured here with the same
   manoeuvres on open asphalt (`rolling(v0)` starts the car at speed). Retune the GT3 against that table, not by feel.
+- LibreCorsa-engine cars (`src/lc/`) have three layers of tests: `test/lc-engine.test.ts` (the vendored engine alone
+  on flat ground; `test/lc-gt3-reference.ts` ports LibreCorsa's own GT3 measurement and must match upstream's
+  numbers to four decimals, so any accidental change to `src/lc/vendor/` shows up), `test/lc-driver.ts` (ABS, TC,
+  keyboard and analog steering through `src/lc/driver.ts`, one file per car) and `test/lc-car.ts` (the cars in the
+  game's `Session`: grid, walls, surfaces, resets, shifts and reverse, rendering, the F1's flaps and lap energy).
+  Tests that reach into our own physics use `ourCar(car)` / `ourSpec(spec)` from the harness, which fail for a car
+  on another engine.
 - In the browser, `window.__game` exposes `simulate(seconds, driver, probeSecs)`, `car` (a getter: the car object is
   replaced when you switch cars), `simTime`, `session`, `timing`, `track`, `input`, `setSetting(key, value)` and
   `setAutopilot` (the `GameHook` type in `main.ts`). Use it for checks that need the page (menu, HUD, settings), e.g.
@@ -60,7 +68,10 @@ Run `npm run typecheck` and `npm test` before committing.
 - `config.ts`: constants, surfaces, collision groups
 - `util.ts`: math and formatting helpers
 - `cars.ts`: car specs (`CarSpec`)
-- `car.ts`: car physics (`Car`, `DriveInput`)
+- `vehicle.ts`: `Vehicle`, a drivable car as the rest of the game sees it (session, timing, camera, HUD, dust,
+  sound, autopilot), whichever engine drives it, and `DriveInput`
+- `car.ts`: our car physics (`Car implements Vehicle`)
+- `lc/`: cars on LibreCorsa's physics engine (see **LibreCorsa engine** below)
 - `sim.ts`: `stepPhysics` (one physics tick; replaces non-finite input, which would abort Rapier) and `Session`
   (world, walls, car on the grid, timing; `tick`, `resetToTrack`, `restart`, `setCar`), shared by the game and tests
 - `carMeshes.ts`: car bodies, static parts merged per material. Paint and metal reflect the environment map that
@@ -111,7 +122,35 @@ Run `npm run typecheck` and `npm test` before committing.
   what their car uses at speed) and `steerComply` (theirs is 0.28 deg/kN; 0.34 here also stands in for their bump
   steer). Not modelled: tyre heat/pressure/wear, suspension geometry, the
   differential, ride-height aero. There is no wheelspin model either, so the GT3 cannot be spun on the power even
-  with TC off (theirs can). The autopilot adds lock for the understeer (`autoUndersteer`), or it runs wide at speed.
+  with TC off (theirs can; `lcgt3` is that car on their own engine). The autopilot adds lock for the understeer (`autoUndersteer`), or it runs wide at speed.
+- **Two engines**: every car spec is a `CarInfo` (what the game outside the physics reads: menu, body geometry,
+  HUD/sound engine numbers, cameras, the autopilot's plan inputs) with a `physics` discriminant. `CarSpec` (`'rapier'`)
+  adds our physics numbers; `LcSpec` (`'lc'`) adds a LibreCorsa car config and driver. `createVehicle` in `sim.ts`
+  builds the right class; `stepPhysics` calls `car.step`, steps the Rapier world only for Rapier cars, then
+  `car.readState`. Code outside `car.ts` must use `Vehicle` / `CarInfo`, never `Car` / `CarSpec`.
+- **LibreCorsa engine (`src/lc/`)**: the `lcgt3` and `lcf1` cars (menu names "GT3 (LC)", "F1 2026 (LC)").
+  - `lc/vendor/`: LibreCorsa's car physics (`VehiclePhysics`, github.com/KhazP/librecorsa, MIT) and the two cars'
+    data, copied nearly verbatim. Do not edit it except to re-vendor: its README lists the upstream commit, the
+    files and the four edits (one removes third-party CC BY-NC-SA rain-tyre data; keep it out). The engine runs
+    fixed 2 ms steps, has its own rigid body and wall response, and has no ABS, TC or input shaping.
+  - `lc/lcCar.ts`: `LcCar implements Vehicle`. Each 120 Hz tick runs 4 or 5 engine steps (25 per 6 ticks, counted in
+    integers so it never drifts), with the driver around each. It owns our gearbox conventions (reverse on the
+    brake at a standstill, one manual shift per tick, `shiftDenied`), the F1's flaps (open by themselves in
+    `straightWindows`: straights of 250 m+) and lap energy (`locateProgress`), and maps engine state to ours.
+    `placeAt` on the first-placement spot (the grid) builds a fresh engine instance (full battery, fuel, tyres in
+    blankets; cheap because the engine memoises that settle); anywhere else it is a teleport that keeps battery
+    and lap energy (20–40 ms: the engine settles the car by simulating).
+  - `lc/ground.ts`: the engine's ground (our surfaces mapped to its road/kerb/grass/gravel table, kerb height on
+    top of flat ground) and walls (the road-facing face of each barrier cuboid) from a `Track`. Lookups use a
+    per-track grid and no search hint, so they are stateless, which the engine's settle memo requires.
+  - `lc/engineDriver.ts` (the contract), `lc/driver.ts`, `lc/aids.ts`, `lc/steering.ts`: our port of what
+    LibreCorsa's game adapter does around the engine, run every 2 ms step because the aid filters are tuned for
+    500 Hz. Keys: pedal ramps and LibreCorsa's keyboard steering assist. Analog (mouse, stick): the input times a
+    speed-sensitive lock with a floor (`analogLock`, per car; LibreCorsa sends the mouse to the rack unscaled).
+    Autopilot `steerAngle`: straight to the road wheels. ABS is always on; the TC setting switches TC between the
+    car's "semi_pro" dial and off. Per-car numbers are `GT3_DRIVER` / `F1_DRIVER`.
+  - The engine's axes are ours (x left, y up, z forward) but its steering input is + = right, and its reverse gear
+    is -1 (ours 0).
 - **Car physics (`Car.step`)**: Rapier rigid body at a fixed 120 Hz (`DT`), with custom physics on top:
   - raycast suspension with anti-roll bars
   - Pacejka lateral curve with load sensitivity (or a brush tyre: `spec.brush`)

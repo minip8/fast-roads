@@ -319,7 +319,7 @@ export const CARS: Record<CarId, AnyCarSpec> = {
   // LibreCorsa's own Mercedes-AMG GT3 on their engine (src/lc/vendor), in place of our physics: the car the gt3 above
   // is fitted to.
   lcgt3: {
-    id: 'lcgt3', name: 'GT3 · LibreCorsa', storeKey: '.lcgt3', physics: 'lc', mesh: (spec) => buildGt3Mesh(spec, LC_GT3_PAINT),
+    id: 'lcgt3', name: 'GT3 (LC)', storeKey: '.lcgt3', physics: 'lc', mesh: (spec) => buildGt3Mesh(spec, LC_GT3_PAINT),
     hint: 'LibreCorsa physics: tyres warm up over the first corners · ABS always on · with TC off the throttle steers it',
     config: AMG_GT3_CONFIG, driver: gt3Driver, fuelKg: 50, turbo: false, straightMode: false,
     ...lcBody(AMG_GT3_CONFIG, 50),
@@ -337,7 +337,7 @@ export const CARS: Record<CarId, AnyCarSpec> = {
   // LibreCorsa's 2026 F1 car (the LC26, tuned) on their engine: 768 kg, a hybrid that deploys and harvests by itself
   // (RAC mode), and flaps that open on every straight.
   lcf1: {
-    id: 'lcf1', name: 'F1 2026 · LibreCorsa', storeKey: '.lcf1', physics: 'lc', mesh: (spec) => buildCarMesh(spec, LC_F1_PAINT),
+    id: 'lcf1', name: 'F1 2026 (LC)', storeKey: '.lcf1', physics: 'lc', mesh: (spec) => buildCarMesh(spec, LC_F1_PAINT),
     hint: 'LibreCorsa physics: hybrid and flaps work themselves · ABS always on · keep TC on unless you like spinning',
     config: LC26_TUNED_CONFIG, driver: f1Driver, fuelKg: 35, turbo: true, straightMode: true,
     ...lcBody(LC26_TUNED_CONFIG, 35),

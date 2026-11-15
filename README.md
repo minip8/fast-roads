@@ -1,7 +1,7 @@
 # Fast Roads
 
 Browser time-trial racer on real circuit layouts. Prototype covering build steps 1–3:
-two circuits (Albert Park in Melbourne and Silverstone), three cars (a downforce open-wheel car, a rear-drive drift car and a GT3 coupe), and lap/sector
+two circuits (Albert Park in Melbourne and Silverstone), five cars (a downforce open-wheel car, a rear-drive drift car and a GT3 coupe on the game's own physics, plus a GT3 and a 2026 F1 car on LibreCorsa's physics engine), and lap/sector
 timing with track limits.
 
 ## Run
@@ -23,7 +23,7 @@ The autopilot isn't part of the game itself.
 ## Main menu
 
 The game opens on a menu: **Drive**, plus settings for circuit, car, gears (automatic/manual),
-steering (keyboard/mouse), camera, traction control, countersteer assist (drift car), and sound. Settings are remembered. Choosing another circuit reloads the game onto it. Your best lap for the chosen car and circuit is shown, with a
+steering (keyboard/mouse), camera, traction control, countersteer assist (drift car), and sound. Cars marked (LC) run on LibreCorsa's physics. Settings are remembered. Choosing another circuit reloads the game onto it. Your best lap for the chosen car and circuit is shown, with a
 **Reset best times** option (click twice to confirm). While driving, **Esc** or **P** opens it as a pause menu
 (Resume / Restart session). Mouse or keyboard (↑ ↓ ← → Enter) both work in the menu.
 
@@ -71,16 +71,38 @@ steering (keyboard/mouse), camera, traction control, countersteer assist (drift 
     only to 85%, so over-driving costs time rather than the car.
   - **Power does not spin it.** With traction control on or off, full throttle from the middle of a corner pushes
     the nose wide instead of swinging the tail. LibreCorsa's car can be spun on the power with its traction control
-    off; this game has no wheelspin model, so that part of its handling is missing here.
+    off; this game's own physics has no wheelspin model, so that part of its handling is missing here.
   What is not carried over: tyre temperature, pressure and wear, suspension geometry, the limited-slip differential,
   ride-height-dependent downforce and wet weather. The body is this game's own; LibreCorsa's car model is not used.
+  **GT3 (LC)** below is the same car on LibreCorsa's own engine, with all of that.
+- **GT3 (LC)** and **F1 2026 (LC)**: LibreCorsa's Mercedes-AMG GT3 and its 2026 F1 car, running on LibreCorsa's
+  physics engine itself (`src/lc/vendor/`, MIT) in place of this game's: a 500 Hz rigid body with brush tyres that
+  heat up, double-wishbone suspension solved from its hardpoints, a limited-slip differential, an engine, clutch
+  and gearbox with their own inertia, brakes that heat, and downforce that changes with ride height. On flat ground
+  the vendored engine gives the same numbers as LibreCorsa's own code to four decimals (`test/lc-engine.test.ts`).
+  - **The wheels really spin and lock.** The engine has no driver aids of its own, so the game adds LibreCorsa's:
+    ABS (always on) and traction control (the menu's setting). With traction control off, a held throttle swings
+    the GT3's tail 20° out mid-corner and spins the F1 out of slow corners.
+  - **Tyres start in their blankets** (60 °C on the GT3, 80 °C on the F1) and come up to temperature over the first
+    corners; a reset to the track fits fresh ones. They do not wear and no fuel is burnt.
+  - **The F1's hybrid and flaps work themselves.** The battery deploys and harvests by itself (its "race" mode,
+    with the per-lap energy allowance of the 2026 rules), and the front and rear flaps open on every straight of at
+    least 250 m while the throttle is down and close on the brakes.
+  - **Steering depends on the device.** Keys go through LibreCorsa's keyboard assist, which turns in at a rate set
+    by speed and holds the front tyres just under their peak slip: a held key corners at 94–100% of the limit
+    without spinning. Mouse and stick go straight to the steering rack with a speed-sensitive lock, as on the other
+    cars. Pedals from keys and mouse buttons are eased on over about 0.2 s.
+  - **Numbers** (measured in the tests): GT3 0–100 km/h 3.5 s, 1.9 g braking from 200 km/h, 1.6–2.0 g cornering
+    from 80 to 220 km/h; F1 0–100 km/h 2.7 s, 2.9 g braking from 200 km/h, 2.0–3.9 g cornering from 80 to 220 km/h.
+  They use the GT3 and F1 bodies in other colours and the same engine sounds. Not used from LibreCorsa: weather, tyre
+  wear, fuel use, damage, car setup, the F1's manual boost and energy modes, and its car models and sounds.
 
 Each car keeps its own best lap and sector times at each circuit. Switching car puts you back on the grid.
 
 ## HUD
 
 Bottom right: F1-style shift lights (5 green, 5 red, 5 blue) fill towards the shift point and all flash there
-(where the automatic box shifts up: 12,250 rpm in the F1, 7,200 in the drift car, 7,500 in the GT3); throttle (green) and brake (red) bars show how hard each pedal is
+(where the automatic box shifts up: 12,250 rpm in the F1, 7,200 in the drift car, 7,500 in both GT3s, 12,200 in the F1 2026); throttle (green) and brake (red) bars show how hard each pedal is
 applied; then the gear and speed.
 
 ## Controls
@@ -126,6 +148,14 @@ and override the mouse while held.
   on gravel.
   Grip eases between surfaces over ~0.1 s instead of switching instantly at the track edge.
   Off-track you get a grass rumble or gravel crunch and dust behind the wheels (visual only; the body stays steady).
+- **Second physics engine**: the (LC) cars run LibreCorsa's car physics, vendored nearly verbatim in `src/lc/vendor/`
+  (its README lists the files, the upstream commit and the few edits). The game sees every car through one
+  interface (`src/vehicle.ts`); `src/lc/lcCar.ts` adapts the engine to it, running four or five of the engine's 2 ms
+  steps per 120 Hz game tick. The engine meets the same track as the other cars: `src/lc/ground.ts` answers its
+  ground queries from the circuit's surfaces (its own grip and drag for road, kerb, grass and gravel) and gives it
+  the barriers as wall segments. `src/lc/driver.ts`, `aids.ts` and `steering.ts` are ports of the parts of
+  LibreCorsa's game layer that the engine relies on: pedal ramps, the keyboard steering assist, ABS and traction
+  control, all run at the engine's 500 Hz. One game tick costs about half a millisecond for these cars.
 - **Sound**: all synthesised with Web Audio, no samples. Each car has its own engine voice (a smooth V6 in the F1, a
   lumpy V8 in the drift car, a harder, brighter V8 in the GT3) that brightens under load, cuts briefly on upshifts, blips on downshifts and stutters on
   the rev limiter. Tyres squeal as they near the limit of grip on asphalt and kerbs (cornering or wheelspin), which is
@@ -154,4 +184,5 @@ change to handling shows up. In the browser, `window.__game.simulate(seconds, tr
 Elevation (Albert Park is flat and Silverstone nearly so; Spa/COTA will need SRTM data), pit lane, ghosts, leaderboards, multiplayer.
 
 Track data: [TUMFTM/racetrack-database](https://github.com/TUMFTM/racetrack-database) (LGPL-3.0).
-GT3 car data and reference measurements: [KhazP/librecorsa](https://github.com/KhazP/librecorsa) (MIT).
+GT3 car data and reference measurements, and the physics engine and car data of the (LC) cars:
+[KhazP/librecorsa](https://github.com/KhazP/librecorsa) (MIT; see `src/lc/vendor/README.md`).
