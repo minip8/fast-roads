@@ -66,7 +66,7 @@ export async function main() {
   let acc = 0, last = performance.now();
   session.onReset = () => cam.reset();
 
-  const restart = () => { session.restart(); hud.showMsg('Session restarted<small>Cross the line to start a lap</small>'); };
+  const restart = () => { session.restart(); hud.showMsg('Flying lap<small>Starts at the line</small>', 1.5); };
 
   // ---------------- Settings ----------------
   // What changing each setting does.
@@ -161,8 +161,8 @@ export async function main() {
       hud.showMsg(input.mouse.enabled ? 'Mouse steering<small>Cursor left/right of centre steers · left click throttle · right click brake · scroll to shift</small>' : 'Keyboard steering', 2.2);
     }
     if (input.takePressed('KeyH')) hud.toggleHelp();
-    if (input.takePressed('KeyR')) session.resetToTrack();
-    if (input.takePressed('Enter')) restart();
+    const reset = input.takePressed('KeyR'), enter = input.takePressed('Enter');   // both: back to the start of the lap
+    if (reset || enter) restart();
     input.pressed.clear();
   };
 

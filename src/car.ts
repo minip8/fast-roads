@@ -114,16 +114,21 @@ export class Car implements Vehicle {
     this.scene.remove(this.mesh.root);
   }
 
-  placeAt(s: number, lat = 0) {
+  placeAt(s: number, lat = 0, speed = 0) {
     const tr = this.track, p = pointAt(tr, s, lat), i = p.i;
     const yaw = Math.atan2(tr.TX[i], tr.TZ[i]);
     const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
     this.body.setTranslation({ x: p.x, y: this.spec.comHeight + 0.03, z: p.z }, true);
     this.body.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true);
-    this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+    this.body.setLinvel({ x: tr.TX[i] * speed, y: 0, z: tr.TZ[i] * speed }, true);
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
-    this.gear = 1; this.steer = this.steerIn = this.rearSlip = this.slipRate = 0; this.looseAsk = this.spec.rearLoose[2]; this.shiftTimer = 0; this.tipped = 0; this.lastVF = this.accF = 0;
-    for (const w of this.wheels) { w.comp = w.prevComp = 0.025; w.omega = 0; w.comply = 0; w.muBlend = SURF[S_ASPHALT].mu; w.rrBlend = SURF[S_ASPHALT].rr; w.decelBlend = 0; }
+    this.gear = 1; this.steer = this.steerIn = this.rearSlip = this.slipRate = 0; this.looseAsk = this.spec.rearLoose[2]; this.shiftTimer = 0; this.tipped = 0; this.accF = 0;
+    this.lastVF = speed;
+    // rolling: the gear the automatic box would be in (the lowest that is below its shift point)
+    const top = this.spec.gearTop;
+    while (this.gear < top.length - 1 && (this.spec.redline * speed) / top[this.gear] > this.spec.shiftPoint) this.gear++;
+    this.rpm = Math.max(this.spec.idle, (this.spec.redline * speed) / top[this.gear]);
+    for (const w of this.wheels) { w.comp = w.prevComp = 0.025; w.omega = speed / this.spec.wheelRadius; w.comply = 0; w.muBlend = SURF[S_ASPHALT].mu; w.rrBlend = SURF[S_ASPHALT].rr; w.decelBlend = 0; }
     this.proj.i = -1;
     this.readState();
     this.prevPos.copy(this.pos); this.prevQuat.copy(this.quat);

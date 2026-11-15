@@ -15,10 +15,11 @@ import type { DriveInput, Vehicle } from '../src/vehicle';
 const tracks: Partial<Record<TrackId, Track>> = {};
 
 // `walls: false` removes the barriers, for manoeuvres that need more room than the walled start straight has.
-export async function session(carId: CarId, { tc = true, walls = true, track = 'melbourne' as TrackId } = {}) {
+// The car starts at rest at the start spot; `flying: true` starts it as the game does, already at flying-lap speed.
+export async function session(carId: CarId, { tc = true, walls = true, track = 'melbourne' as TrackId, flying = false } = {}) {
   await RAPIER.init();
   const def = TRACKS[track], tr = tracks[track] ??= buildTrack(parseCSV(def.csv));
-  const s = new Session(tr, new THREE.Scene(), CARS[carId], def);
+  const s = new Session(tr, new THREE.Scene(), CARS[carId], flying ? def : { storeKey: def.storeKey, startBack: def.startBack });
   const { car, timing, world } = s;
   car.tc = tc;
   if (!walls) {

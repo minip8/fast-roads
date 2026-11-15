@@ -71,7 +71,7 @@ export class Menu {
     return !this.host.started()
       ? [['Drive', () => this.close(), true]]
       : [['Resume', () => this.close(), true],
-         ['Restart session', () => { this.host.restart(); this.close(); }]];
+         ['Restart lap', () => { this.host.restart(); this.close(); }]];
   }
 
   private render() {

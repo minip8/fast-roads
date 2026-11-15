@@ -54,25 +54,27 @@ export function createVehicle(world: RAPIER.World, track: Track, scene: THREE.Sc
   }
 }
 
-// Physics world with the track's walls, one car on the grid, and its lap timing. RAPIER.init() must have resolved.
+// Physics world with the track's walls, one car at the start spot, and its lap timing. RAPIER.init() must have resolved.
 export class Session {
   readonly world: RAPIER.World;
   readonly timing: Timing;
   readonly wallCount: number;
   car: Vehicle;                 // replaced by setCar: read it at call time, never keep a reference
   simTime = 0;
-  onReset = () => {};           // after the car is moved (reset, restart, new car): the game snaps its camera
-  private readonly gridS: number;
+  onReset = () => {};           // after the car is moved (restart, new car): the game snaps its camera
+  private readonly startS: number;
   private stuck = 0;
 
-  // def: the circuit's grid spot and its localStorage key for best times (each car adds its own suffix).
-  constructor(readonly track: Track, private readonly scene: THREE.Scene, spec: AnyCarSpec, private readonly def: Pick<TrackDef, 'storeKey' | 'gridBack'>) {
+  // def: the circuit's start spot, each car's flying-lap speed there, and its localStorage key for best times (each
+  // car adds its own suffix). Without `flying` the car starts at rest (tests of manoeuvres from a standstill).
+  constructor(readonly track: Track, private readonly scene: THREE.Scene, spec: AnyCarSpec,
+    private readonly def: Pick<TrackDef, 'storeKey' | 'startBack'> & Partial<Pick<TrackDef, 'flying'>>) {
     this.world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
     this.world.timestep = DT;
     this.wallCount = buildTrackColliders(track, this.world);
-    this.gridS = track.L - def.gridBack;
+    this.startS = track.L - def.startBack;
     this.car = createVehicle(this.world, track, scene, spec);
-    this.car.placeAt(this.gridS, 0);
+    this.place();
     this.timing = new Timing(track, def.storeKey + spec.storeKey);
   }
 
@@ -81,22 +83,18 @@ export class Session {
     stepPhysics(this.world, this.car, this.timing, inp, this.simTime);
     this.simTime += DT;
     this.stuck = autopilot && Math.abs(this.car.speedF) < 1 ? this.stuck + DT : 0;
-    if (this.stuck > STUCK_SECS || needsReset(this.car)) this.resetToTrack();
+    if (this.stuck > STUCK_SECS || needsReset(this.car)) this.restart();
   }
 
-  // Back on the track where the car is (invalidates the lap).
-  resetToTrack() {
-    this.place(this.car.proj.s);
-    this.timing.invalidate('RESET');
-  }
-
-  // Back to the grid; the next lap starts at the line.
+  // Back to the start of the lap, which is every reset there is (the player's, a stuck autopilot, a car on its roof):
+  // on the straight before the line, already at the speed of a flying lap. The lap under way is dropped and the next
+  // starts at the line.
   restart() {
-    this.place(this.gridS);
+    this.place();
     this.timing.reset();
   }
 
-  // Swap in another car (with default driver settings: the caller applies its own) on the grid, with its best times.
+  // Swap in another car (with default driver settings: the caller applies its own) at the start, with its best times.
   setCar(spec: AnyCarSpec) {
     this.car.destroy();
     this.car = createVehicle(this.world, this.track, this.scene, spec);
@@ -104,8 +102,8 @@ export class Session {
     this.restart();
   }
 
-  private place(s: number) {
-    this.car.placeAt(s, 0);
+  private place() {
+    this.car.placeAt(this.startS, 0, (this.def.flying?.[this.car.spec.id] ?? 0) / 3.6);
     this.stuck = 0;
     this.onReset();
   }

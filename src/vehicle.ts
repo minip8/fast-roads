@@ -49,7 +49,9 @@ export interface Vehicle {
 
   step(dt: number, input: DriveInput): void;   // before world.step(): apply this tick's forces
   readState(): void;                 // after world.step(): refresh the physics state above
-  placeAt(s: number, lat?: number): void;   // stopped on the track at (s, lat), state refreshed and prev = current
+  // On the track at (s, lat) facing the racing direction, stopped or already rolling at `speed` (m/s) in the gear
+  // for it; state refreshed and prev = current.
+  placeAt(s: number, lat?: number, speed?: number): void;
   destroy(): void;                   // leave the world and the scene
   render(alpha: number, dt: number): void;  // pose the mesh between prev and current state
 }

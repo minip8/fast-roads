@@ -25,7 +25,7 @@ The autopilot isn't part of the game itself.
 The game opens on a menu: **Drive**, plus settings for circuit, car, gears (automatic/manual),
 steering (keyboard/mouse), camera, driver camera hands, traction control, countersteer assist (drift car), and sound. Cars marked (LC) run on LibreCorsa's physics. Settings are remembered. Choosing another circuit reloads the game onto it. Your best lap for the chosen car and circuit is shown, with a
 **Reset best times** option (click twice to confirm). While driving, **Esc** or **P** opens it as a pause menu
-(Resume / Restart session). Mouse or keyboard (↑ ↓ ← → Enter) both work in the menu.
+(Resume / Restart lap). Mouse or keyboard (↑ ↓ ← → Enter) both work in the menu.
 
 Cameras: **Onboard** (above the F1's airbox, on the other cars' bonnets), **Driver** (from the driver's eyes, with
 the cockpit, steering wheel and the driver's arms; the wheel turns with the road wheels at each car's steering
@@ -89,7 +89,7 @@ are hidden in the Driver camera unless **Driver camera hands** is set to Shown (
     ABS (always on) and traction control (the menu's setting). With traction control off, a held throttle swings
     the GT3's tail 20° out mid-corner and spins the F1 out of slow corners.
   - **Tyres start in their blankets** (60 °C on the GT3, 80 °C on the F1) and come up to temperature over the first
-    corners; a reset to the track fits fresh ones. They do not wear and no fuel is burnt.
+    corners; a restart fits fresh ones (and gives the F1 a full battery). They do not wear and no fuel is burnt.
   - **The F1's hybrid and flaps work themselves.** The battery deploys and harvests by itself (its "race" mode,
     with the per-lap energy allowance of the 2026 rules), and the front and rear flaps open on every straight of at
     least 250 m while the throttle is down and close on the brakes.
@@ -106,7 +106,14 @@ are hidden in the Driver camera unless **Driver camera hands** is set to Shown (
   They use the GT3 and F1 bodies in other colours and the same engine sounds. Not used from LibreCorsa: weather, tyre
   wear, fuel use, damage, car setup, the F1's manual boost and energy modes, and its car models and sounds.
 
-Each car keeps its own best lap and sector times at each circuit. Switching car puts you back on the grid.
+Each car keeps its own best lap and sector times at each circuit. Switching car puts you back at the start.
+
+**Every lap is a flying lap.** You start on the straight before the start/finish line (160 m back at Albert Park,
+60 m at Silverstone), already at the speed the car reaches there on a lap and in the gear for it, so keep the
+throttle down: the lap starts as you cross the line. **R** (or Enter, or Restart lap in the menu) puts you back
+there at any time and drops the lap you were on; so does the game when the car ends up on its roof. The start
+speed is fixed per car and circuit (274 km/h for the F1 at Albert Park, 142 km/h out of Club at Silverstone), so
+every attempt begins the same way.
 
 ## HUD
 
@@ -121,8 +128,7 @@ applied; then the gear and speed.
 | W / ↑ | Throttle |
 | S / ↓ | Brake (hold when stopped to reverse, up to ~40 km/h; W then brakes) |
 | A D / ← → | Steer |
-| R | Reset to track (invalidates the lap) |
-| Enter | Restart session at the grid |
+| R / Enter | Restart the lap: back before the line at flying-lap speed |
 | V | Mouse steering on/off (also in the menu) |
 | C | Cycle camera (onboard / driver / chase / far) |
 | G | Automatic / manual gears (also in the menu) |
@@ -172,8 +178,8 @@ and override the mouse while held.
   thud. Sound starts on the first click or key press (browser autoplay rules), fades out while paused, and stops
   while muted or in a background tab.
 - **Timing**: start/finish + two sector lines as segments; crossings are detected per tick and interpolated within
-  the tick. A lap is deleted if all four wheels pass the kerb (or white line where there's no kerb), on reset, or when
-  crossing a line backwards. Best lap, best sectors, and the best-lap trace (for the live delta) persist in localStorage.
+  the tick. A lap is deleted if all four wheels pass the kerb (or white line where there's no kerb) or when
+  crossing a line backwards; a restart drops the lap under way. Best lap, best sectors, and the best-lap trace (for the live delta) persist in localStorage.
 - **Brake markers**: 300/200/100 m boards before every braking zone where the speed drops by more than ~50 km/h,
   counting down to the turn-in point. Zones are found from the autopilot's speed plan; boards are skipped when they'd
   fall inside the previous corner.

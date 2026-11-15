@@ -11,7 +11,7 @@ for (const def of Object.values(TRACKS)) {
     expect(tr.L / 1000).toBeCloseTo(LENGTH_KM[def.id], 1);
     expect(Object.values(TRACKS).filter((t) => t.storeKey === def.storeKey)).toHaveLength(1);
     // the car starts on the straight, and stays on it to the line
-    for (let k = 0; k <= Math.round(def.gridBack / ds); k++) expect(Math.abs(tr.KS[wrapI(-k, tr.N)])).toBeLessThan(1 / 500);
+    for (let k = 0; k <= Math.round(def.startBack / ds); k++) expect(Math.abs(tr.KS[wrapI(-k, tr.N)])).toBeLessThan(1 / 500);
     // walls all the way round on both sides
     expect(tr.barLValid.every((v) => v === 1) && tr.barRValid.every((v) => v === 1)).toBe(true);
   });

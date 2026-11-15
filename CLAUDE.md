@@ -27,15 +27,18 @@ Run `npm run typecheck` and `npm test` before committing.
 ## Testing
 
 - Tests run the real simulation in Node: `test/harness.ts` `session(carId, { tc, walls })` builds the track and the game's
-  own `Session` (`src/sim.ts`: Rapier world, walls, car on the grid, timing) with no rendering. `drive(seconds,
+  own `Session` (`src/sim.ts`: Rapier world, walls, car at the start spot, timing) with no rendering. The car starts
+  at rest there; `session(carId, { flying: true })` starts it as the game does, at flying-lap speed. `drive(seconds,
   driver?, until?)` calls `Session.tick` with the autopilot or a `(car, simTime) => DriveInput` function, exactly as
   the game loop does, including the automatic resets; `until` stops early once the test has what it measures.
 - The simulation is deterministic, and Node and the browser agree to the millisecond. `test/laps.ts` pins
-  autopilot lap times (F1 1:59.659, drift car 157.751 s with TC on, 157.726 s off), so any physics or tuning change
-  shows up there. When a change is intended, check the handling still makes sense, then update the expected times.
-  It also pins the autopilot at Silverstone (F1 129.714 s, drift car 170.275 s), the GT3 at both circuits
-  (Melbourne 131.738 s, Silverstone 142.291 s) and the two LibreCorsa-engine cars at both (`lcgt3` 134.846 s and
-  145.035 s, `lcf1` 116.910 s and 124.326 s). Each lap is run by its own `laps-*.test.ts` file so the eleven (about
+  autopilot lap times from the game's flying start (F1 1:59.159, drift car 157.514 s with TC on, 157.491 s off), so
+  any physics or tuning change shows up there. When a change is intended, check the handling still makes sense, then
+  update the expected times. It also pins the autopilot at Silverstone (F1 129.121 s, drift car 169.794 s), the GT3
+  at both circuits (Melbourne 130.795 s, Silverstone 141.453 s) and the two LibreCorsa-engine cars at both (`lcgt3`
+  133.917 s and 144.234 s, `lcf1` 116.317 s and 123.798 s). Each lap test also checks that the car passes the start
+  spot at the end of the lap within 2 km/h of its `TrackDef.flying` speed; `test/start.test.ts` checks the flying
+  start and restart themselves. Each lap is run by its own `laps-*.test.ts` file so the eleven (about
   12–35 s each) run in parallel. `session(carId, { track })` picks the
   circuit (Melbourne by default).
 - `test/handling.test.ts` holds loose-bound checks of tuning intent: the drift car's brake-and-turn kick, a stable
@@ -48,7 +51,7 @@ Run `npm run typecheck` and `npm test` before committing.
   on flat ground; `test/lc-gt3-reference.ts` ports LibreCorsa's own GT3 measurement and must match upstream's
   numbers to four decimals, so any accidental change to `src/lc/vendor/` shows up), `test/lc-driver.ts` (ABS, TC,
   keyboard and analog steering through `src/lc/driver.ts`, one file per car) and `test/lc-car.ts` (the cars in the
-  game's `Session`: grid, walls, surfaces, resets, shifts and reverse, rendering, the F1's flaps and lap energy).
+  game's `Session`: start spot, walls, surfaces, placement and restarts, shifts and reverse, rendering, the F1's flaps and lap energy).
   Tests that reach into our own physics use `ourCar(car)` / `ourSpec(spec)` from the harness, which fail for a car
   on another engine.
 - In the browser, `window.__game` exposes `simulate(seconds, driver, probeSecs)`, `car` (a getter: the car object is
@@ -73,12 +76,15 @@ Run `npm run typecheck` and `npm test` before committing.
 - `car.ts`: our car physics (`Car implements Vehicle`)
 - `lc/`: cars on LibreCorsa's physics engine (see **LibreCorsa engine** below)
 - `sim.ts`: `stepPhysics` (one physics tick; replaces non-finite input, which would abort Rapier) and `Session`
-  (world, walls, car on the grid, timing; `tick`, `resetToTrack`, `restart`, `setCar`), shared by the game and tests
+  (world, walls, car at the start spot, timing; `tick`, `restart`, `setCar`), shared by the game and tests.
+  `restart` is the only reset (R / Enter, the menu, a stuck autopilot, a car on its roof): the car goes to
+  `TrackDef.startBack` metres before the line, rolling at its `TrackDef.flying` speed (`Vehicle.placeAt(s, lat,
+  speed)`), and the lap under way is dropped
 - `carMeshes.ts`: car bodies, static parts merged per material, each with a seated driver and steering wheel
   (`Cockpit`: the Driver camera's eye, the helmet it hides, and `poseCockpit`, which both cars' `render` call to turn
   the wheel and arms). Paint and metal reflect the environment map that
   `stage.ts` hands over with `setCarEnvironment` before any car is built.
-- `tracks.ts`: the circuits (`TRACKS`, `TrackDef`): CSV, names, best-times key, grid spot, scenery placement
+- `tracks.ts`: the circuits (`TRACKS`, `TrackDef`): CSV, names, best-times key, start spot and each car's flying-lap speed there, scenery placement
 - `track.ts`: track geometry and colliders (`Track`)
 - `trackMeshes.ts`, `textures.ts`, `scenery.ts`, `brakeMarkers.ts`: visuals; `batch.ts`: `Batch`, which merges many
   static parts into one mesh per material (grandstands, pit, gantry, brake boards, car bodies)
@@ -98,8 +104,9 @@ Run `npm run typecheck` and `npm test` before committing.
 - **Track data**: `tracks/*.csv` (TUM racetrack-database centreline + widths, first row at the start/finish line,
   in racing direction), imported into `tracks.ts` with Vite's `?raw` suffix; `parseCSV` skips `#` comment lines.
   A new circuit is a CSV plus a `TRACKS` entry: the Circuit menu row, labels, best-times keys (`TrackDef.storeKey` +
-  the car's `storeKey` suffix) and scenery follow from it. Check the start straight (grid spot `gridBack`, pit
-  building and stands ranges must sit on it), that the autopilot laps it cleanly, and how it looks. Everything is
+  the car's `storeKey` suffix) and scenery follow from it. Check the start straight (start spot `startBack`, pit
+  building and stands ranges must sit on it), that the autopilot laps it cleanly, and how it looks. A new circuit or car also needs its `flying` speeds (km/h at
+  the start spot): run the lap with a guess, and take the speed the lap test reports there at the end of the lap. Everything is
   built once at startup for `settings.track`, so changing the Circuit setting saves it and reloads the page.
   `buildTrack` turns it into a closed spline sampled every ~2 m (arrays `X, Z, TX, TZ, NX, NZ, K, S, WL, WR`, kerb/
   gravel/barrier offsets). Almost everything works in track coordinates `(s, lat)` via `projectOnTrack` / `pointAt`.
@@ -139,9 +146,10 @@ Run `npm run typecheck` and `npm test` before committing.
     integers so it never drifts), with the driver around each. It owns our gearbox conventions (reverse on the
     brake at a standstill, one manual shift per tick, `shiftDenied`), the F1's flaps (open by themselves in
     `straightWindows`: straights of 250 m+) and lap energy (`locateProgress`), and maps engine state to ours.
-    `placeAt` on the first-placement spot (the grid) builds a fresh engine instance (full battery, fuel, tyres in
-    blankets; cheap because the engine memoises that settle); anywhere else it is a teleport that keeps battery
-    and lap energy (20–40 ms: the engine settles the car by simulating).
+    `placeAt` on the first-placement spot (the start spot, which is the only place the session puts it) builds a
+    fresh engine instance (full battery, fuel, tyres in blankets; cheap because the engine memoises that settle),
+    rolling at the given speed through the engine's own rolling start; anywhere else (tests) it is a teleport that
+    keeps battery and lap energy (20–40 ms: the engine settles the car by simulating).
   - `lc/ground.ts`: the engine's ground (our surfaces mapped to its road/kerb/grass/gravel table, kerb height on
     top of flat ground) and walls (the road-facing face of each barrier cuboid) from a `Track`. Lookups use a
     per-track grid and no search hint, so they are stateless, which the engine's settle memo requires.
@@ -186,7 +194,7 @@ Run `npm run typecheck` and `npm test` before committing.
   - `counterLock` (keys only) makes opposite lock follow the slide angle, because a key cannot choose an angle.
     Analog steering is left alone: scaling a mouse user's own countersteer felt wrong.
 - **Switching cars**: `applySetting.car` in `main()` calls `Session.setCar`, which destroys the old `Car` (body +
-  mesh), builds a new one, swaps the timing store and resets to the grid; then it re-applies the gearbox/TC settings.
+  mesh), builds a new one, swaps the timing store and restarts at the start spot; then it re-applies the gearbox/TC settings.
   `session.car` is replaced, so closures must read it at call time, never keep it.
 - **Settings and menu**: `settings.ts` has the `Settings` type, `SETTING_DEFS` (menu rows and their order) and
   `DEFAULT_SETTINGS`; `main()` has the `applySetting` table (what each setting does). `setSetting` saves to

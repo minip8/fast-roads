@@ -24,7 +24,7 @@ export function lcCarSuite(id: 'lcgt3' | 'lcf1') {
   describe(id, () => {
     it.each(['melbourne', 'silverstone'] as const)('starts on the grid at %s: at rest, settled, on its wheels on the asphalt', async (track) => {
       const { car, track: tr, drive } = await session(id, { track });
-      const grid = pointAt(tr, tr.L - TRACKS[track].gridBack, 0);
+      const grid = pointAt(tr, tr.L - TRACKS[track].startBack, 0);
       expect(Math.hypot(car.pos.x - grid.x, car.pos.z - grid.z)).toBeLessThan(0.05);
       expect(car.fwd.x * tr.TX[grid.i] + car.fwd.z * tr.TZ[grid.i]).toBeGreaterThan(0.9999);
       expect(car.up.y).toBeGreaterThan(0.999);
@@ -104,13 +104,13 @@ export function lcCarSuite(id: 'lcgt3' | 'lcf1') {
       expect(ok).toBe(true);
     });
 
-    it('is put back on the track (same car, fresh tyres) and restarted (a fresh car)', async () => {
+    it('is put back on the track (same car, fresh tyres) and restarted (a fresh car at the start)', async () => {
       const { car, track, drive, session: s } = await session(id, { walls: false });
       const first = lc(car).vehicle, blanket = first.wheels.map((w) => w.surfaceTempC);
       drive(6, (c, t) => inp({ throttle: cruise(c, 30, 0.6), steerAngle: 0.02 * Math.sin(t) }));
       const v = lc(car).vehicle, battery = v.ersEnergyJ, deployed = v.lapDeployJ, at = car.proj.s;
       expect(v.wheels.some((w) => w.surfaceTempC !== v.wheels[0].surfaceTempC || w.surfaceTempC > 70)).toBe(true);
-      s.resetToTrack();
+      car.placeAt(at);
       expect(lc(car).vehicle).toBe(first);
       expect(Math.abs(car.proj.s - at)).toBeLessThan(0.5);
       expect(Math.abs(car.proj.lat)).toBeLessThan(0.05);
@@ -123,23 +123,26 @@ export function lcCarSuite(id: 'lcgt3' | 'lcf1') {
       expect(fresh).not.toBe(first);
       expect(fresh.ersEnergyJ).toBe(fresh.config.ers.ERS_MAX_CHARGE);
       expect(fresh.fuelMassKg).toBe(lc(car).spec.fuelKg);
-      const grid = pointAt(track, track.L - TRACKS.melbourne.gridBack, 0);
+      const grid = pointAt(track, track.L - TRACKS.melbourne.startBack, 0);
       expect(Math.hypot(car.pos.x - grid.x, car.pos.z - grid.z)).toBeLessThan(0.05);
       expect(car.vel.length()).toBeLessThan(0.05);
-      // An engine state gone non-finite in the middle of a tick is put back on the track within that tick: nothing
-      // that reads the car afterwards (timing, camera) ever sees it
+      // An engine state gone non-finite in the middle of a tick is put back at the start within that tick (a fresh
+      // car again): nothing that reads the car afterwards (timing, camera) ever sees it
       drive(2, (c) => inp({ throttle: cruise(c, 15) }));
-      const where = car.proj.s, step = fresh.step.bind(fresh);
+      expect(Math.hypot(car.pos.x - grid.x, car.pos.z - grid.z)).toBeGreaterThan(3);
+      const step = fresh.step.bind(fresh);
       let calls = 0;
       fresh.step = (h, i) => { step(h, i); if (++calls === 3) fresh.velocity.x = Number.NaN; };
       drive(DT, () => inp());
-      expect([car.pos.x, car.pos.y, car.pos.z, car.vel.x, car.speedF].every(Number.isFinite)).toBe(true);
-      expect(fresh.stateIsSane()).toBe(true);
+      expect(finite(car)).toBe(true);
+      expect(lc(car).vehicle).not.toBe(fresh);
+      expect(Math.hypot(car.pos.x - grid.x, car.pos.z - grid.z)).toBeLessThan(0.05);
       // ...and one gone bad between ticks, at the next tick
-      fresh.velocity.x = Number.NaN;
+      drive(2, (c) => inp({ throttle: cruise(c, 15) }));
+      lc(car).vehicle.velocity.x = Number.NaN;
       drive(DT, () => inp());
       expect(finite(car)).toBe(true);
-      expect(Math.abs(car.proj.s - where)).toBeLessThan(1);
+      expect(Math.hypot(car.pos.x - grid.x, car.pos.z - grid.z)).toBeLessThan(0.05);
     });
 
     it('shifts by hand (every queued press in turn), refuses a downshift that would over-rev, and reverses on the brake', async () => {
