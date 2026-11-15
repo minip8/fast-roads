@@ -160,8 +160,6 @@ export function buildCarMesh(spec: CarInfo, paint: Paint = { body: 0xff6a13, acc
   add(B(0.44, 0.012, 0.75), dark, 0, 0.212, 0.35);                                    // cockpit opening
   const cockpit = addDriver(bodyGroup, add, { x: 0, head: [0.36, 0.1], helmet: 0xf5f5f5, suit: paint.body, shoulder: [-0.15, 0],
     wheel: { y: 0.235, z: 0.47, rake: 0.3, r: 0.13, f1: true }, ratio: 4, look: 0.3 });
-  add(new THREE.TorusGeometry(0.28, 0.025, 6, 20, Math.PI), carbon, 0, 0.42, 0.25, Math.PI / 2, 0, Math.PI, 1, 1.3, 1);   // halo
-  add(B(0.05, 0.2, 0.05), carbon, 0, 0.33, 0.62, 0.3);                                // halo strut
   add(B(1.0, 0.05, 0.36), carbon, 0, 0.6, -2.05, 0.12);                               // rear wing main
   add(B(1.0, 0.04, 0.22), accent, 0, 0.72, -2.15, 0.35);                              // rear flap
   for (const s of [-1, 1]) add(B(0.03, 0.55, 0.6), carbon, s * 0.5, 0.42, -2.05);
