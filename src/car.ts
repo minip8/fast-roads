@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { G_CAR, G_CARPART, G_GROUND, G_RAY, G_WALL, PLOUGH_FADE_V, PLOUGH_WHEEL_SHARE, SURF, SURF_BLEND_T, S_ASPHALT, groups } from './config';
-import type { CarMesh } from './carMeshes';
+import { type CarMesh, poseCockpit } from './carMeshes';
 import type { BrushTyre, CarSpec } from './cars';
 import { pointAt, projectOnTrack, surfaceAt, trackLimitOut, type SurfaceRes, type Track, type TrackPos } from './track';
 import { clamp, lerp } from './util';
@@ -427,6 +427,7 @@ export class Car implements Vehicle {
       w.spin += w.omega * dt;
       wm.spinner.rotation.x = w.spin;
     });
+    poseCockpit(m.cockpit, this.steer);
     m.brakeLight.material.emissiveIntensity = this.brake > 0.1 ? 3 : 0.4;
   }
 }

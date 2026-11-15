@@ -8,6 +8,18 @@ export interface CarMesh {
   root: THREE.Group;                 // follows the physics body
   wheels: { pivot: THREE.Group; spinner: THREE.Group }[];   // pivot: steer + suspension; spinner: rolling
   brakeLight: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
+  cockpit: Cockpit;
+}
+
+// The driver and what they see from the seat. Positions are in body coordinates (the root's frame).
+export interface Cockpit {
+  eye: THREE.Vector3;                // the driver camera
+  look: number;                      // how far the driver camera looks down over 10 m (m)
+  head: THREE.Group;                 // helmet: hidden while the camera is inside it
+  mount: THREE.Group;                // steering column (position and rake)
+  wheel: THREE.Group;                // steering wheel, turned by poseCockpit
+  ratio: number;                     // steering-wheel angle per road-wheel angle
+  arms: { mesh: THREE.Mesh; glove: THREE.Mesh; shoulder: THREE.Vector3; side: number; r: number }[];
 }
 
 // Reflections for paint and metal (a blurred sky, set by the stage before any car is built). Without one, metallic
@@ -38,6 +50,85 @@ function taper(w: number, h: number, l: number, back: [number, number], front: [
   return g;
 }
 const B = (w: number, h: number, l: number) => new THREE.BoxGeometry(w, h, l);
+type Add = ReturnType<typeof parts>['add'];
+
+interface DriverOpts {
+  x: number; head: [y: number, z: number];   // helmet centre
+  helmet: number; suit: number;
+  shoulder: [dy: number, dz: number];          // shoulders relative to the helmet centre
+  wheel: { y: number; z: number; rake: number; r: number; f1?: boolean };
+  ratio: number; look: number;
+}
+
+// Seated driver (helmet, torso, arms) and steering wheel. The torso goes into the car's merged body; the helmet,
+// wheel and arms are separate meshes because they hide or move.
+function addDriver(group: THREE.Group, add: Add, o: DriverOpts): Cockpit {
+  const [hy, hz] = o.head;
+  const suit = mat({ color: o.suit, roughness: 0.7, envMapIntensity: 0.3 });
+  const dark = mat({ color: 0x111214, roughness: 0.55, metalness: 0.2, envMapIntensity: 0.3 });
+  const glove = mat({ color: 0x1d1f24, roughness: 0.8, envMapIntensity: 0.2 });
+  add(B(0.4, 0.5, 0.26), suit, o.x, hy - 0.38, hz - 0.06);                            // torso
+  add(B(0.5, 0.75, 0.08), dark, o.x, hy - 0.3, hz - 0.24);                           // seat back
+
+  const head = new THREE.Group();
+  head.position.set(o.x, hy, hz);
+  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.135, 16, 12), mat({ color: o.helmet, roughness: 0.2, metalness: 0.2 }));
+  const visor = new THREE.Mesh(B(0.2, 0.05, 0.08), mat({ color: 0x16181c, roughness: 0.1, metalness: 0.6, envMapIntensity: 1 }));
+  visor.position.set(0, 0.02, 0.1);
+  helmet.castShadow = visor.castShadow = true;
+  head.add(helmet, visor);
+  group.add(head);
+
+  const w = o.wheel, mount = new THREE.Group(), wheel = new THREE.Group();
+  mount.position.set(o.x, w.y, w.z); mount.rotation.x = w.rake;   // top of the wheel leans away from the driver
+  mount.add(wheel); group.add(mount);
+  const wheelParts: [THREE.BufferGeometry, THREE.Material][] = [];
+  const display = new THREE.MeshStandardMaterial({ color: 0x0a0c10, emissive: 0x3fd0ff, emissiveIntensity: 0.25 });
+  const marker = mat({ color: 0xffd23f, roughness: 0.5 });
+  const grip = w.r;
+  if (w.f1) {   // F1: a carbon body with two grips and a screen
+    wheelParts.push([B(w.r * 1.6, 0.1, 0.04), dark], [B(0.08, 0.04, 0.005).translate(0, 0.01, -0.021), display],
+      [new THREE.CylinderGeometry(0.028, 0.028, 0.14, 10).translate(-w.r, 0, 0), dark],
+      [new THREE.CylinderGeometry(0.028, 0.028, 0.14, 10).translate(w.r, 0, 0), dark],
+      [B(0.06, 0.012, 0.045).translate(0, 0.05, 0), marker]);
+  } else {      // round rim, three spokes, a marker at the top so you can see it turn
+    wheelParts.push([new THREE.TorusGeometry(w.r, 0.019, 8, 32), dark],
+      [new THREE.CylinderGeometry(0.05, 0.05, 0.05, 14).rotateX(Math.PI / 2), dark],
+      [B(w.r * 2, 0.035, 0.015), dark], [B(0.035, w.r, 0.015).translate(0, -w.r / 2, 0), dark],
+      [B(0.03, 0.04, 0.04).translate(0, w.r, 0), marker]);
+  }
+  for (const [g, m] of wheelParts) { const mesh = new THREE.Mesh(g, m); mesh.castShadow = true; wheel.add(mesh); }
+  const arms: Cockpit['arms'] = [];
+  const armGeo = new THREE.CylinderGeometry(0.034, 0.042, 1, 8);
+  for (const s of [-1, 1]) {
+    const g = new THREE.Mesh(new THREE.SphereGeometry(0.042, 10, 8), glove);
+    g.scale.set(1, 1.3, 1); mount.add(g);
+    const mesh = new THREE.Mesh(armGeo, suit); mesh.castShadow = true; group.add(mesh);
+    arms.push({ mesh, glove: g, shoulder: new THREE.Vector3(o.x + s * 0.17, hy + o.shoulder[0], hz + o.shoulder[1]), side: s, r: grip });
+  }
+  const cockpit: Cockpit = { eye: new THREE.Vector3(o.x, hy + 0.02, hz + 0.06), look: o.look, head, mount, wheel, ratio: o.ratio, arms };
+  poseCockpit(cockpit, 0);
+  return cockpit;
+}
+
+// Turn the steering wheel to the road wheels' angle (rad, + = left) and reach the arms to it. The hands turn with
+// the rim up to HAND_MAX and then slide round it, so at full lock the arms don't cross in front of the wheel.
+const HAND_MAX = 1.0;
+const _hand = new THREE.Vector3(), _dir = new THREE.Vector3(), _Y = new THREE.Vector3(0, 1, 0);
+export function poseCockpit(c: Cockpit, steer: number) {
+  const a = -steer * c.ratio;   // seen from the seat, turning left is anticlockwise
+  c.wheel.rotation.z = a;
+  const h = Math.max(-HAND_MAX, Math.min(HAND_MAX, a));
+  for (const arm of c.arms) {
+    arm.glove.position.set(arm.side * arm.r * Math.cos(h), arm.side * arm.r * Math.sin(h), -0.01);
+    arm.glove.rotation.z = h;
+    _hand.set(arm.glove.position.x, arm.glove.position.y, -0.03).applyQuaternion(c.mount.quaternion).add(c.mount.position);
+    const d = _dir.subVectors(_hand, arm.shoulder), len = d.length();
+    arm.mesh.position.copy(arm.shoulder).addScaledVector(d, 0.5);
+    arm.mesh.quaternion.setFromUnitVectors(_Y, d.divideScalar(len));
+    arm.mesh.scale.set(1, len, 1);
+  }
+}
 
 // Body colour, accent colour and wheel stripe, so one body can carry more than one livery.
 export interface Paint { body: number; accent: number; stripe: number }
@@ -49,7 +140,6 @@ export function buildCarMesh(spec: CarInfo, paint: Paint = { body: 0xff6a13, acc
   const dark = mat({ color: 0x16181c, roughness: 0.5, metalness: 0.3, envMapIntensity: 0.35 });
   const carbon = mat({ color: 0x24272c, roughness: 0.35, metalness: 0.5, envMapIntensity: 0.35 });
   const accent = mat({ color: paint.accent, roughness: 0.35, metalness: 0.3 });
-  const white = mat({ color: 0xf5f5f5, roughness: 0.2, metalness: 0.2 });
   const { add, done } = parts(bodyGroup);
   add(B(1.35, 0.04, 3.4), carbon, 0, -0.2, -0.05);                                   // floor
   add(taper(0.66, 0.42, 2.2, [1, 1], [0.7, 1]), body, 0, 0.0, 0.25);                   // tub, narrowing to the nose
@@ -67,9 +157,9 @@ export function buildCarMesh(spec: CarInfo, paint: Paint = { body: 0xff6a13, acc
   add(taper(0.48, 0.42, 1.5, [0.45, 0.5], [1, 1]), body, 0, 0.22, -0.9, -0.08);         // engine cover, tapering to the gearbox
   add(B(0.24, 0.28, 0.55), dark, 0, 0.52, -0.25);                                     // airbox
   add(taper(0.12, 0.35, 1.0, [1, 1], [1, 0.25]), body, 0, 0.5, -0.9, -0.15);           // shark fin
-  add(B(0.44, 0.05, 0.75), dark, 0, 0.215, 0.35);                                     // cockpit opening
-  add(new THREE.SphereGeometry(0.135, 16, 12), white, 0, 0.33, 0.12);                  // helmet
-  add(B(0.2, 0.05, 0.08), dark, 0, 0.35, 0.22);                                       // visor
+  add(B(0.44, 0.012, 0.75), dark, 0, 0.212, 0.35);                                    // cockpit opening
+  const cockpit = addDriver(bodyGroup, add, { x: 0, head: [0.36, 0.1], helmet: 0xf5f5f5, suit: paint.body, shoulder: [-0.15, 0],
+    wheel: { y: 0.235, z: 0.47, rake: 0.3, r: 0.13, f1: true }, ratio: 4, look: 0.3 });
   add(new THREE.TorusGeometry(0.28, 0.025, 6, 20, Math.PI), carbon, 0, 0.42, 0.25, Math.PI / 2, 0, Math.PI, 1, 1.3, 1);   // halo
   add(B(0.05, 0.2, 0.05), carbon, 0, 0.33, 0.62, 0.3);                                // halo strut
   add(B(1.0, 0.05, 0.36), carbon, 0, 0.6, -2.05, 0.12);                               // rear wing main
@@ -86,7 +176,7 @@ export function buildCarMesh(spec: CarInfo, paint: Paint = { body: 0xff6a13, acc
   const brakeLight = new THREE.Mesh(B(0.12, 0.08, 0.03), new THREE.MeshStandardMaterial({ color: 0x400000, emissive: 0xff1010, emissiveIntensity: 0.4 }));
   brakeLight.position.set(0, 0.05, -2.32); bodyGroup.add(brakeLight);
   const wheels = buildWheels(root, spec, { rim: 0x2a2d33, stripe: paint.stripe });
-  return { root, wheels, brakeLight };
+  return { root, wheels, brakeLight, cockpit };
 }
 
 // Four wheels (pivot for steer/suspension, spinner for rolling) shared by every car body. The tyre has rounded
@@ -171,6 +261,13 @@ export function buildDriftMesh(spec: CarInfo): CarMesh {
     add(B(0.04, 0.08, 0.13), body, s * 0.8, 0.43, 0.62);                               // mirrors
   }
   add(B(0.32, 0.012, 0.92), accent, 0, 0.776, -0.5);                                 // roof stripe
+  add(B(1.3, 0.12, 0.5), dark, 0, 0.35, 0.35);                                       // dashboard
+  add(B(1.26, 0.01, 0.9), dark, 0, 0.732, -0.5);                                     // headliner
+  add(B(0.3, 0.07, 0.14), dark, -0.36, 0.43, 0.22, 0.2);                             // instrument binnacle
+  add(B(0.24, 0.03, 0.5), dark, 0, 0.3, -0.2);                                       // centre console
+  // right-hand drive (x is left)
+  const cockpit = addDriver(bodyGroup, add, { x: -0.36, head: [0.6, -0.45], helmet: 0xff6a13, suit: 0x23272e, shoulder: [-0.2, 0.02],
+    wheel: { y: 0.38, z: -0.03, rake: 0.4, r: 0.18 }, ratio: 9, look: 0.35 });
   add(B(0.32, 0.012, 1.3), accent, 0, 0.29, 1.44, 0.116);                            // bonnet stripe
   add(B(1.74, 0.04, 0.26), dark, 0, -0.3, 2.08);                                     // front splitter
   add(B(0.9, 0.09, 0.02), dark, 0, -0.05, 2.205);                                    // intake
@@ -187,7 +284,7 @@ export function buildDriftMesh(spec: CarInfo): CarMesh {
   });
   const brakeLight = tails[1];   // both lights share tailMat, so lighting one lights both
   const wheels = buildWheels(root, spec, { rim: 0xb8bec6 });
-  return { root, wheels, brakeLight };
+  return { root, wheels, brakeLight, cockpit };
 }
 
 // GT3 coupe: long bonnet, cabin set back, wide arches standing above it, splitter, diffuser and a full-width rear
@@ -227,6 +324,13 @@ export function buildGt3Mesh(spec: CarInfo, paint: Paint = { body: 0x0e6b57, acc
   }
   add(B(0.3, 0.012, 1.56), accent, 0, 0.24, 1.3, 0.139);                             // bonnet stripe
   add(B(0.3, 0.012, 0.72), accent, 0, 0.836, -0.65);                                 // roof stripe
+  add(B(1.3, 0.14, 0.45), carbon, 0, 0.32, 0.07);                                    // dashboard
+  add(B(1.22, 0.01, 0.7), dark, 0, 0.792, -0.65);                                    // headliner
+  add(B(0.28, 0.06, 0.12), dark, 0.36, 0.41, -0.05, 0.2);                            // display hood
+  add(B(0.26, 0.03, 0.7), carbon, 0, 0.26, -0.55);                                   // centre console
+  // left-hand drive (x is left)
+  const cockpit = addDriver(bodyGroup, add, { x: 0.36, head: [0.63, -0.8], helmet: paint.accent, suit: paint.body, shoulder: [-0.2, 0.02],
+    wheel: { y: 0.42, z: -0.4, rake: 0.35, r: 0.16 }, ratio: 12.6, look: 0.35 });
   add(B(1.98, 0.03, 0.42), carbon, 0, -0.33, 2.24);                                  // splitter
   add(B(1.1, 0.14, 0.02), dark, 0, -0.16, 2.305);                                    // grille
   add(B(1.96, 0.045, 0.4), carbon, 0, 0.79, -2.24, 0.1);                             // rear wing
@@ -244,5 +348,5 @@ export function buildGt3Mesh(spec: CarInfo, paint: Paint = { body: 0x0e6b57, acc
   const brakeLight = new THREE.Mesh(B(0.3, 0.04, 0.03), tailMat);   // shares tailMat, so lighting it lights all three
   brakeLight.position.set(0, 0.05, -2.37); bodyGroup.add(brakeLight);
   const wheels = buildWheels(root, spec, { rim: 0x1b1d21, stripe: paint.stripe });
-  return { root, wheels, brakeLight };
+  return { root, wheels, brakeLight, cockpit };
 }

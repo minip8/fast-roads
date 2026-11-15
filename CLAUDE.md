@@ -74,7 +74,9 @@ Run `npm run typecheck` and `npm test` before committing.
 - `lc/`: cars on LibreCorsa's physics engine (see **LibreCorsa engine** below)
 - `sim.ts`: `stepPhysics` (one physics tick; replaces non-finite input, which would abort Rapier) and `Session`
   (world, walls, car on the grid, timing; `tick`, `resetToTrack`, `restart`, `setCar`), shared by the game and tests
-- `carMeshes.ts`: car bodies, static parts merged per material. Paint and metal reflect the environment map that
+- `carMeshes.ts`: car bodies, static parts merged per material, each with a seated driver and steering wheel
+  (`Cockpit`: the Driver camera's eye, the helmet it hides, and `poseCockpit`, which both cars' `render` call to turn
+  the wheel and arms). Paint and metal reflect the environment map that
   `stage.ts` hands over with `setCarEnvironment` before any car is built.
 - `tracks.ts`: the circuits (`TRACKS`, `TrackDef`): CSV, names, best-times key, grid spot, scenery placement
 - `track.ts`: track geometry and colliders (`Track`)

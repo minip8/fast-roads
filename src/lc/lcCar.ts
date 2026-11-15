@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { S_ASPHALT } from '../config';
-import type { CarMesh } from '../carMeshes';
+import { type CarMesh, poseCockpit } from '../carMeshes';
 import type { LcSpec } from '../cars';
 import { pointAt, projectOnTrack, surfaceAt, trackLimitOut, type SurfaceRes, type Track, type TrackPos } from '../track';
 import type { DriveInput, Vehicle, VehicleWheel } from '../vehicle';
@@ -257,6 +257,7 @@ export class LcCar implements Vehicle {
       wm.pivot.rotation.y = e.steerRad;
       wm.spinner.rotation.x = e.rotationRad;
     }
+    poseCockpit(m.cockpit, this.steer);
     m.brakeLight.material.emissiveIntensity = this.brake > 0.1 ? 3 : 0.4;
   }
 }

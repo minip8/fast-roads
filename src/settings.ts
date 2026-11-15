@@ -16,7 +16,7 @@ export interface Settings {
 export type SettingKey = keyof Settings;
 interface SettingDef<K extends SettingKey> { label: string; options: [value: Settings[K], text: string][] }
 
-const CAM_LABELS: Record<CamMode, string> = { onboard: 'Onboard', chase: 'Chase', far: 'Far' };
+const CAM_LABELS: Record<CamMode, string> = { onboard: 'Onboard', driver: 'Driver', chase: 'Chase', far: 'Far' };
 
 // Menu rows, in display order.
 export const SETTING_DEFS: { [K in SettingKey]: SettingDef<K> } = {

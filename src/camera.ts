@@ -5,9 +5,9 @@ import { clamp } from './util';
 import type { Vehicle } from './vehicle';
 
 // ============================================================================
-// Camera rig: onboard (fixed to the car), or a smoothed chase camera
+// Camera rig: onboard or the driver's eyes (fixed to the car), or a smoothed chase camera
 // ============================================================================
-export const CAM_MODES = ['onboard', 'chase', 'far'] as const;   // C cycles in this order
+export const CAM_MODES = ['onboard', 'driver', 'chase', 'far'] as const;   // C cycles in this order
 export type CamMode = (typeof CAM_MODES)[number];
 
 const _shake = new THREE.Vector3(), _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
@@ -44,7 +44,14 @@ export class CameraRig {
     _shake.set(Math.sin(t * 71) + Math.sin(t * 113) * 0.5, Math.sin(t * 89 + 1) + Math.sin(t * 131 + 2) * 0.5, 0).multiplyScalar(amp);
 
     let fov: number;
-    if (this.mode === 'onboard') {
+    car.mesh.cockpit.head.visible = this.mode !== 'driver';   // the camera is inside the helmet
+    if (this.mode === 'driver') {
+      const upv = _v2.set(0, 1, 0).applyQuaternion(root.quaternion), c = car.mesh.cockpit;
+      camera.position.copy(c.eye).applyQuaternion(root.quaternion).add(p);
+      camera.lookAt(_v3.copy(camera.position).addScaledVector(fwd, 10).addScaledVector(upv, -c.look));
+      camera.position.add(_shake);
+      fov = 70 + clamp(speed, 0, 90) * 0.04;
+    } else if (this.mode === 'onboard') {
       const upv = _v2.set(0, 1, 0).applyQuaternion(root.quaternion);
       const cam = car.spec.cam;
       camera.position.copy(p).addScaledVector(upv, cam.up).addScaledVector(fwd, -cam.back);

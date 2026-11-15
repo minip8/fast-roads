@@ -27,6 +27,10 @@ steering (keyboard/mouse), camera, traction control, countersteer assist (drift 
 **Reset best times** option (click twice to confirm). While driving, **Esc** or **P** opens it as a pause menu
 (Resume / Restart session). Mouse or keyboard (↑ ↓ ← → Enter) both work in the menu.
 
+Cameras: **Onboard** (above the F1's airbox, on the other cars' bonnets), **Driver** (from the driver's eyes, with
+the cockpit, steering wheel and the driver's arms; the wheel turns with the road wheels at each car's steering
+ratio), **Chase** and **Far**. Every car carries a driver, visible from outside too.
+
 ## Cars
 
 - **F1**: light, huge downforce and grip, 8 gears, 12,500 rpm. Stable and fast.
@@ -119,7 +123,7 @@ applied; then the gear and speed.
 | R | Reset to track (invalidates the lap) |
 | Enter | Restart session at the grid |
 | V | Mouse steering on/off (also in the menu) |
-| C | Cycle camera (onboard / chase / far) |
+| C | Cycle camera (onboard / driver / chase / far) |
 | G | Automatic / manual gears (also in the menu) |
 | E / Q | Shift up / down (manual) |
 | T | Traction control on/off |
