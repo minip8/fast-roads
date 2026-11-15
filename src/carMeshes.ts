@@ -39,13 +39,16 @@ function taper(w: number, h: number, l: number, back: [number, number], front: [
 }
 const B = (w: number, h: number, l: number) => new THREE.BoxGeometry(w, h, l);
 
-export function buildCarMesh(spec: CarInfo): CarMesh {
+// Body colour, accent colour and wheel stripe, so one body can carry more than one livery.
+export interface Paint { body: number; accent: number; stripe: number }
+
+export function buildCarMesh(spec: CarInfo, paint: Paint = { body: 0xff6a13, accent: 0x1fa6ff, stripe: 0xffd23f }): CarMesh {
   const root = new THREE.Group(), bodyGroup = new THREE.Group();
   root.add(bodyGroup);
-  const body = mat({ color: 0xff6a13, roughness: 0.3, metalness: 0.25 });
+  const body = mat({ color: paint.body, roughness: 0.3, metalness: 0.25 });
   const dark = mat({ color: 0x16181c, roughness: 0.5, metalness: 0.3, envMapIntensity: 0.35 });
   const carbon = mat({ color: 0x24272c, roughness: 0.35, metalness: 0.5, envMapIntensity: 0.35 });
-  const accent = mat({ color: 0x1fa6ff, roughness: 0.35, metalness: 0.3 });
+  const accent = mat({ color: paint.accent, roughness: 0.35, metalness: 0.3 });
   const white = mat({ color: 0xf5f5f5, roughness: 0.2, metalness: 0.2 });
   const { add, done } = parts(bodyGroup);
   add(B(1.35, 0.04, 3.4), carbon, 0, -0.2, -0.05);                                   // floor
@@ -82,7 +85,7 @@ export function buildCarMesh(spec: CarInfo): CarMesh {
   done();
   const brakeLight = new THREE.Mesh(B(0.12, 0.08, 0.03), new THREE.MeshStandardMaterial({ color: 0x400000, emissive: 0xff1010, emissiveIntensity: 0.4 }));
   brakeLight.position.set(0, 0.05, -2.32); bodyGroup.add(brakeLight);
-  const wheels = buildWheels(root, spec, { rim: 0x2a2d33, stripe: 0xffd23f });
+  const wheels = buildWheels(root, spec, { rim: 0x2a2d33, stripe: paint.stripe });
   return { root, wheels, brakeLight };
 }
 
@@ -189,14 +192,14 @@ export function buildDriftMesh(spec: CarInfo): CarMesh {
 
 // GT3 coupe: long bonnet, cabin set back, wide arches standing above it, splitter, diffuser and a full-width rear
 // wing. Origin is the centre of mass (0.40 m above the road); the floor is at y = -0.33.
-export function buildGt3Mesh(spec: CarInfo): CarMesh {
+export function buildGt3Mesh(spec: CarInfo, paint: Paint = { body: 0x0e6b57, accent: 0xf2d21b, stripe: 0xf2d21b }): CarMesh {
   const root = new THREE.Group(), bodyGroup = new THREE.Group();
   root.add(bodyGroup);
-  const body = mat({ color: 0x0e6b57, roughness: 0.28, metalness: 0.3 });
+  const body = mat({ color: paint.body, roughness: 0.28, metalness: 0.3 });
   const dark = mat({ color: 0x16181c, roughness: 0.5, metalness: 0.3, envMapIntensity: 0.35 });
   const carbon = mat({ color: 0x24272c, roughness: 0.35, metalness: 0.5, envMapIntensity: 0.35 });
   const glass = mat({ color: 0x1b2633, roughness: 0.08, metalness: 0.6, envMapIntensity: 1, transparent: true, opacity: 0.45, depthWrite: false });
-  const accent = mat({ color: 0xf2d21b, roughness: 0.35, metalness: 0.2 });
+  const accent = mat({ color: paint.accent, roughness: 0.35, metalness: 0.2 });
   const { add, done } = parts(bodyGroup);
   const wheelY = spec.wheelRadius - spec.comHeight, arch = { y: wheelY, r: spec.wheelRadius + 0.05, bottom: -0.33 };
 
@@ -240,6 +243,6 @@ export function buildGt3Mesh(spec: CarInfo): CarMesh {
   }
   const brakeLight = new THREE.Mesh(B(0.3, 0.04, 0.03), tailMat);   // shares tailMat, so lighting it lights all three
   brakeLight.position.set(0, 0.05, -2.37); bodyGroup.add(brakeLight);
-  const wheels = buildWheels(root, spec, { rim: 0x1b1d21, stripe: 0xf2d21b });
+  const wheels = buildWheels(root, spec, { rim: 0x1b1d21, stripe: paint.stripe });
   return { root, wheels, brakeLight };
 }
