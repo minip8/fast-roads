@@ -85,22 +85,10 @@ export const F1_RAIN_TYRE_PACK: Record<
   'intermediate' | 'wet',
   { peakTempC: number; thermalCurve: ReadonlyArray<readonly [number, number]>; wetWearScale: number }
 > = {
-  intermediate: {
-    peakTempC: 75,
-    thermalCurve: [
-      [0, 0.9423], [20, 0.9645], [40, 0.9854], [60, 0.9983], [70, 0.9996], [75, 1], [80, 0.9996], [90, 0.985],
-      [100, 0.97], [110, 0.95], [120, 0.92],
-    ],
-    wetWearScale: 1,
-  },
-  wet: {
-    peakTempC: 70,
-    thermalCurve: [
-      [0, 0.9423], [20, 0.9645], [40, 0.9854], [50, 0.9932], [60, 0.9983], [65, 0.9996], [70, 1], [75, 0.9996],
-      [80, 0.9983], [90, 0.9932], [100, 0.9854], [120, 0.9645],
-    ],
-    wetWearScale: 0.7,
-  },
+  // fast-roads: the pack's values are not vendored (third-party data under CC BY-NC-SA 4.0, see README.md here).
+  // Neutral placeholders keep the rain compounds constructible; this game has no rain and never fits them.
+  intermediate: { peakTempC: 70, thermalCurve: [[0, 1], [120, 1]], wetWearScale: 1 },
+  wet: { peakTempC: 70, thermalCurve: [[0, 1], [120, 1]], wetWearScale: 1 },
 };
 
 /** An F1 rain tyre's traits on a car whose slick peaks at `slickPeakC`: its window put at the pack's peak */

@@ -59,9 +59,9 @@ function rig(c: CarCase, kmh = 0, withDriver = true) {
     }
   };
   // No driver: the input straight to the engine (+ steer = left in, as DriveInput), analog steering at the driver's lock
-  const [lock, half] = c.spec.analogLock;
+  const [lock, half, floor] = c.spec.analogLock;
   const raw = (input: DriveInput) => v.step(DT, { throttle: input.throttle, brake: input.brake,
-    steer: -input.steer * (input.analog ? Math.min(1, lock / (1 + v.speedMs / half)) : 1) });
+    steer: -input.steer * (input.analog ? Math.min(1, Math.max(floor, lock / (1 + v.speedMs / half))) : 1) });
   return { v, d, tick: withDriver ? tick : raw, oneStep: () => oneStep, reset: () => { v.reset(0, 0, 0, kmh / 3.6); d.reset(); frames = steps = 0; },
            newDriver: () => { d = c.driver(v); } };
 }

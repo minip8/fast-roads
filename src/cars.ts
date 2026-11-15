@@ -1,7 +1,7 @@
 import type { EngineVoice } from './audioGraph';
 import { buildCarMesh, buildDriftMesh, buildGt3Mesh, type CarMesh, type Paint } from './carMeshes';
 import type { EngineDriverFactory } from './lc/engineDriver';
-import { rawDriver } from './lc/rawDriver';
+import { f1Driver, gt3Driver } from './lc/driver';
 import { compoundData, type CarPhysicsConfig } from './lc/vendor/sim/f12026-car/F12026CarConfig';
 import { LC26_TUNED_CONFIG } from './lc/vendor/sim/f12026-car/Lc26Tune';
 import { AMG_GT3_CONFIG } from './lc/vendor/sim/gt3/AmgGt3Config';
@@ -320,7 +320,8 @@ export const CARS: Record<CarId, AnyCarSpec> = {
   // is fitted to.
   lcgt3: {
     id: 'lcgt3', name: 'GT3 · LibreCorsa', storeKey: '.lcgt3', physics: 'lc', mesh: (spec) => buildGt3Mesh(spec, LC_GT3_PAINT),
-    config: AMG_GT3_CONFIG, driver: rawDriver, fuelKg: 50, turbo: false, straightMode: false,
+    hint: 'LibreCorsa physics: tyres warm up over the first corners · ABS always on · with TC off the throttle steers it',
+    config: AMG_GT3_CONFIG, driver: gt3Driver, fuelKg: 50, turbo: false, straightMode: false,
     ...lcBody(AMG_GT3_CONFIG, 50),
     rho: 1.225,                               // sea level, as their adapter runs it
     ClA: 2.5,                                 // measured on the engine: 1.53 N per (m/s)^2 of downforce at 108-252 km/h
@@ -337,7 +338,8 @@ export const CARS: Record<CarId, AnyCarSpec> = {
   // (RAC mode), and flaps that open on every straight.
   lcf1: {
     id: 'lcf1', name: 'F1 2026 · LibreCorsa', storeKey: '.lcf1', physics: 'lc', mesh: (spec) => buildCarMesh(spec, LC_F1_PAINT),
-    config: LC26_TUNED_CONFIG, driver: rawDriver, fuelKg: 35, turbo: true, straightMode: true,
+    hint: 'LibreCorsa physics: hybrid and flaps work themselves · ABS always on · keep TC on unless you like spinning',
+    config: LC26_TUNED_CONFIG, driver: f1Driver, fuelKg: 35, turbo: true, straightMode: true,
     ...lcBody(LC26_TUNED_CONFIG, 35),
     rho: 1.225,
     ClA: 5.0,                                 // measured on the engine, flaps shut: 2.75 N per (m/s)^2 at 108 km/h, 3.19 from 180

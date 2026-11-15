@@ -96,6 +96,7 @@ export default defineConfig({
         codeSplitting: { groups: [
           { name: 'three', test: /node_modules[\\/]three[\\/]/ },
           { name: 'rapier', test: /node_modules[\\/]@dimforge[\\/]/ },
+          { name: 'librecorsa', test: /src[\\/]lc[\\/]vendor[\\/]/ },   // the vendored engine changes as rarely as a library
         ] },
       },
     },

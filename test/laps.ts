@@ -14,6 +14,11 @@ const EXPECTED = {
   silverstoneDrift: { track: 'silverstone', car: 'drift', tc: true, time: '170.275', limit: 220 },
   gt3: { track: 'melbourne', car: 'gt3', tc: true, time: '131.738', limit: 170 },
   silverstoneGt3: { track: 'silverstone', car: 'gt3', tc: true, time: '142.291', limit: 190 },
+  // on LibreCorsa's engine (src/lc)
+  lcGt3: { track: 'melbourne', car: 'lcgt3', tc: true, time: '134.846', limit: 170 },
+  silverstoneLcGt3: { track: 'silverstone', car: 'lcgt3', tc: true, time: '145.035', limit: 190 },
+  lcF1: { track: 'melbourne', car: 'lcf1', tc: true, time: '116.910', limit: 150 },
+  silverstoneLcF1: { track: 'silverstone', car: 'lcf1', tc: true, time: '124.326', limit: 160 },
 } satisfies Record<string, { track: TrackId; car: CarId; tc: boolean; time: string; limit: number }>;
 
 export function lapTest(lap: keyof typeof EXPECTED) {

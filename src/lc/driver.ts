@@ -23,14 +23,16 @@ export interface DriverCar {
   keyboardSteer: KeyboardSteerProfile;
   padLateralMu: number;              // grip the keyboard assist's yaw-rate guard assumes
   steerRatio: number;                // rim deg per road-wheel deg, for the rack-rate limit
-  // Analog steering: full deflection asks for lock / (1 + speed / halfSpeed) of full rack lock (halfSpeed in m/s).
-  // LibreCorsa sends the mouse to the rack unscaled; with our screen-position mouse that is twitchy at speed.
-  analogLock: readonly [lock: number, halfSpeed: number];
+  // Analog steering: full deflection asks for lock / (1 + speed / halfSpeed) of full rack lock (halfSpeed in m/s),
+  // never less than floor. LibreCorsa sends the mouse to the rack unscaled; with our screen-position mouse that is
+  // twitchy at speed.
+  analogLock: readonly [lock: number, halfSpeed: number, floor: number];
 }
 
 // Mercedes-AMG GT3: profile values from AmgGt3Sim.ts (its steerRatio is unset, so the adapter's default 12.6).
-// Analog lock: the steady-cornering peak needs 0.65 of rack lock at 50 km/h, 0.41 at 80, 0.31 at 150 and 0.29 from
-// 220 up; full deflection asks 1.1-1.6 times that (most around 120 km/h: the need falls as 1/v2, the curve as 1/v).
+// Analog lock: the steady-cornering peak needs 0.65 of rack lock at 50 km/h, 0.41 at 80, 0.33 at 120, 0.31 at 150
+// and 0.29 from 220 up (its steering flex and understeer keep the need from falling further). Full deflection asks
+// 1.15-1.4 times that (most around 80 km/h), on the floor from about 150 km/h.
 export const GT3_DRIVER: DriverCar = {
   electronics: AMG_GT3_ELECTRONICS,
   tcMinSpeedMs: AMG_GT3_ELECTRONICS.tcMinSpeedKmh / 3.6,
@@ -38,7 +40,7 @@ export const GT3_DRIVER: DriverCar = {
   keyboardSteer: { lowSpeedRate: 1.6, highSpeedRate: 1.05, returnRate: 1.1 },
   padLateralMu: 1.5,
   steerRatio: 12.6,
-  analogLock: [1, 37],
+  analogLock: [1.6, 12, 0.35],
 };
 
 // LC26 2026 F1 car: profile values from Lc26Sim.ts (keyboard curve OPEN_WHEEL_KEYBOARD_STEER in keyboard-steer.ts).
@@ -51,7 +53,7 @@ export const F1_DRIVER: DriverCar = {
   keyboardSteer: { lowSpeedRate: 1.3, highSpeedRate: 0.8, returnRate: 1 },
   padLateralMu: 1.75,
   steerRatio: 14,
-  analogLock: [2, 11],
+  analogLock: [2, 11, 0],
 };
 
 class LcDriver implements EngineDriver {
@@ -103,8 +105,8 @@ class LcDriver implements EngineDriver {
       steer = Math.max(-1, Math.min(1, -this.angle / v.maxSteerRad));
       this.rack.cmd = steer;   // a hand-back is rate-limited from here
     } else if (this.analog) {
-      const [lock, half] = this.car.analogLock;
-      steer = this.rack.step(-this.steer * Math.min(1, lock / (1 + v.speedMs / half)), h);
+      const [lock, half, floor] = this.car.analogLock;
+      steer = this.rack.step(-this.steer * Math.min(1, Math.max(floor, lock / (1 + v.speedMs / half))), h);
     } else {
       if (!this.keysEngaged) this.keys.reset();   // the assist takes over from a clean state, as theirs does
       steer = this.rack.step(this.keys.update(-Math.sign(this.steer), this.brake, h), h);

@@ -1,6 +1,6 @@
 // Cars on LibreCorsa's engine (LcCar, src/lc/lcCar.ts) in the game's own session: placed, driven, reset, shifted,
-// crashed and rendered as the game does. They drive through the stand-in driver (src/lc/rawDriver.ts: no TC or ABS),
-// so the manoeuvres use moderate pedals: a full pedal locks or spins the wheels.
+// crashed and rendered as the game does, through each car's driver (src/lc/driver.ts: pedal ramps, steering, ABS and
+// traction control). The driver itself is tested on flat ground in lc-driver.ts.
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { DT, KERB_W, S_ASPHALT, S_GRASS, S_GRAVEL } from '../src/config';
@@ -204,7 +204,7 @@ export function lcCarSuite(id: 'lcgt3' | 'lcf1') {
       drive(1, (c) => { rolling = Math.max(rolling, ...c.wheels.map((w) => w.slip)); return inp({ throttle: cruise(c, 20) }); });
       expect(rolling).toBeLessThan(0.25);
       expect(car.wheels.every((w) => w.grounded && Math.abs(w.contact.y) < 0.01)).toBe(true);
-      drive(0.3, () => inp({ brake: 1 }));                 // no ABS: the fronts lock
+      drive(0.3, () => inp({ brake: 1 }));                 // full brake: the ABS works the fronts at and past their peak slip
       expect(Math.min(car.wheels[0].slip, car.wheels[1].slip)).toBeGreaterThan(1);
       // out: all four wheels past the track limit
       const s = track.S[track.N - 80];

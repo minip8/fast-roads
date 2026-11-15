@@ -46,8 +46,8 @@ whole import closure (runtime and type-only) of `sim/f12026-car/VehiclePhysics.t
 
 ## Edits
 
-Every file is a verbatim copy except for the edits below; line numbers are unchanged everywhere, so
-`diff <their file> <this file>` shows exactly these lines.
+Every file is a verbatim copy except for the edits below. Edits 1-3 leave line numbers unchanged, so
+`diff <their file> <this file>` shows exactly those lines; edit 4 shortens `sim/wet-tyres.ts`.
 
 1. **`@/` alias imports rewritten to relative paths** (4 imports, all `import type`): `sim/lc26-aero.ts`,
    `sim/lc26-data.ts` and `sim/wet-tyres.ts` import `../types/f1` instead of `@/types/f1`.
@@ -59,10 +59,16 @@ Every file is a verbatim copy except for the edits below; line numbers are uncha
    `// vendored: unused ... (noUnusedLocals)`): the `evaluateRollAeroFactor` import and the `const aero` local in
    `reset()` in `sim/f12026-car/VehiclePhysics.ts`, and the `DEG2RAD` constant in `sim/suspension-kinematics.ts`.
 
+4. **Third-party rain-tyre data removed**: in `sim/wet-tyres.ts`, the values of `F1_RAIN_TYRE_PACK` (two
+   temperature curves, their peak temperatures and a wear ratio) are replaced by neutral placeholders (a flat curve,
+   70 degC, ratio 1). They are another author's data under CC BY-NC-SA 4.0 (see *Licence*). This game has no rain and
+   never fits the intermediate or wet compounds, which those values only affect; the placeholders keep the compounds
+   constructible. Dry running is unchanged (`test/lc-engine.test.ts` still matches upstream to four decimals).
+
 No other change was needed for our compiler flags (`strict`, `noUnusedLocals`, `noFallthroughCasesInSwitch`).
 No code was trimmed: the files still hold code our cars do not reach (DRS, ERS, wet tyres, track colliders, ...).
 
-To update from upstream: copy the same files from a newer commit, re-apply the three edits, and check the import
+To update from upstream: copy the same files from a newer commit, re-apply the four edits, and check the import
 closure has not grown (`npm run typecheck` fails on any missing file).
 
 ## Data provenance
@@ -88,3 +94,4 @@ From their `CREDITS.md` and the files' own headers, at the vendored commit:
   intermediate and full-wet compounds are built from them (`deriveRainCompound(..., true)` in `Lc26Config.ts`,
   `f1RainTraits` in `lc26-data.ts`), as are those of the engine's default config in `F12026CarConfig.ts`. The GT3's
   rain compounds do not use them (they keep the generic `WET_TYRE_TRAITS`). Dry running on slicks does not touch them.
+  **Those values are not in this copy** (edit 4 above).

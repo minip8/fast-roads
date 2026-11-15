@@ -35,7 +35,7 @@ export function stepPhysics(world: RAPIER.World, car: Vehicle, timing: Timing, i
   car.prevPos.copy(car.pos); car.prevQuat.copy(car.quat);
   prevXZ.x = car.pos.x; prevXZ.z = car.pos.z;
   car.step(DT, finiteInput(inp));
-  world.step();
+  if (car.spec.physics === 'rapier') world.step();   // other engines move their own body; the world's 2,600 walls cost 0.4 ms to step for nothing
   car.readState();
   currXZ.x = car.pos.x; currXZ.z = car.pos.z;
   timing.tick(prevXZ, currXZ, simTime, DT, car);
