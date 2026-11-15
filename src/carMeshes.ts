@@ -19,6 +19,7 @@ export interface Cockpit {
   mount: THREE.Group;                // steering column (position and rake)
   wheel: THREE.Group;                // steering wheel, turned by poseCockpit
   ratio: number;                     // steering-wheel angle per road-wheel angle
+  handMax: number;                   // how far the hands turn with the wheel before sliding round the rim (rad)
   arms: { mesh: THREE.Mesh; glove: THREE.Mesh; shoulder: THREE.Vector3; side: number; r: number }[];
 }
 
@@ -56,7 +57,7 @@ interface DriverOpts {
   x: number; head: [y: number, z: number];   // helmet centre
   helmet: number; suit: number;
   shoulder: [dy: number, dz: number];          // shoulders relative to the helmet centre
-  wheel: { y: number; z: number; rake: number; r: number; f1?: boolean };
+  wheel: { y: number; z: number; rake: number; r: number; kind: 'f1' | 'gt3' | 'round' };   // r: grip radius
   ratio: number; look: number;
 }
 
@@ -86,11 +87,24 @@ function addDriver(group: THREE.Group, add: Add, o: DriverOpts): Cockpit {
   const display = new THREE.MeshStandardMaterial({ color: 0x0a0c10, emissive: 0x3fd0ff, emissiveIntensity: 0.25 });
   const marker = mat({ color: 0xffd23f, roughness: 0.5 });
   const grip = w.r;
-  if (w.f1) {   // F1: a carbon body with two grips and a screen
+  if (w.kind === 'f1') {   // F1: a carbon body with two grips and a screen
     wheelParts.push([B(w.r * 1.6, 0.1, 0.04), dark], [B(0.08, 0.04, 0.005).translate(0, 0.01, -0.021), display],
       [new THREE.CylinderGeometry(0.028, 0.028, 0.14, 10).translate(-w.r, 0, 0), dark],
       [new THREE.CylinderGeometry(0.028, 0.028, 0.14, 10).translate(w.r, 0, 0), dark],
       [B(0.06, 0.012, 0.045).translate(0, 0.05, 0), marker]);
+  } else if (w.kind === 'gt3') {   // GT3: open rectangle with two grips, flat top and bottom, button panel and screen
+    const bar = B(2 * w.r, 0.022, 0.028), knob = new THREE.CylinderGeometry(0.011, 0.011, 0.012, 10).rotateX(Math.PI / 2);
+    wheelParts.push([new THREE.CylinderGeometry(0.024, 0.024, 0.19, 10).translate(-w.r, 0, 0), dark],
+      [new THREE.CylinderGeometry(0.024, 0.024, 0.19, 10).translate(w.r, 0, 0), dark],
+      [bar.clone().translate(0, 0.09, 0), dark], [bar.translate(0, -0.09, 0), dark],
+      [B(0.18, 0.13, 0.03), dark], [B(0.07, 0.032, 0.004).translate(0, 0.04, -0.017), display],
+      [B(0.04, 0.012, 0.03).translate(0, 0.101, 0), marker]);
+    const colours = [0xd8262e, 0xf2c21b, 0x2f7de1, 0x2fbf5a];
+    colours.forEach((c, k) => {
+      const m = mat({ color: c, roughness: 0.5, emissive: c, emissiveIntensity: 0.15 });
+      for (const sx of [-1, 1]) wheelParts.push([B(0.017, 0.017, 0.006).translate(sx * (0.055 + (k % 2) * 0.024), 0.015 - Math.floor(k / 2) * 0.027, -0.017), m]);
+      if (k < 2) wheelParts.push([knob.clone().translate((k ? 1 : -1) * 0.03, -0.045, -0.018), m]);
+    });
   } else {      // round rim, three spokes, a marker at the top so you can see it turn
     wheelParts.push([new THREE.TorusGeometry(w.r, 0.019, 8, 32), dark],
       [new THREE.CylinderGeometry(0.05, 0.05, 0.05, 14).rotateX(Math.PI / 2), dark],
@@ -106,19 +120,21 @@ function addDriver(group: THREE.Group, add: Add, o: DriverOpts): Cockpit {
     const mesh = new THREE.Mesh(armGeo, suit); mesh.castShadow = true; group.add(mesh);
     arms.push({ mesh, glove: g, shoulder: new THREE.Vector3(o.x + s * 0.17, hy + o.shoulder[0], hz + o.shoulder[1]), side: s, r: grip });
   }
-  const cockpit: Cockpit = { eye: new THREE.Vector3(o.x, hy + 0.02, hz + 0.06), look: o.look, head, mount, wheel, ratio: o.ratio, arms };
+  const cockpit: Cockpit = { eye: new THREE.Vector3(o.x, hy + 0.02, hz + 0.06), look: o.look, head, mount, wheel, ratio: o.ratio,
+    handMax: w.kind === 'round' ? HAND_MAX : Infinity, arms };   // on a racing wheel the hands stay on the grips
   poseCockpit(cockpit, 0);
   return cockpit;
 }
 
-// Turn the steering wheel to the road wheels' angle (rad, + = left) and reach the arms to it. The hands turn with
-// the rim up to HAND_MAX and then slide round it, so at full lock the arms don't cross in front of the wheel.
+// Turn the steering wheel to the road wheels' angle (rad, + = left) and reach the arms to it. On a round wheel the
+// hands turn with the rim up to HAND_MAX and then slide round it, so at full lock the arms don't cross in front of
+// the wheel.
 const HAND_MAX = 1.0;
 const _hand = new THREE.Vector3(), _dir = new THREE.Vector3(), _Y = new THREE.Vector3(0, 1, 0);
 export function poseCockpit(c: Cockpit, steer: number) {
   const a = -steer * c.ratio;   // seen from the seat, turning left is anticlockwise
   c.wheel.rotation.z = a;
-  const h = Math.max(-HAND_MAX, Math.min(HAND_MAX, a));
+  const h = Math.max(-c.handMax, Math.min(c.handMax, a));
   for (const arm of c.arms) {
     arm.glove.position.set(arm.side * arm.r * Math.cos(h), arm.side * arm.r * Math.sin(h), -0.01);
     arm.glove.rotation.z = h;
@@ -159,7 +175,7 @@ export function buildCarMesh(spec: CarInfo, paint: Paint = { body: 0xff6a13, acc
   add(taper(0.12, 0.35, 1.0, [1, 1], [1, 0.25]), body, 0, 0.5, -0.9, -0.15);           // shark fin
   add(B(0.44, 0.012, 0.75), dark, 0, 0.212, 0.35);                                    // cockpit opening
   const cockpit = addDriver(bodyGroup, add, { x: 0, head: [0.36, 0.1], helmet: 0xf5f5f5, suit: paint.body, shoulder: [-0.15, 0],
-    wheel: { y: 0.235, z: 0.47, rake: 0.3, r: 0.13, f1: true }, ratio: 4, look: 0.3 });
+    wheel: { y: 0.235, z: 0.47, rake: 0.3, r: 0.13, kind: 'f1' }, ratio: 4, look: 0.3 });
   add(B(1.0, 0.05, 0.36), carbon, 0, 0.6, -2.05, 0.12);                               // rear wing main
   add(B(1.0, 0.04, 0.22), accent, 0, 0.72, -2.15, 0.35);                              // rear flap
   for (const s of [-1, 1]) add(B(0.03, 0.55, 0.6), carbon, s * 0.5, 0.42, -2.05);
@@ -265,7 +281,7 @@ export function buildDriftMesh(spec: CarInfo): CarMesh {
   add(B(0.24, 0.03, 0.5), dark, 0, 0.3, -0.2);                                       // centre console
   // right-hand drive (x is left)
   const cockpit = addDriver(bodyGroup, add, { x: -0.36, head: [0.6, -0.45], helmet: 0xff6a13, suit: 0x23272e, shoulder: [-0.2, 0.02],
-    wheel: { y: 0.38, z: -0.03, rake: 0.4, r: 0.18 }, ratio: 9, look: 0.35 });
+    wheel: { y: 0.38, z: -0.03, rake: 0.4, r: 0.18, kind: 'round' }, ratio: 9, look: 0.35 });
   add(B(0.32, 0.012, 1.3), accent, 0, 0.29, 1.44, 0.116);                            // bonnet stripe
   add(B(1.74, 0.04, 0.26), dark, 0, -0.3, 2.08);                                     // front splitter
   add(B(0.9, 0.09, 0.02), dark, 0, -0.05, 2.205);                                    // intake
@@ -328,7 +344,7 @@ export function buildGt3Mesh(spec: CarInfo, paint: Paint = { body: 0x0e6b57, acc
   add(B(0.26, 0.03, 0.7), carbon, 0, 0.26, -0.55);                                   // centre console
   // left-hand drive (x is left)
   const cockpit = addDriver(bodyGroup, add, { x: 0.36, head: [0.63, -0.8], helmet: paint.accent, suit: paint.body, shoulder: [-0.2, 0.02],
-    wheel: { y: 0.42, z: -0.4, rake: 0.35, r: 0.16 }, ratio: 12.6, look: 0.35 });
+    wheel: { y: 0.42, z: -0.4, rake: 0.35, r: 0.14, kind: 'gt3' }, ratio: 12.6, look: 0.35 });
   add(B(1.98, 0.03, 0.42), carbon, 0, -0.33, 2.24);                                  // splitter
   add(B(1.1, 0.14, 0.02), dark, 0, -0.16, 2.305);                                    // grille
   add(B(1.96, 0.045, 0.4), carbon, 0, 0.79, -2.24, 0.1);                             // rear wing
