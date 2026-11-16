@@ -7,8 +7,8 @@ import { clamp } from './util';
 // Sound graph: every node is created once here; update() only moves parameters (with setTargetAtTime, so nothing
 // clicks or zippers). Works on any BaseAudioContext, so it can also be rendered offline.
 //
-//   engine:  2 x oscillator (per-car harmonic wave) -> roughness AM -> lowpass (opens with throttle) -> body peak
-//            -> shift cut -> rev limiter chop -> level
+//   engine:  2 x oscillator (per-car wave over one engine cycle) -> roughness AM -> lowpass (opens with throttle)
+//            -> body peak -> low shelf (weight) -> shift cut -> rev limiter chop -> level
 //            or, for a voice with loops (EngineVoice.loops, engineLoops.ts): on-load and overrun loop per rpm point,
 //            crossfaded, playbackRate following rpm -> roughness AM -> the same shift cut, limiter and level;
 //            plus overrun pops and gear whine (LoopPlayer, built when the voice is first used)
@@ -32,11 +32,13 @@ export interface AudioCar {
 export interface EngineVoice {
   firingDiv: number;         // rpm / this = firing frequency
   harmonics: number[];       // amplitudes of the harmonics of half the firing frequency (index 0 = f/2)
+  orders: [order: number, amp: number][];   // further crank orders, in halves (0.5 = once per cycle): the uneven firing's rumble
   detune: number;            // cents: second oscillator, for slow beating between "banks"
   level: number;             // engine gain at full throttle and redline
   coast: number;             // share of that level off the throttle
   bright: [coast: number, load: number];   // lowpass cutoff, in multiples of the firing frequency
   body: [hz: number, q: number, dbCoast: number, dbLoad: number];   // fixed exhaust/airbox resonance
+  weight: [hz: number, db: number];   // low shelf: the exhaust's and the body's low end
   rough: number;             // random amplitude wobble (uneven firing), 0..1
   squealHz: number;          // tyre squeal pitch
   loops?: LoopVoice;         // synthesised loops in place of the oscillators (which play only while the loops are made)
@@ -59,6 +61,7 @@ export class SoundGraph {
   private readonly roughDepth: GainNode;
   private readonly engLow: BiquadFilterNode;
   private readonly engBody: BiquadFilterNode;
+  private readonly engWeight: BiquadFilterNode;
   private readonly oscOut: GainNode;      // the oscillators' share: 0 while a loop voice plays
   private readonly shift: GainNode;
   private readonly limiter: GainNode;
@@ -127,7 +130,8 @@ export class SoundGraph {
     this.limiter = gain(1, this.engine);
     this.shift = gain(1, this.limiter);
     this.oscOut = gain(1, this.shift);
-    this.engBody = filter('peaking', 1000, 1, this.oscOut);
+    this.engWeight = filter('lowshelf', 200, 0.7, this.oscOut);
+    this.engBody = filter('peaking', 1000, 1, this.engWeight);
     this.engLow = filter('lowpass', 1000, 0.8, this.engBody);
     const hp = filter('highpass', 30, 0.7, this.engLow);
     const rough = gain(1, hp);
@@ -192,10 +196,11 @@ export class SoundGraph {
     if (this.voiceId !== car.spec.id) {   // switching car happens in the menu, while the bus is silent
       this.voiceId = car.spec.id;
       let wave = this.waves.get(car.spec.id);
-      if (!wave) this.waves.set(car.spec.id, (wave = harmonicWave(this.ctx, v.harmonics)));
+      if (!wave) this.waves.set(car.spec.id, (wave = engineWave(this.ctx, v)));
       for (const o of this.osc) o.setPeriodicWave(wave);
       this.osc[1].detune.value = v.detune;
       this.engBody.frequency.value = v.body[0]; this.engBody.Q.value = v.body[1];
+      this.engWeight.frequency.value = v.weight[0]; this.engWeight.gain.value = v.weight[1];
       this.roughDepth.gain.value = v.rough;
     }
     const player = v.loops ? this.player(v.loops) : null;   // null until its loops are made
@@ -207,8 +212,8 @@ export class SoundGraph {
     // ---- engine
     const thr = clamp(car.throttle, 0, 1);
     const rpmN = clamp(car.rpm / car.spec.redline, 0, 1.1);
-    const fire = Math.max(car.rpm, car.spec.idle * 0.9) / v.firingDiv;
-    for (const o of this.osc) o.frequency.setTargetAtTime(fire / 2, t, 0.012);
+    const rpm = Math.max(car.rpm, car.spec.idle * 0.9), fire = rpm / v.firingDiv;
+    for (const o of this.osc) o.frequency.setTargetAtTime(rpm / 120, t, 0.012);   // the wave is one engine cycle
     this.engLow.frequency.setTargetAtTime(clamp(fire * (v.bright[0] + (v.bright[1] - v.bright[0]) * thr), 150, 14000), t, 0.03);
     this.engBody.gain.setTargetAtTime(v.body[2] + (v.body[3] - v.body[2]) * thr, t, 0.05);
     this.engine.gain.setTargetAtTime(v.level * (v.coast + (1 - v.coast) * thr) * (0.7 + 0.3 * rpmN), t, 0.03);
@@ -288,11 +293,18 @@ export class SoundGraph {
   }
 }
 
-// Wave with the given harmonic amplitudes (sine phase), normalised by the browser.
-function harmonicWave(ctx: BaseAudioContext, amps: number[]) {
-  const re = new Float32Array(amps.length + 1), im = new Float32Array(amps.length + 1);
-  amps.forEach((a, k) => { im[k + 1] = a; });
-  return ctx.createPeriodicWave(re, im);
+// One engine cycle (two crank turns) of a voice: its harmonics of half the firing frequency and its other crank
+// orders (harmonic k of the cycle is crank order k / 2), sine phase, normalised by the browser.
+export function cycleHarmonics(v: EngineVoice) {
+  const step = Math.round(60 / v.firingDiv);   // cycle harmonics per harmonic of f/2 (3 for a V6, 4 for a V8)
+  const amps = new Float32Array(step * v.harmonics.length + 1);
+  v.harmonics.forEach((a, k) => { amps[step * (k + 1)] += a; });
+  for (const [order, a] of v.orders) amps[Math.round(order * 2)] += a;
+  return amps;
+}
+function engineWave(ctx: BaseAudioContext, v: EngineVoice) {
+  const im = cycleHarmonics(v);
+  return ctx.createPeriodicWave(new Float32Array(im.length), im);
 }
 
 // Smooth random signal in -1..1 that loops seamlessly: a sum of sines with whole cycles over the buffer.

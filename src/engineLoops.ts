@@ -9,7 +9,8 @@
 // train holds half orders of the crank that the two banks together cancel; with side exits the banks reach the
 // listener at different distances and levels, so some of them stay. Fixed differences between cylinders and
 // random cycle-to-cycle variation (much more on the overrun) add the lump. Then the radiated sound (pressure plus
-// its rate of change), saturation (the bark) and a lowpass, both harder on load.
+// its rate of change), saturation (the bark) and a lowpass, both harder on load, with a low resonance of the
+// exhaust and body between them (the weight, fullest on the overrun).
 // Everything is periodic over the loop: pulses and noise wrap around, and the filters run over the loop twice so
 // only their steady state is kept.
 // ============================================================================
@@ -19,6 +20,7 @@ export interface LoopVoice {
   rpms: number[];              // the loops' rpm points, rising (each loop's exact rpm is within a few rpm of these)
   pipes: [number, number];     // m: exhaust length per bank
   exitGap: number;             // m: how much further the second bank's exit is from the listener
+  body: [hz: number, q: number, dbCoast: number, dbLoad: number];   // low resonance of the exhaust and body (the weight)
   level: number;               // gain of the loops into the engine chain (they are all at LOOP_RMS)
   rough: number;               // slow random level wobble on top of the loops, 0..1
   crackle: number;             // overrun pop level (0: none)
@@ -34,7 +36,7 @@ export interface EngineLoop {
 const LOOP_SECONDS = 1.1;      // long enough that the cycle-to-cycle variation does not audibly repeat
 const SOUND_SPEED = 520;       // m/s in the hot exhaust
 const AIR_SPEED = 343;         // m/s outside
-const RADIATE_HZ = 700;        // radiated sound: the pressure and its rate of change weigh the same here
+const RADIATE_HZ = 1600;       // radiated sound: the pressure and its rate of change weigh the same here
 export const LOOP_RMS = 0.2;   // every loop is normalised to this level (the graph sets the loudness)
 
 // What changes between overrun (0) and full throttle (1).
@@ -44,11 +46,11 @@ const LOAD = {
   decay: [0.22, 0.32],         // pulse decay, in firing intervals
   jitter: [0.3, 0.06],         // random pulse height variation per firing (the overrun burble)
   noise: [0.12, 0.2],          // combustion / flow noise riding on the pulses
-  bright: [1600, 4500],        // Hz: radiated lowpass
-  drive: [0.5, 1.5],           // saturation
+  bright: [1000, 2800],        // Hz: radiated lowpass
+  drive: [0.5, 1.3],           // saturation
   reflect: [0.4, 0.45],        // pipe end reflection
 } as const;
-const BANK_GAIN = 0.8;         // the far bank's level at the listener
+const BANK_GAIN = 0.6;         // the far bank's level at the listener
 
 // Seeded random (mulberry32): the same loops on every run.
 function rng(seed: number) {
@@ -73,8 +75,8 @@ export function engineLoop(v: LoopVoice, sr: number, rpm: number, load: number, 
   // Excitation per bank: pulses, and the envelope the combustion noise follows.
   const exc = [new Float32Array(n), new Float32Array(n)], env = [new Float32Array(n), new Float32Array(n)];
   const timing = rng(seed), height = rng(seed * 7 + 3);
-  // fixed per-cylinder differences (breathing, runner length): +-8% height, +-1.5 crank degrees
-  const cylGain = v.firing.map(() => 1 + 0.16 * (timing() - 0.5));
+  // fixed per-cylinder differences (breathing, runner length): +-15% height, +-1.5 crank degrees
+  const cylGain = v.firing.map(() => 1 + 0.3 * (timing() - 0.5));
   const cylShift = v.firing.map(() => (timing() - 0.5) * 3 / 720 * cycle);
   const tr = lerp(LOAD.rise, load) * sr, td = lerp(LOAD.decay, load) * interval;
   const span = Math.ceil(tr * 4 + td * 7), m1 = Math.exp(-1 / tr), m2 = Math.exp(-1 / td);
@@ -126,6 +128,7 @@ export function engineLoop(v: LoopVoice, sr: number, rpm: number, load: number, 
   scale(out, 1 / rmsOf(out));
   const drive = lerp(LOAD.drive, load), norm = Math.tanh(drive);
   for (let i = 0; i < n; i++) out[i] = Math.tanh(drive * out[i]) / norm;
+  peaking(out, sr, v.body[0], v.body[1], v.body[2] + (v.body[3] - v.body[2]) * load);
   const bright = lerp(LOAD.bright, load);
   lowpass(out, sr, bright); lowpass(out, sr, bright * 2.5); highpass(out, sr, 20);
   scale(out, LOOP_RMS / rmsOf(out));
@@ -159,6 +162,19 @@ function lowpass(x: Float32Array, sr: number, hz: number) {
   let s1 = 0, s2 = 0;
   for (let i = 0; i < x.length; i++) { s1 += k * (x[i] - s1); s2 += k * (s1 - s2); }
   for (let i = 0; i < x.length; i++) { s1 += k * (x[i] - s1); s2 += k * (s1 - s2); x[i] = s2; }
+}
+// Peaking EQ (RBJ cookbook, as Web Audio's 'peaking' biquad), run twice over the loop like the others.
+function peaking(x: Float32Array, sr: number, hz: number, q: number, db: number) {
+  const A = 10 ** (db / 40), w = 2 * Math.PI * hz / sr, al = Math.sin(w) / (2 * q), c = Math.cos(w), a0 = 1 + al / A;
+  const b0 = (1 + al * A) / a0, b1 = -2 * c / a0, b2 = (1 - al * A) / a0, a1 = -2 * c / a0, a2 = (1 - al / A) / a0;
+  let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+  for (let pass = 0; pass < 2; pass++) {
+    for (let i = 0; i < x.length; i++) {
+      const x0 = x[i], y0 = b0 * x0 + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+      x2 = x1; x1 = x0; y2 = y1; y1 = y0;
+      if (pass) x[i] = y0;
+    }
+  }
 }
 function highpass(x: Float32Array, sr: number, hz: number) {
   const k = 1 - Math.exp(-2 * Math.PI * hz / sr);

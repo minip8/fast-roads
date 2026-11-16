@@ -1,5 +1,6 @@
 // The GT3's synthesised engine loops (src/engineLoops.ts): seamless, bounded, and with the spectrum of a cross-plane
-// V8: the firing order strongest, half orders of the crank present, brighter on load than on the overrun.
+// V8: the firing order strongest, half orders of the crank present, weight under the firing note and little buzz
+// above it, brighter on load than on the overrun.
 import { describe, expect, it } from 'vitest';
 import { CARS } from '../src/cars';
 import { engineLoop, LOOP_RMS, loopCount, makeLoop, type EngineLoop } from '../src/engineLoops';
@@ -66,6 +67,26 @@ describe('GT3 engine loops', () => {
       // each bank fires unevenly: 1.5 and 2.5 come through from the side exits
       expect(db(Math.max(orderAmp(l, 1.5), orderAmp(l, 2.5)), fire)).toBeGreaterThan(-25);
     }
+  });
+
+  // Share of the loop's power in the half orders under the firing order (the rumble), above four times it (the
+  // buzz), and from 1 to 4 kHz. Before the loops were deepened: 8-27% under from 2,800 rpm, up to 25% buzz and 38%
+  // from 1 to 4 kHz on load. At 2,000 rpm the firing note itself (133 Hz) is the low end.
+  function shares(l: EngineLoop) {
+    const f0 = l.rpm / 120; let all = 0, under = 0, buzz = 0, mid = 0;
+    for (let h = 1; h * f0 < 12000; h++) {
+      const e = orderAmp(l, h / 2) ** 2, f = h * f0;
+      all += e; if (h < 8) under += e; if (h > 32) buzz += e; if (f >= 1000 && f < 4000) mid += e;
+    }
+    return { under: under / all, buzz: buzz / all, mid: mid / all };
+  }
+  it('has weight under the firing note and little buzz above it, rounder still on the overrun', () => {
+    voice.rpms.forEach((rpm, p) => {
+      const on = shares(loops[2 * p]), off = shares(loops[2 * p + 1]);
+      if (rpm > 2500) { expect(on.under).toBeGreaterThan(0.25); expect(off.under).toBeGreaterThan(0.3); }
+      expect(on.buzz).toBeLessThan(0.06); expect(on.mid).toBeLessThan(0.2);
+      expect(off.buzz).toBeLessThan(on.buzz / 3); expect(off.mid).toBeLessThan(on.mid / 3);
+    });
   });
 
   it('is brighter on load than on the overrun', () => {

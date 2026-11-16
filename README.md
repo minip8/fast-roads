@@ -151,9 +151,10 @@ and override the mouse while held.
   service worker keeps the model once it has been downloaded rather than precaching it.
 - **Sound**: all synthesised, no recordings. Each car has its own engine voice (a smooth V6 in the F1, a lumpy V8 in
   the drift car) that brightens under load, cuts briefly on upshifts, blips on downshifts and stutters on the rev
-  limiter. The GT3's cross-plane V8 is made the way sample-based sims do it, with samples we synthesise ourselves
+  limiter. The voices get their weight from the spectrum, not from a lower pitch: crank orders under the firing note
+  (the half orders that make a V8 rumble), a low exhaust/body resonance and low shelf, and little upper-mid buzz. The GT3's cross-plane V8 is made the way sample-based sims do it, with samples we synthesise ourselves
   (`src/engineLoops.ts`): exhaust pulses in the 1-5-4-8-6-3-7-2 firing order through each bank's pipe, with
-  combustion noise and saturation, rendered into seamless loops at six rpm points on load and on the overrun, then
+  combustion noise, saturation and a low body resonance, rendered into seamless loops at six rpm points on load and on the overrun, then
   crossfaded by rpm and throttle with their pitch following the rpm. It burbles off the throttle, barks on it, pops
   and crackles on the overrun, and has a straight-cut gear whine that follows road speed. The loops take about
   0.1 s to make, one per frame, the first time a GT3 is driven. Tyres squeal as they near the limit of grip on asphalt and kerbs (cornering or wheelspin), which is

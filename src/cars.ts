@@ -107,23 +107,26 @@ export type CarId = 'drift' | 'lcgt3' | 'lcf1';
 // Whether the Countersteer assist setting does anything on this car.
 export const hasAssist = (spec: AnyCarSpec) => spec.physics === 'rapier' && spec.counterSteer[0] !== 0;
 
-// V6 turbo at 12,500 rpm: smooth, even orders, bright and nasal.
+// V6 turbo at 12,500 rpm: smooth, even orders, high and nasal, with some weight under it (the 1.5 order, a little
+// of the crank orders, a low shelf) and the nasal band lower and softer than a screamer's.
 const F1_VOICE: EngineVoice = {
   firingDiv: 20,
-  harmonics: [0.12, 1, 0.18, 0.55, 0.1, 0.36, 0.07, 0.22, 0.05, 0.14, 0.03, 0.09, 0.02, 0.05],
-  detune: 6, level: 0.17, coast: 0.42, bright: [2.2, 6.5], body: [1500, 1.2, 1, 4], rough: 0.06, squealHz: 950,
+  harmonics: [0.35, 1, 0.22, 0.5, 0.1, 0.28, 0.05, 0.15, 0.03, 0.08, 0.02, 0.05, 0.01, 0.03],
+  orders: [[0.5, 0.08], [1, 0.16], [2, 0.08], [2.5, 0.05]],
+  detune: 6, level: 0.17, coast: 0.42, bright: [2, 5.5], body: [700, 1, 1, 3], weight: [220, 5], rough: 0.06, squealHz: 950,
 };
-// 6.2 l cross-plane V8 (the AMG M159) at 7,900 rpm, side exits: synthesised loops (engineLoops.ts). The oscillator
-// numbers are its voice for the moment its loops take to make, and set the level.
+// 6.2 l cross-plane V8 (the AMG M159) at 7,900 rpm, side exits: synthesised loops (engineLoops.ts), the deepest of
+// the voices. The oscillator numbers are its voice for the moment its loops take to make, and set the level.
 const GT3_VOICE: EngineVoice = {
   firingDiv: 15,
-  harmonics: [0.5, 1, 0.45, 0.6, 0.3, 0.4, 0.2, 0.25, 0.12, 0.14, 0.08, 0.08],
-  detune: 7, level: 0.2, coast: 0.4, bright: [2.6, 8], body: [320, 1.1, 2, 5], rough: 0.16, squealHz: 850,
+  harmonics: [0.7, 1, 0.45, 0.45, 0.25, 0.25, 0.12, 0.12, 0.06, 0.06, 0.04, 0.03],
+  orders: [[0.5, 0.15], [1, 0.25], [1.5, 0.45], [2.5, 0.45], [3.5, 0.2]],
+  detune: 7, level: 0.2, coast: 0.4, bright: [2.2, 6], body: [140, 0.9, 3, 5], weight: [180, 4], rough: 0.16, squealHz: 850,
   loops: {
     firing: [0, 1, 0, 1, 1, 0, 1, 0],         // 1-5-4-8-6-3-7-2, cylinders 1-4 on one bank
     rpms: [2000, 2800, 3900, 5300, 7000, 8400],
-    pipes: [1.15, 1.22], exitGap: 0.15,
-    level: 3, rough: 0.08, crackle: 0.5, whine: [38, 0.01],
+    pipes: [1.15, 1.22], exitGap: 0.15, body: [130, 0.8, 8, 5],
+    level: 3.5, rough: 0.08, crackle: 0.5, whine: [38, 0.01],
   },
 };
 
@@ -229,8 +232,9 @@ export const CARS: Record<CarId, AnyCarSpec> = {
     // Cross-plane V8 at 7,500 rpm: strong half orders give the lumpy burble, darker overall.
     sound: {
       firingDiv: 15,
-      harmonics: [0.6, 1, 0.5, 0.45, 0.3, 0.28, 0.16, 0.15, 0.1, 0.08, 0.06, 0.05],
-      detune: 9, level: 0.2, coast: 0.4, bright: [2.5, 7], body: [260, 1.0, 2, 5], rough: 0.22, squealHz: 780,
+      harmonics: [0.6, 1, 0.45, 0.35, 0.22, 0.18, 0.1, 0.08, 0.05, 0.04, 0.03, 0.02],
+      orders: [[0.5, 0.12], [1, 0.2], [1.5, 0.3], [2.5, 0.25], [3, 0.1], [3.5, 0.12]],
+      detune: 9, level: 0.225, coast: 0.4, bright: [2.2, 6], body: [180, 0.9, 2, 4], weight: [180, 1], rough: 0.22, squealHz: 780,
     },
     autoGrip: 0.6, autoLong: 0.75, autoCounter: 0.9, autoLift: 6, autoUndersteer: 0,
     hull: [0.82, 0.28, 2.15, 0, 0.18, 0],

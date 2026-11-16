@@ -102,7 +102,11 @@ Run `npm run typecheck` and `npm test` before committing.
   in plain JS (exhaust pulses per cylinder in the firing order, a waveguide pipe per bank, saturation; whole engine
   cycles, so they loop seamlessly), one per `update()` the first time the voice is used (the oscillators play
   meanwhile), and `LoopPlayer` crossfades them by rpm and throttle and adds overrun pops and gear whine.
-  `test/engineLoops.test.ts` checks the loops (seams, level, cross-plane spectrum, brighter on load).
+  `test/engineLoops.test.ts` checks the loops (seams, level, cross-plane spectrum, weight under the firing note and
+  little buzz, brighter on load); `test/engineVoice.test.ts` checks the oscillator voices the same way, computing
+  their spectrum from the wave (`cycleHarmonics`: one engine cycle, so `orders` can add crank orders under the
+  firing note) and the graph's biquads. Measure a sound change rather than guessing: render it offline
+  (an `OfflineAudioContext` in headless Chromium plays the real graph) and compare spectra and levels.
 - `timing.ts`, `input.ts`, `dust.ts`, `autopilot.ts`
 - `stage.ts`: renderer, scene, lights, sky, shadow-following sun, static track visuals (`buildStage`)
 - `camera.ts`: `CameraRig` (camera modes)
