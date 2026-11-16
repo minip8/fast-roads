@@ -4,11 +4,14 @@ import { Batch } from './batch';
 import type { CarInfo } from './cars';
 
 // Car bodies. Built in Node too (the tests construct cars), so nothing here may touch the DOM.
+// A car with a model file (carModels.ts) starts as its procedural body and swaps the model in when it has loaded,
+// so brakeLight and cockpit can change: read them at use, don't keep them.
 export interface CarMesh {
   root: THREE.Group;                 // follows the physics body
   wheels: { pivot: THREE.Group; spinner: THREE.Group }[];   // pivot: steer + suspension; spinner: rolling
   brakeLight: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
   cockpit: Cockpit;
+  dispose(): void;                   // free its GPU resources (not a loaded model's shared ones) and cancel a pending swap
 }
 
 // The driver and what they see from the seat. Positions are in body coordinates (the root's frame).
@@ -57,8 +60,10 @@ interface DriverOpts {
   x: number; head: [y: number, z: number];   // helmet centre
   helmet: number; suit: number;
   shoulder: [dy: number, dz: number];          // shoulders relative to the helmet centre
-  wheel: { y: number; z: number; rake: number; r: number; kind: 'f1' | 'gt3' | 'round' };   // r: grip radius
+  // r: grip radius. kind 'model': a loaded model's steering wheel (`model`, centred on its axis), in place of a built one
+  wheel: { y: number; z: number; rake: number; r: number; kind: 'f1' | 'gt3' | 'round' | 'model'; model?: THREE.Object3D };
   ratio: number; look: number;
+  seat?: boolean;                              // a seat back behind the torso (default true; a model has its own seat)
 }
 
 // Seated driver (helmet, torso, arms) and steering wheel. The torso goes into the car's merged body; the helmet,
@@ -69,7 +74,7 @@ function addDriver(group: THREE.Group, add: Add, o: DriverOpts): Cockpit {
   const dark = mat({ color: 0x111214, roughness: 0.55, metalness: 0.2, envMapIntensity: 0.3 });
   const glove = mat({ color: 0x1d1f24, roughness: 0.8, envMapIntensity: 0.2 });
   add(B(0.4, 0.5, 0.26), suit, o.x, hy - 0.38, hz - 0.06);                            // torso
-  add(B(0.5, 0.75, 0.08), dark, o.x, hy - 0.3, hz - 0.24);                           // seat back
+  if (o.seat !== false) add(B(0.5, 0.75, 0.08), dark, o.x, hy - 0.3, hz - 0.24);    // seat back
 
   const head = new THREE.Group();
   head.position.set(o.x, hy, hz);
@@ -105,6 +110,8 @@ function addDriver(group: THREE.Group, add: Add, o: DriverOpts): Cockpit {
       for (const sx of [-1, 1]) wheelParts.push([B(0.017, 0.017, 0.006).translate(sx * (0.055 + (k % 2) * 0.024), 0.015 - Math.floor(k / 2) * 0.027, -0.017), m]);
       if (k < 2) wheelParts.push([knob.clone().translate((k ? 1 : -1) * 0.03, -0.045, -0.018), m]);
     });
+  } else if (w.kind === 'model') {
+    if (w.model) wheel.add(w.model);
   } else {      // round rim, three spokes, a marker at the top so you can see it turn
     wheelParts.push([new THREE.TorusGeometry(w.r, 0.019, 8, 32), dark],
       [new THREE.CylinderGeometry(0.05, 0.05, 0.05, 14).rotateX(Math.PI / 2), dark],
@@ -145,6 +152,24 @@ export function poseCockpit(c: Cockpit, steer: number) {
     arm.mesh.scale.set(1, len, 1);
   }
 }
+
+// Frees the geometries and materials under obj, except a loaded model's (userData.shared: every car built from the
+// model uses them, and the model stays loaded). Textures belong to those shared materials or are the shared
+// environment map, so none is disposed here.
+function disposeTree(obj: THREE.Object3D) {
+  obj.traverse((o) => {
+    if (!(o instanceof THREE.Mesh)) return;
+    const geo: THREE.BufferGeometry = o.geometry;
+    if (!geo.userData.shared) geo.dispose();
+    for (const m of [o.material as THREE.Material | THREE.Material[]].flat()) if (!m.userData.shared) m.dispose();
+  });
+}
+
+function carMesh(root: THREE.Group, wheels: CarMesh['wheels'], brakeLight: CarMesh['brakeLight'], cockpit: Cockpit): CarMesh {
+  const mesh: CarMesh = { root, wheels, brakeLight, cockpit, dispose: () => { disposed.add(mesh); disposeTree(root); } };
+  return mesh;
+}
+const disposed = new WeakSet<CarMesh>();
 
 // Body colour, accent colour and wheel stripe, so one body can carry more than one livery.
 export interface Paint { body: number; accent: number; stripe: number }
@@ -190,7 +215,7 @@ export function buildCarMesh(spec: CarInfo, paint: Paint = { body: 0xff6a13, acc
   const brakeLight = new THREE.Mesh(B(0.12, 0.08, 0.03), new THREE.MeshStandardMaterial({ color: 0x400000, emissive: 0xff1010, emissiveIntensity: 0.4 }));
   brakeLight.position.set(0, 0.05, -2.32); bodyGroup.add(brakeLight);
   const wheels = buildWheels(root, spec, { rim: 0x2a2d33, stripe: paint.stripe });
-  return { root, wheels, brakeLight, cockpit };
+  return carMesh(root, wheels, brakeLight, cockpit);
 }
 
 // Four wheels (pivot for steer/suspension, spinner for rolling) shared by every car body. The tyre has rounded
@@ -298,12 +323,13 @@ export function buildDriftMesh(spec: CarInfo): CarMesh {
   });
   const brakeLight = tails[1];   // both lights share tailMat, so lighting one lights both
   const wheels = buildWheels(root, spec, { rim: 0xb8bec6 });
-  return { root, wheels, brakeLight, cockpit };
+  return carMesh(root, wheels, brakeLight, cockpit);
 }
 
 // GT3 coupe: long bonnet, cabin set back, wide arches standing above it, splitter, diffuser and a full-width rear
 // wing. Origin is the centre of mass (0.40 m above the road); the floor is at y = -0.33.
-export function buildGt3Mesh(spec: CarInfo, paint: Paint = { body: 0x0e6b57, accent: 0xf2d21b, stripe: 0xf2d21b }): CarMesh {
+// With `model`, the model file replaces this body once it has loaded (see loadModel).
+export function buildGt3Mesh(spec: CarInfo, paint: Paint = { body: 0x0e6b57, accent: 0xf2d21b, stripe: 0xf2d21b }, model?: CarModelDef): CarMesh {
   const root = new THREE.Group(), bodyGroup = new THREE.Group();
   root.add(bodyGroup);
   const body = mat({ color: paint.body, roughness: 0.28, metalness: 0.3 });
@@ -362,5 +388,132 @@ export function buildGt3Mesh(spec: CarInfo, paint: Paint = { body: 0x0e6b57, acc
   const brakeLight = new THREE.Mesh(B(0.3, 0.04, 0.03), tailMat);   // shares tailMat, so lighting it lights all three
   brakeLight.position.set(0, 0.05, -2.37); bodyGroup.add(brakeLight);
   const wheels = buildWheels(root, spec, { rim: 0x1b1d21, stripe: paint.stripe });
-  return { root, wheels, brakeLight, cockpit };
+  const mesh = carMesh(root, wheels, brakeLight, cockpit);
+  if (model) loadModel(mesh, spec, model);
+  return mesh;
+}
+
+// ============================================================================
+// Car models from files (public/cars/<id>/model.glb, made by scripts/cars/convert.mjs). The procedural body is
+// what a car is built with (and all a car has in the tests, which have no loader); the model replaces it when it
+// arrives. A model is loaded once and every car built from it shares its geometry, materials and textures.
+// ============================================================================
+
+// A model file and the driver to seat in it (body coordinates: x left, y up, z forward; origin the centre of mass).
+export interface CarModelDef {
+  url: string;                                 // relative to the page, under public/
+  driver: { head: [y: number, z: number]; shoulder: [dy: number, dz: number]; helmet: number; suit: number };
+}
+
+// The Mercedes-AMG GT3s (credits in public/cars/<id>/LICENSE.md). Both seat the driver on the left.
+export const GT3_MODEL: CarModelDef = {
+  url: 'cars/gt3/model.glb',
+  driver: { head: [0.52, -0.62], shoulder: [-0.2, 0.02], helmet: 0xf2f4f7, suit: 0x1c2a44 },
+};
+export const LC_GT3_MODEL: CarModelDef = {
+  url: 'cars/lcgt3/model.glb',
+  driver: { head: [0.5, -0.62], shoulder: [-0.2, 0.02], helmet: 0x1b2a4e, suit: 0x1b2a4e },
+};
+
+// Loads a model file (carModels.ts sets it in the browser; null in Node). The promise resolves to the file's scene;
+// it is shared, so never changed or disposed by a car.
+export type CarModelSource = (url: string) => Promise<THREE.Object3D>;
+let modelSource: CarModelSource | null = null;
+export function setCarModelSource(source: CarModelSource | null) { modelSource = source; }
+
+function loadModel(mesh: CarMesh, spec: CarInfo, def: CarModelDef) {
+  if (!modelSource) return;
+  modelSource(def.url).then((model) => { if (!disposed.has(mesh)) swapInModel(mesh, spec, model, def); },
+    (err: unknown) => console.warn(`car model ${def.url} not loaded, keeping the built body:`, err));
+}
+
+const CORNERS = ['FL', 'FR', 'RL', 'RR'];
+const _frame = new THREE.Matrix4(), _q = new THREE.Quaternion(), _x = new THREE.Vector3(1, 0, 0), _one = new THREE.Vector3(1, 1, 1);
+
+// Once per loaded model: the environment map on its materials, shadows, and the shared flag that keeps a car's
+// dispose() off its resources.
+function prepareModel(model: THREE.Object3D) {
+  if (model.userData.prepared) return;
+  model.userData.prepared = true;
+  model.traverse((o) => {
+    if (!(o instanceof THREE.Mesh)) return;
+    const geo = o.geometry as THREE.BufferGeometry;
+    geo.computeBoundingSphere();
+    // Only parts big enough to show in the shadow cast it (each caster is another draw call): the panels, glass
+    // and wheels, not the cockpit's and the details' small pieces.
+    o.updateWorldMatrix(true, false);   // (quantized geometry: the node's scale gives metres)
+    o.castShadow = geo.boundingSphere!.radius * o.matrixWorld.getMaxScaleOnAxis() > 0.3; o.receiveShadow = false;
+    geo.userData.shared = true;
+    for (const m of [o.material as THREE.Material | THREE.Material[]].flat()) {
+      m.userData.shared = true;
+      if (m instanceof THREE.MeshStandardMaterial) { m.envMap = envMap; m.envMapIntensity = m.transparent ? 1 : 0.7; }
+    }
+  });
+}
+
+// A copy of one of the model's parts, placed in its own frame: the converter records where each moving part's
+// origin belongs (extras.frame: the wheel centre, the steering wheel's centre and rake), and the node's transform
+// (which also carries the geometry's dequantization) is applied relative to that.
+function part(model: THREE.Object3D, name: string) {
+  const src = model.getObjectByName(name);
+  if (!src) return null;
+  const fr = src.userData.frame as { origin: [number, number, number]; rake: number } | undefined;
+  const origin = new THREE.Vector3(...(fr?.origin ?? [0, 0, 0])), rake = fr?.rake ?? 0;
+  const obj = src.clone();
+  src.updateMatrix();
+  _frame.compose(origin, _q.setFromAxisAngle(_x, rake), _one).invert().multiply(src.matrix);
+  _frame.decompose(obj.position, obj.quaternion, obj.scale);
+  return { obj, origin, rake, data: src.userData };
+}
+
+// Replaces the procedural body, wheels and steering wheel with the model's, and seats a driver in it.
+function swapInModel(mesh: CarMesh, spec: CarInfo, model: THREE.Object3D, def: CarModelDef) {
+  prepareModel(model);
+  const body = part(model, 'body'), steering = part(model, 'steering_wheel');
+  if (!body || !steering) { console.warn(`car model ${def.url} has no body or steering wheel, keeping the built body`); return; }
+  const bodyGroup = new THREE.Group();
+  bodyGroup.add(body.obj);
+
+  // The brake light gets its own material, lit by render().
+  const light = part(model, 'brake_light');
+  let brakeLight: CarMesh['brakeLight'];
+  const lightMesh = light?.obj instanceof THREE.Mesh ? light.obj : light?.obj.getObjectByProperty('isMesh', true);
+  if (light && lightMesh instanceof THREE.Mesh && lightMesh.material instanceof THREE.MeshStandardMaterial) {
+    const m = lightMesh.material.clone();
+    m.userData = {};
+    m.emissive.set(0xff2a1a); m.emissiveMap = m.map;
+    lightMesh.material = m;
+    brakeLight = lightMesh as CarMesh['brakeLight'];
+    bodyGroup.add(light.obj);
+  } else {
+    brakeLight = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshStandardMaterial());
+    brakeLight.visible = false;
+  }
+
+  // Driver, at the model's steering wheel.
+  const d = def.driver, so = steering.origin;
+  const { add, done } = parts(bodyGroup);
+  const cockpit = addDriver(bodyGroup, add, { x: so.x, head: d.head, helmet: d.helmet, suit: d.suit, shoulder: d.shoulder, seat: false,
+    wheel: { y: so.y, z: so.z, rake: steering.rake, r: steering.data.grip ?? 0.12, kind: 'model', model: steering.obj },
+    ratio: mesh.cockpit.ratio, look: mesh.cockpit.look });
+  done();
+
+  // Out with the built body: everything but the wheels' pivots, which render() moves.
+  const old = mesh.root.children.filter((c) => !mesh.wheels.some((w) => w.pivot === c));
+  for (const c of old) { mesh.root.remove(c); disposeTree(c); }
+  mesh.root.add(bodyGroup);
+
+  // Wheels: each spinner moves to the model's wheel centre, a little off the physics' hub where the model's track
+  // or tyre size differs (render() only turns the spinner), so the tyre still meets the road.
+  mesh.wheels.forEach(({ pivot, spinner }, k) => {
+    const wheel = part(model, `wheel_${CORNERS[k]}`), hub = part(model, `hub_${CORNERS[k]}`);
+    if (!wheel) return;
+    for (const c of [...spinner.children]) { spinner.remove(c); disposeTree(c); }
+    const x = k % 2 ? -spec.trackHalf : spec.trackHalf, z = k < 2 ? spec.zFront : spec.zRear;
+    spinner.position.set(wheel.origin.x - x, (wheel.data.radius ?? spec.wheelRadius) - spec.wheelRadius, wheel.origin.z - z);
+    spinner.add(wheel.obj);
+    if (hub) { hub.obj.position.add(spinner.position); pivot.add(hub.obj); }
+  });
+  mesh.brakeLight = brakeLight;
+  mesh.cockpit = cockpit;
 }

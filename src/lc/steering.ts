@@ -5,6 +5,8 @@ import type { VehiclePhysics } from './vendor/sim/f12026-car/VehiclePhysics';
 // ============================================================================
 // Input shaping for LibreCorsa-engine cars, ported from LibreCorsa at commit c31ac20 (MIT): their keyboard steering
 // assist, the rack-rate limit every non-wheel device gets, and the key pedal ramps with the throttle's slip help.
+// Their keyboard assist is adapted from AC-Advanced-Gamepad-Assist v1.5.5 by Adam D. (MIT, Copyright (c) 2023
+// Adam D.; github.com/adam10603/AC-Advanced-Gamepad-Assist; the notice is in README.md, Credits).
 // Sign conventions are the engine's: steer + = right, yaw rate + = right; body +x is the car's LEFT, +z its nose.
 // ============================================================================
 const G = 9.81;

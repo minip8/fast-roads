@@ -5,13 +5,17 @@
 //   the network fails, so a stale page can't stick. Navigations don't update the cache: the offline copy always
 //   matches the precached build files.
 // - Everything else is a content-hashed build file (or a small public file), served from the precache, else network.
+// - The car models (LAZY, a few MB each, versioned by ?v=<content hash>) are not precached: each is kept in its own
+//   cache the first time the game fetches it, and kept across deploys while the deploy still uses that version.
 // - A new deploy changes this file, so the browser installs the new version on the next load; it activates at once
 //   and deletes the previous cache. Caches are per scope, so copies at different sub-paths don't touch each other.
 // - To retire it, deploy a sw.js that calls self.registration.unregister().
 const VERSION = __VERSION__;
 const FILES = __FILES__;   // relative to this script; './' is index.html
+const LAZY = new Set(__LAZY__.map((f) => new URL(f, self.registration.scope).href));
 const PREFIX = 'fastroads ' + self.registration.scope + ' ';
 const CACHE = PREFIX + VERSION;
+const MODELS = PREFIX + 'models';
 const INDEX = new URL('./', self.registration.scope).href;
 
 self.addEventListener('install', (event) => {
@@ -25,7 +29,9 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
-    for (const key of await caches.keys()) if (key.startsWith(PREFIX) && key !== CACHE) await caches.delete(key);
+    for (const key of await caches.keys()) if (key.startsWith(PREFIX) && key !== CACHE && key !== MODELS) await caches.delete(key);
+    const models = await caches.open(MODELS);   // models this deploy no longer uses
+    for (const req of await models.keys()) if (!LAZY.has(req.url)) await models.delete(req);
   })());
 });
 
@@ -34,6 +40,17 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET' || !req.url.startsWith(self.registration.scope)) return;
   if (req.mode === 'navigate') {
     event.respondWith(fetch(req).catch(async (err) => (await caches.match(INDEX, { cacheName: CACHE })) ?? Promise.reject(err)));
+    return;
+  }
+  if (LAZY.has(req.url)) {
+    event.respondWith((async () => {
+      const cache = await caches.open(MODELS).catch(() => null);
+      const hit = await cache?.match(req).catch(() => undefined);
+      if (hit) return hit;
+      const res = await fetch(req);
+      if (res.ok && cache) event.waitUntil(cache.put(req, res.clone()).catch(() => {}));
+      return res;
+    })());
     return;
   }
   event.respondWith((async () => {

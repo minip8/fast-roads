@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { buildBrakeMarkers } from './brakeMarkers';
 import { setCarEnvironment } from './carMeshes';
+import { installCarModels } from './carModels';
 import { buildScenery, buildSky } from './scenery';
 import type { Track } from './track';
 import type { TrackDef } from './tracks';
@@ -38,6 +39,7 @@ export function buildStage(canvas: HTMLCanvasElement, track: Track, def: TrackDe
     setCarEnvironment(pmrem.fromScene(envScene, 0.02).texture);
     pmrem.dispose(); ground.geometry.dispose(); ground.material.dispose();
   }
+  installCarModels();   // cars with a model file swap it in when it has loaded
   scene.add(new THREE.HemisphereLight(0xcfe3ff, 0x5a6a40, 1.1));
   const sun = new THREE.DirectionalLight(0xfff1dc, 3.0);
   sun.castShadow = true;

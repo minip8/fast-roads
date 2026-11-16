@@ -112,6 +112,7 @@ export class Car implements Vehicle {
   destroy() {
     this.world.removeRigidBody(this.body);   // also removes its colliders
     this.scene.remove(this.mesh.root);
+    this.mesh.dispose();
   }
 
   placeAt(s: number, lat = 0, speed = 0) {

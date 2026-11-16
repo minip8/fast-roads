@@ -21,6 +21,7 @@ dev and the tests use the inline copy.
     npm test            # Vitest, headless physics (~35 s: the test files run in parallel)
     npx vitest run test/handling.test.ts -t 'F1'   # one file / one test by name
     npm run build       # typecheck + static build in dist/ (base './'); npm run preview serves it
+    node scripts/cars/convert.mjs gt3 <source.glb> <textures dir>   # remake a car model (sources: see its header)
 
 Run `npm run typecheck` and `npm test` before committing.
 
@@ -56,7 +57,7 @@ Run `npm run typecheck` and `npm test` before committing.
   on another engine.
 - In the browser, `window.__game` exposes `simulate(seconds, driver, probeSecs)`, `car` (a getter: the car object is
   replaced when you switch cars), `simTime`, `session`, `timing`, `track`, `input`, `setSetting(key, value)` and
-  `setAutopilot` (the `GameHook` type in `main.ts`). Use it for checks that need the page (menu, HUD, settings), e.g.
+  `setAutopilot` and `stage` (renderer, scene, camera; the `GameHook` type in `main.ts`). Use it for checks that need the page (menu, HUD, settings), e.g.
   from headless Chromium.
 
 ## Architecture (`src/`)
@@ -67,6 +68,8 @@ Run `npm run typecheck` and `npm test` before committing.
   with a retry button in `#loadState`. The build preloads the dynamically imported chunks from `index.html`.
 - `sw.js`: service worker template (plain JS). The build writes `dist/sw.js` with the list of every output file to
   precache; `boot.ts` registers it in production only. `index.html` is network-first, everything else cache-first.
+  The car models are not precached: the game fetches `model.glb?v=<content hash>` (`__CAR_MODELS__`, defined in
+  `vite.config.ts`) and the worker keeps each one the first time, in a cache that outlives deploys.
   `public/` holds the icon and web app manifest.
 - `config.ts`: constants, surfaces, collision groups
 - `util.ts`: math and formatting helpers
@@ -83,7 +86,15 @@ Run `npm run typecheck` and `npm test` before committing.
 - `carMeshes.ts`: car bodies, static parts merged per material, each with a seated driver and steering wheel
   (`Cockpit`: the Driver camera's eye, the helmet it hides, and `poseCockpit`, which both cars' `render` call to turn
   the wheel and arms). Paint and metal reflect the environment map that
-  `stage.ts` hands over with `setCarEnvironment` before any car is built.
+  `stage.ts` hands over with `setCarEnvironment` before any car is built. `CarMesh.dispose()` frees a body on car
+  switch. The GT3s (`GT3_MODEL`, `LC_GT3_MODEL`) are 3D models (`public/cars/<id>/model.glb` + `LICENSE.md`,
+  CC BY-NC-SA: credits in README): the procedural body is built first (and is all the tests get), and when
+  `carModels.ts` (GLTFLoader + meshopt, browser only, installed by `stage.ts`) has loaded the file, the body,
+  wheels (`spinner` moves to the model's wheel centre), calipers, steering wheel and brake light are swapped in
+  place, so `mesh.cockpit` / `mesh.brakeLight` change: read them at use. A loaded model is cached and shared by
+  every car built from it (`userData.shared`: never disposed). `scripts/cars/convert.mjs` makes the files from the
+  Sketchfab downloads (part names and `extras.frame` documented there); `test/carModels.test.ts` checks them
+  against the specs' axles.
 - `tracks.ts`: the circuits (`TRACKS`, `TrackDef`): CSV, names, best-times key, start spot and each car's flying-lap speed there, scenery placement
 - `track.ts`: track geometry and colliders (`Track`)
 - `trackMeshes.ts`, `textures.ts`, `scenery.ts`, `brakeMarkers.ts`: visuals; `batch.ts`: `Batch`, which merges many

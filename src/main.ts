@@ -34,6 +34,7 @@ export interface GameHook {
   readonly session: Session; readonly timing: Timing; readonly track: Track; readonly input: Input;
   readonly autopilot: typeof autopilot;
   readonly brakeMarkers: ReturnType<typeof buildStage>['brakeMarkers'];
+  readonly stage: ReturnType<typeof buildStage>;   // renderer, scene, camera (screenshots, renderer.info)
 }
 declare global { interface Window { __game?: GameHook } }
 
@@ -138,7 +139,7 @@ export async function main() {
   window.__game = {
     simulate, setSetting, setAutopilot: (on) => { autoOn = on; },
     get car() { return session.car; }, get simTime() { return session.simTime; },
-    session, timing, track, input, autopilot, brakeMarkers: stage.brakeMarkers,
+    session, timing, track, input, autopilot, brakeMarkers: stage.brakeMarkers, stage,
   };
 
   // In-game hotkeys (ignored while the menu is open; it handles its own keys).

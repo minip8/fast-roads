@@ -60,8 +60,22 @@ function preloadGame(): Plugin {
   };
 }
 
+// Car model files (public/cars/<id>/model.glb, a few MB each) and their content hashes. The game asks for
+// `<file>?v=<hash>` (carModels.ts), so a changed model is a new URL and no cache can serve a stale one.
+const MODEL_DIR = 'public/cars';
+function carModels(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const id of readdirSync(MODEL_DIR)) {
+    const file = `${MODEL_DIR}/${id}/model.glb`;
+    try { out[`cars/${id}/model.glb`] = createHash('sha256').update(readFileSync(file)).digest('hex').slice(0, 12); } catch { /* no model */ }
+  }
+  return out;
+}
+const CAR_MODELS = carModels();
+
 // Writes dist/sw.js (from src/sw.js) with the list of every built file to precache, and a version that changes
-// whenever any of them does, so a new deploy installs a new service worker.
+// whenever any of them does, so a new deploy installs a new service worker. The car models are not precached
+// (most players never drive some cars): the service worker keeps each one the first time the game fetches it.
 function serviceWorker(): Plugin {
   let root = '', outDir = '';
   return {
@@ -74,12 +88,15 @@ function serviceWorker(): Plugin {
       const files = walk(outDir).map((f) => relative(outDir, f).split(sep).join('/')).filter((f) => f !== 'sw.js').sort();
       const hash = createHash('sha256');
       for (const f of files) hash.update(f).update(readFileSync(join(outDir, f)));
-      const urls = files.map((f) => (f === 'index.html' ? './' : './' + f));
+      const lazy = files.filter((f) => f in CAR_MODELS);
+      if (lazy.length !== Object.keys(CAR_MODELS).length) this.error('service-worker: a car model is missing from the build');
+      const urls = files.filter((f) => !lazy.includes(f)).map((f) => (f === 'index.html' ? './' : './' + f));
       const template = readFileSync(resolve(root, 'src/sw.js'), 'utf8');
-      for (const p of ['__VERSION__', '__FILES__']) if (!template.includes(p)) this.error(`service-worker: src/sw.js has no ${p} placeholder`);
+      for (const p of ['__VERSION__', '__FILES__', '__LAZY__']) if (!template.includes(p)) this.error(`service-worker: src/sw.js has no ${p} placeholder`);
       const src = template
         .replace('__VERSION__', JSON.stringify(hash.digest('hex').slice(0, 12)))
-        .replace('__FILES__', JSON.stringify(urls));
+        .replace('__FILES__', JSON.stringify(urls))
+        .replace('__LAZY__', JSON.stringify(lazy.map((f) => `./${f}?v=${CAR_MODELS[f]}`)));
       writeFileSync(join(outDir, 'sw.js'), src);
     },
   };
@@ -87,6 +104,7 @@ function serviceWorker(): Plugin {
 
 export default defineConfig({
   base: './',   // so the built dist/ folder works from any path
+  define: { __CAR_MODELS__: JSON.stringify(CAR_MODELS) },
   plugins: [rapierWasmFile(), preloadGame(), serviceWorker()],
   build: {
     chunkSizeWarningLimit: 600,   // the three.js chunk is ~530 kB minified
@@ -94,6 +112,8 @@ export default defineConfig({
       output: {
         // Libraries in their own chunks, so a game-code change doesn't invalidate them in the browser cache.
         codeSplitting: { groups: [
+          // the glTF loader only for the car models, fetched with the first one (carModels.ts)
+          { name: 'gltf', test: /node_modules[\\/]three[\\/]examples[\\/]jsm[\\/](loaders[\\/]GLTFLoader|libs[\\/]meshopt_decoder)/, includeDependenciesRecursively: false },
           { name: 'three', test: /node_modules[\\/]three[\\/]/ },
           { name: 'rapier', test: /node_modules[\\/]@dimforge[\\/]/ },
           { name: 'librecorsa', test: /src[\\/]lc[\\/]vendor[\\/]/ },   // the vendored engine changes as rarely as a library

@@ -118,6 +118,7 @@ export class LcCar implements Vehicle {
 
   destroy() {
     this.scene.remove(this.mesh.root);
+    this.mesh.dispose();
   }
 
   // At (s, lat), facing the racing direction, at rest or rolling at `speed` (the engine's rolling start: settled

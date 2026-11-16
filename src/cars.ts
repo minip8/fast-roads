@@ -1,5 +1,5 @@
 import type { EngineVoice } from './audioGraph';
-import { buildCarMesh, buildDriftMesh, buildGt3Mesh, type CarMesh, type Paint } from './carMeshes';
+import { buildCarMesh, buildDriftMesh, buildGt3Mesh, type CarMesh, GT3_MODEL, LC_GT3_MODEL, type Paint } from './carMeshes';
 import type { EngineDriverFactory } from './lc/engineDriver';
 import { f1Driver, gt3Driver } from './lc/driver';
 import { compoundData, type CarPhysicsConfig } from './lc/vendor/sim/f12026-car/F12026CarConfig';
@@ -149,7 +149,7 @@ function lcBody(config: CarPhysicsConfig, fuelKg: number) {
     tyreW: [t.front.width, t.rear.width] as [number, number],
   };
 }
-const LC_GT3_PAINT: Paint = { body: 0xc3c7cc, accent: 0x00a19b, stripe: 0x00a19b };   // silver, teal
+const LC_GT3_PAINT: Paint = { body: 0xc3c7cc, accent: 0x00a19b, stripe: 0x00a19b };   // silver, teal (the built body, until its model loads)
 const LC_F1_PAINT: Paint = { body: 0x1b2a4e, accent: 0xe8112d, stripe: 0xf5f5f5 };   // navy, red
 
 export const CARS: Record<CarId, AnyCarSpec> = {
@@ -269,7 +269,7 @@ export const CARS: Record<CarId, AnyCarSpec> = {
   // acceleration and understeer LibreCorsa measures from its own simulation (test/gt3.test.ts holds the table):
   // GT3_CAMBER, brakeMax, brakeGrip and steerComply.
   gt3: {
-    id: 'gt3', name: 'GT3', storeKey: '.gt3', physics: 'rapier', mesh: buildGt3Mesh,
+    id: 'gt3', name: 'GT3', storeKey: '.gt3', physics: 'rapier', mesh: (spec) => buildGt3Mesh(spec, undefined, GT3_MODEL),
     hint: 'Heavy and planted: brake early and in a straight line, and wait for the nose before the power',
     mass: 1385,                               // 1360 kg with driver, plus the 25 kg of fuel aboard on the reference laps
     inertia: { x: 1791, y: 2039, z: 470 },    // a 1.78 x 0.99 x 3.85 m box of 1360 kg
@@ -321,12 +321,12 @@ export const CARS: Record<CarId, AnyCarSpec> = {
     hull: [0.95, 0.22, 2.3, 0, 0.05, -0.04],
     parts: [[0.72, 0.2, 0.95, 0, 0.5, -0.45], [0.95, 0.05, 0.2, 0, 0.8, -2.2]],   // cabin, rear wing
     tyreW: [0.315, 0.325],
-    cam: { up: 0.5, back: -0.7, down: 0.3 },   // bonnet camera, ahead of the windscreen
+    cam: { up: 0.58, back: -0.8, down: 0.3 },   // bonnet camera, on the bonnet ahead of the windscreen
   },
   // LibreCorsa's own Mercedes-AMG GT3 on their engine (src/lc/vendor), in place of our physics: the car the gt3 above
   // is fitted to.
   lcgt3: {
-    id: 'lcgt3', name: 'GT3 (LC)', storeKey: '.lcgt3', physics: 'lc', mesh: (spec) => buildGt3Mesh(spec, LC_GT3_PAINT),
+    id: 'lcgt3', name: 'GT3 (LC)', storeKey: '.lcgt3', physics: 'lc', mesh: (spec) => buildGt3Mesh(spec, LC_GT3_PAINT, LC_GT3_MODEL),
     hint: 'LibreCorsa physics: tyres warm up over the first corners · ABS always on · with TC off the throttle steers it',
     config: AMG_GT3_CONFIG, driver: gt3Driver, fuelKg: 50, turbo: false, straightMode: false,
     ...lcBody(AMG_GT3_CONFIG, 50),
@@ -339,7 +339,7 @@ export const CARS: Record<CarId, AnyCarSpec> = {
     autoUndersteer: 0.0025,                   // the 1.41 deg/g their reference manoeuvre measures on this engine
     redline: 7900, idle: 2100, shiftPoint: 7500, shiftLightsFrom: 6200,   // their limiter, idle, upshift and shift lights
     sound: GT3_VOICE,
-    cam: { up: 0.5, back: -0.7, down: 0.3 },
+    cam: { up: 0.58, back: -0.8, down: 0.3 },
   },
   // LibreCorsa's 2026 F1 car (the LC26, tuned) on their engine: 768 kg, a hybrid that deploys and harvests by itself
   // (RAC mode), and flaps that open on every straight.

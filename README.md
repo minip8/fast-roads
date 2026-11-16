@@ -78,7 +78,7 @@ are hidden in the Driver camera unless **Driver camera hands** is set to Shown (
     the nose wide instead of swinging the tail. LibreCorsa's car can be spun on the power with its traction control
     off; this game's own physics has no wheelspin model, so that part of its handling is missing here.
   What is not carried over: tyre temperature, pressure and wear, suspension geometry, the limited-slip differential,
-  ride-height-dependent downforce and wet weather. The body is this game's own; LibreCorsa's car model is not used.
+  ride-height-dependent downforce and wet weather. Its body is Vecarz's Mercedes-AMG GT3 model (see Credits).
   **GT3 (LC)** below is the same car on LibreCorsa's own engine, with all of that.
 - **GT3 (LC)** and **F1 2026 (LC)**: LibreCorsa's Mercedes-AMG GT3 and its 2026 F1 car, running on LibreCorsa's
   physics engine itself (`src/lc/vendor/`, MIT) in place of this game's: a 500 Hz rigid body with brush tyres that
@@ -103,7 +103,8 @@ are hidden in the Driver camera unless **Driver camera hands** is set to Shown (
     screen). Pedals from keys and mouse buttons are eased on over about 0.2 s.
   - **Numbers** (measured in the tests): GT3 0–100 km/h 3.5 s, 1.9 g braking from 200 km/h, 1.6–2.0 g cornering
     from 80 to 220 km/h; F1 0–100 km/h 2.7 s, 2.9 g braking from 200 km/h, 2.0–3.9 g cornering from 80 to 220 km/h.
-  They use the GT3 and F1 bodies in other colours and the same engine sounds. Not used from LibreCorsa: weather, tyre
+  The GT3 (LC) is VTX's Red Bull Racing Mercedes-AMG GT3 model (see Credits); the F1 2026 has the F1's body in other
+  colours. Both use the same engine sounds as their counterparts. Not used from LibreCorsa: weather, tyre
   wear, fuel use, damage, car setup, the F1's manual boost and energy modes, and its car models and sounds.
 
 Each car keeps its own best lap and sector times at each circuit. Switching car puts you back at the start.
@@ -171,6 +172,12 @@ and override the mouse while held.
   the barriers as wall segments. `src/lc/driver.ts`, `aids.ts` and `steering.ts` are ports of the parts of
   LibreCorsa's game layer that the engine relies on: pedal ramps, the keyboard steering assist, ABS and traction
   control, all run at the engine's 500 Hz. One game tick costs about half a millisecond for these cars.
+- **Car bodies**: built from boxes and extrusions in code (`src/carMeshes.ts`), each with a seated driver whose
+  hands turn the steering wheel in the driver camera. The two GT3s instead show 3D models (`public/cars/<id>/`, about
+  2 and 3.7 MB, 75-90k triangles): the built body shows until the model has downloaded, and stays if it can't.
+  `scripts/cars/convert.mjs` makes them from the Sketchfab downloads (turned, scaled to the car's axles, split into
+  body, wheels, calipers, steering wheel and brake lights, simplified, WebP textures, meshopt geometry). The
+  service worker keeps a model once it has been downloaded rather than precaching both.
 - **Sound**: all synthesised, no recordings. Each car has its own engine voice (a smooth V6 in the F1, a lumpy V8 in
   the drift car) that brightens under load, cuts briefly on upshifts, blips on downshifts and stutters on the rev
   limiter. The GT3s' cross-plane V8 is made the way sample-based sims do it, with samples we synthesise ourselves
@@ -198,6 +205,45 @@ steady-state lateral grip 1.3 g at 60 km/h rising to 3.5 g at 260 km/h.
 
 Tests (`npm test`) run the same physics headless in Node and check autopilot lap times to the millisecond, so any
 change to handling shows up. In the browser, `window.__game.simulate(seconds, true)` does the same with the autopilot.
+
+## Credits
+
+- **GT3 body**: "Mercedes-AMG GT3 | www.vecarz.com" by [Vecarz](https://www.vecarz.com)
+  ([Sketchfab](https://sketchfab.com/3d-models/mercedes-amg-gt3-wwwvecarzcom-6a3f7e3455064721b74b7f0b66427a07)).
+- **GT3 (LC) body**: "Mercedes-AMG GT3 Red Bull Racing" by VTX
+  ([Sketchfab](https://sketchfab.com/3d-models/mercedes-amg-gt3-red-bull-racing-035f061cb6624effbc483d5f9b5ecaba)),
+  based on "Mercedes-Benz AMG GT3 Red Bull" by toddeppe
+  ([Sketchfab](https://sketchfab.com/3d-models/mercedes-benz-amg-gt3-red-bull-83c34fe5c0d64d838bc3c5e0f2d7f56a)),
+  itself derived from the Vecarz model.
+
+Both models are licensed [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/); the converted
+files (`public/cars/<id>/model.glb`) are adaptations under the same licence, which is not the code's: each
+`LICENSE.md` beside them lists the changes made. Because of them **the game as distributed is non-commercial**
+(remove the two models, and the cars fall back to their built bodies). The Red Bull livery's names and logos, and
+the Mercedes-AMG and Mercedes-Benz names and star, are trademarks of their owners; the models are unofficial and
+the game is not affiliated with or endorsed by Mercedes-AMG, Mercedes-Benz or Red Bull.
+
+- **LibreCorsa** (github.com/KhazP/librecorsa, MIT): the physics engine and car data in `src/lc/vendor/` (licence
+  and provenance in its README) and the ports of its driver aids in `src/lc/`.
+- **Keyboard steering assist** (`src/lc/steering.ts`): ported from LibreCorsa's, which is adapted from
+  [AC-Advanced-Gamepad-Assist](https://github.com/adam10603/AC-Advanced-Gamepad-Assist) v1.5.5 by Adam D.
+  (@adam10603), under the MIT licence:
+
+  > Copyright (c) 2023 Adam D.
+  >
+  > Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+  > documentation files (the "Software"), to deal in the Software without restriction, including without limitation
+  > the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and
+  > to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+  >
+  > The above copyright notice and this permission notice shall be included in all copies or substantial portions
+  > of the Software.
+  >
+  > THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO
+  > THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  > AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+  > CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+  > IN THE SOFTWARE.
 
 ## Not yet
 
