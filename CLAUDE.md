@@ -18,12 +18,15 @@ dev and the tests use the inline copy.
     npm install
     npm run dev         # dev server; ?autopilot in the URL skips the menu and lets the built-in driver lap
     npm run typecheck   # tsc for src/, then for test/ (only test/ gets Node types)
-    npm test            # Vitest, headless physics (~35 s: the test files run in parallel)
+    npm test            # Vitest project `unit`: headless physics (~35 s: the test files run in parallel)
+    npm run test:laps   # Vitest project `laps`: the pinned laps at the 22 other circuits (~4 min)
     npx vitest run test/handling.test.ts -t 'reverse'   # one file / one test by name
     npm run build       # typecheck + static build in dist/ (base './'); npm run preview serves it
     node scripts/cars/convert.mjs lcgt3 <source.glb>   # remake a car model (sources: see its header)
+    node scripts/tracks/convert.mjs <racetrack-database> <f1-circuits> [id ...]   # remake circuit CSVs (see its header)
 
-Run `npm run typecheck` and `npm test` before committing.
+Run `npm run typecheck` and `npm test` before committing, and `npm run test:laps` too after a change to physics,
+tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
 
 ## Testing
 
@@ -33,14 +36,23 @@ Run `npm run typecheck` and `npm test` before committing.
   driver?, until?)` calls `Session.tick` with the autopilot or a `(car, simTime) => DriveInput` function, exactly as
   the game loop does, including the automatic resets; `until` stops early once the test has what it measures.
 - The simulation is deterministic, and Node and the browser agree to the millisecond. `test/laps.ts` pins
-  autopilot lap times from the game's flying start at both circuits, so any physics or tuning change shows up
-  there: Melbourne `lcf1` 116.317 s, `lcgt3` 133.917 s, drift car 157.514 s with TC on and 157.491 s off;
+  autopilot lap times from the game's flying start at every circuit, so any physics or tuning change shows up
+  there. Melbourne and Silverstone run in `npm test`: Melbourne `lcf1` 116.317 s, `lcgt3` 133.917 s, drift car 157.514 s with TC on and 157.491 s off;
   Silverstone `lcf1` 123.798 s, `lcgt3` 144.234 s, drift car 169.794 s. When a change is intended, check the
   handling still makes sense, then update the expected times. Each lap test also checks that the car passes the start
   spot at the end of the lap within 2 km/h of its `TrackDef.flying` speed; `test/start.test.ts` checks the flying
   start and restart themselves. Each lap is run by its own `laps-*.test.ts` file so the seven (about
-  10–20 s each) run in parallel. `session(carId, { track })` picks the
-  circuit (Melbourne by default).
+  10–20 s each) run in parallel. The other 22 circuits' laps (TC on, all three cars: `CALENDAR` in `test/laps.ts`)
+  are 66 more, too many for every commit: they are the Vitest project `laps` (`test/calendar/<circuit>.test.ts`,
+  three laps a file; `npm run test:laps`, about 4 minutes on 12 cores), and `npm test` is the project `unit`
+  (`test/*.test.ts`), set up in `vite.config.ts`. Every lap test also checks there were no resets and that the car's
+  centre never came within 2 m of a wall, except the one lap pinned as not clean (`NOT_CLEAN`: the drift car slides
+  wide at Spa's Blanchimont and Bus Stop and has its lap deleted). `session(carId, { track })` picks the circuit (Melbourne by default);
+  `trackFor(id)` builds a circuit once per test file.
+- `test/tracks.test.ts` checks every circuit's data cheaply (in `npm test`): lap length within 1.5% of the official
+  `lengthKm`, a unique best-times key, the start spot on a straight, a flying speed for every car, walls all round
+  except where another part of the lap passes (Suzuka's crossover, inside tight hairpins), the pit building and
+  grandstands placed without reaching another part of the circuit, and the calendar order.
 - `test/handling.test.ts` holds loose-bound checks of tuning intent: the drift car's brake-and-turn kick, slides,
   stopping distance, gearbox and reverse. `car.forceSurface = S_ASPHALT` keeps manoeuvres off grass. Keep them short (about 1–2 s after the manoeuvre):
   the start straight is walled (`walls: false` removes the barriers for manoeuvres that need the room).
@@ -101,9 +113,13 @@ Run `npm run typecheck` and `npm test` before committing.
   speed unit. A model's own screen is hidden in the car's copy and the live one placed over it (`CarModelDef.screen`).
   Extra readouts come from `Vehicle` (`tcActive`, `absActive`, optional `battery`, `flapsOpen`). Tests:
   `test/cockpitDisplay.test.ts` (values, meshes, disposal; no drawing in Node).
-- `tracks.ts`: the circuits (`TRACKS`, `TrackDef`): CSV, names, best-times key, start spot and each car's flying-lap speed there, scenery placement
+- `tracks.ts`: the circuits (`TRACKS`, `TrackDef`, in calendar order): names, display data for the circuit picker
+  (`country`, official `lengthKm`, 2026 `round`, none for the cancelled Bahrain and Jeddah), best-times key, start
+  spot and each car's flying-lap speed there, scenery placement; `loadTrackCsv(id)` fetches one circuit's CSV
+  (`import.meta.glob` makes each CSV its own chunk, so the game downloads only the circuit being driven)
 - `track.ts`: track geometry and colliders (`Track`)
-- `trackMeshes.ts`, `textures.ts`, `scenery.ts`, `brakeMarkers.ts`: visuals; `batch.ts`: `Batch`, which merges many
+- `trackMeshes.ts`, `textures.ts`, `scenery.ts`, `brakeMarkers.ts`: visuals (`standBays` / `pitBuilding` in
+  `scenery.ts` place the buildings, leaving out or shortening any that would reach another part of the circuit); `batch.ts`: `Batch`, which merges many
   static parts into one mesh per material (grandstands, pit, gantry, brake boards, car bodies)
 - `audio.ts`: `EngineAudio`, the AudioContext's lifecycle (created on the first gesture, suspended while muted or
   hidden); `audioGraph.ts`: `SoundGraph`, every sound node, built once, with `update()` moving only parameters.
@@ -139,9 +155,14 @@ Run `npm run typecheck` and `npm test` before committing.
 - `main.ts`: wires it together and owns game state (the `Session`, `started`/`paused`/autopilot, the
   `applySetting` table, hotkeys, the `window.__game` hook (typed `GameHook`), the frame loop)
 
-- **Track data**: `tracks/*.csv` (TUM racetrack-database centreline + widths, first row at the start/finish line,
-  in racing direction), imported into `tracks.ts` with Vite's `?raw` suffix; `parseCSV` skips `#` comment lines.
-  A new circuit is a CSV plus a `TRACKS` entry: the Circuit menu row, labels, best-times keys (`TrackDef.storeKey` +
+- **Track data**: `tracks/<id>.csv` (centreline + widths, x east / y north in metres, first row at the start/finish
+  line, in racing direction, ~5 m apart), loaded by `loadTrackCsv` as raw text; `parseCSV` skips `#` comment lines,
+  where each file names its source. Thirteen are TUM racetrack-database files as they are; eleven (street and new
+  circuits, and three whose TUM file is an older layout) are bacinger/f1-circuits GeoJSON centrelines converted by
+  `scripts/tracks/convert.mjs` (its `CIRCUITS` table: start/finish spot, direction, widths, and `separate` for
+  stretches the source draws closer together than the real roads). Check a converted circuit's direction and start
+  line against a real map: the source does not always start at the line or run in the racing direction.
+  The menu's circuit outlines are in the generated `src/trackOutlines.ts` (`catalog.ts` reads it; only the driven circuit's CSV is loaded): run `npm run tracks:outlines` after adding or changing a CSV, or `test/tracks.test.ts` fails. A new circuit is a CSV plus a `TRACKS` entry: the Circuit menu row, labels, best-times keys (`TrackDef.storeKey` +
   the car's `storeKey` suffix) and scenery follow from it. Check the start straight (start spot `startBack`, pit
   building and stands ranges must sit on it), that the autopilot laps it cleanly, and how it looks. A new circuit or car also needs its `flying` speeds (km/h at
   the start spot): run the lap with a guess, and take the speed the lap test reports there at the end of the lap. Everything is
@@ -248,4 +269,6 @@ Run `npm run typecheck` and `npm test` before committing.
   (they add `act:<action>` to `pressed`). The key help in the HUD and the Controls tab are made from the bindings,
   so they always match them.
 - **Autopilot**: pure pursuit on the centreline plus a speed profile from `buildSpeedProfile(track, spec)`, cached
-  per car on `track.speedProfiles`. Brake-marker boards are scenery and are always placed from the `lcf1` profile.
+  per car on `track.speedProfiles`. Within 1.5 m of the edge on the outside of a bend it lifts (the drift car slides
+  wide under power in fast sweepers such as Monza's Curva Grande); no lap at Melbourne or Silverstone gets that close,
+  so their pins did not move. Brake-marker boards are scenery and are always placed from the `lcf1` profile.

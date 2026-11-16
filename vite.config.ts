@@ -121,6 +121,14 @@ export default defineConfig({
       },
     },
   },
-  // only this checkout's tests (agents' git worktrees under .claude/ hold copies)
-  test: { include: ['test/**/*.test.ts'], testTimeout: 60_000, setupFiles: ['test/setup.ts'] },   // a lap simulates 2-3 minutes of driving
+  // Only this checkout's tests (agents' git worktrees under .claude/ hold copies), in two sets: npm test runs `unit`
+  // (everything in test/, with the pinned laps at Melbourne and Silverstone), npm run test:laps runs `laps` (the
+  // pinned autopilot laps at every other circuit, a few minutes on a desktop CPU).
+  test: {
+    testTimeout: 60_000, setupFiles: ['test/setup.ts'],   // a lap simulates 2-3 minutes of driving
+    projects: [
+      { extends: true, test: { name: 'unit', include: ['test/*.test.ts'] } },
+      { extends: true, test: { name: 'laps', include: ['test/calendar/*.test.ts'], testTimeout: 300_000 } },   // three laps a file
+    ],
+  },
 });

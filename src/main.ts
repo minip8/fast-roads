@@ -17,7 +17,7 @@ import { buildStage } from './stage';
 import { StartupError } from './startup';
 import { loadStore, type Timing } from './timing';
 import { buildTrack, parseCSV, type Track } from './track';
-import { TRACKS, type TrackId } from './tracks';
+import { loadTrackCsv, TRACKS, type TrackId } from './tracks';
 import { clamp } from './util';
 import type { DriveInput, Vehicle } from './vehicle';
 
@@ -51,7 +51,8 @@ export async function main() {
   $('menuSub').textContent = `Time trial · ${def.name}, ${def.place}`;
   await new Promise((r) => setTimeout(r, 0));   // let the loading text paint
 
-  const track = buildTrack(parseCSV(def.csv));
+  const csv = await loadTrackCsv(def.id).catch((err: unknown) => { throw new StartupError('download', `${def.name} failed to load`, { cause: err }); });
+  const track = buildTrack(parseCSV(csv));
   const stage = buildStage($<HTMLCanvasElement>('view'), track, def);
   const { renderer, scene, camera } = stage;
 

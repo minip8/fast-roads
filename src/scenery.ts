@@ -102,32 +102,22 @@ export function buildScenery(tr: Track, scene: THREE.Scene, def: TrackDef) {
   const tierGeo = new THREE.BoxGeometry(24, 1.2, 2.2), backGeo = new THREE.BoxGeometry(24, 9, 0.5);
   const roofGeo = new THREE.BoxGeometry(25, 0.3, 13), postGeo = new THREE.BoxGeometry(0.4, 9, 0.4);
   const tierMats = [standMats.concrete, standMats.concrete, standMats.concrete, standMats.concrete, standMats.crowd, standMats.concrete];
-  const stepI = Math.round(26 / (tr.L / tr.N));
-  for (let k = -def.stands[0]; k <= def.stands[1]; k++) {
-    const i = wrapI(k * stepI, tr.N);
-    const side = -def.pitSide, bar = side > 0 ? tr.barL : tr.barR, valid = side > 0 ? tr.barLValid : tr.barRValid;
-    if (!valid[i] || Math.abs(tr.KS[i]) > 1 / 600) continue;
-    const off = side * (bar[i] + 4);
+  for (const { x, z, yaw } of standBays(tr, def)) {
     // local +z points to the track centre
-    M.compose(pos.set(tr.X[i] + tr.NX[i] * off, 0, tr.Z[i] + tr.NZ[i] * off), q.setFromEuler(e.set(0, Math.atan2(-side * tr.NX[i], -side * tr.NZ[i]), 0)), sc.set(1, 1, 1));
+    M.compose(pos.set(x, 0, z), q.setFromEuler(e.set(0, yaw, 0)), sc.set(1, 1, 1));
     for (let t = 0; t < 5; t++) part(tierGeo, 0, 0.6 + t * 1.2, -t * 2.2, tierMats);
     part(backGeo, 0, 4.5, -10.2, standMats.concrete);
     part(roofGeo, 0, 9.2, -4.5, standMats.roof);
     for (const x of [-11.5, 11.5]) part(postGeo, x, 4.5, 1.5, standMats.concrete);
   }
   // Pit building
-  {
-    const ds = tr.L / tr.N, k0 = Math.round(def.pit[0] / ds), k1 = Math.round(def.pit[1] / ds);
-    const i0 = wrapI(k0, tr.N), i1 = wrapI(k1, tr.N);
-    const a = { x: tr.X[i0], z: tr.Z[i0] }, b = { x: tr.X[i1], z: tr.Z[i1] };
-    const len = Math.hypot(b.x - a.x, b.z - a.z);
-    const im = wrapI(Math.round((k0 + k1) / 2), tr.N), side = def.pitSide, off = side * ((side > 0 ? tr.barL : tr.barR)[im] + 9);
-    // On the left the building's local -x faces the track; on the right it is turned round so that face still does.
-    M.compose(pos.set(tr.X[im] + tr.NX[im] * off, 4, tr.Z[im] + tr.NZ[im] * off), q.setFromEuler(e.set(0, Math.atan2(b.x - a.x, b.z - a.z) + (side > 0 ? 0 : Math.PI), 0)), sc.set(1, 1, 1));
+  const pit = pitBuilding(tr, def);
+  if (pit) {
+    M.compose(pos.set(pit.x, 4, pit.z), q.setFromEuler(e.set(0, pit.yaw, 0)), sc.set(1, 1, 1));
     // garages along the track-facing face (its u runs along the building)
     const pitFront = new THREE.MeshStandardMaterial({ map: pitTexture(), roughness: 0.8 });
-    pitFront.map!.repeat.set(Math.max(1, Math.round(len / 32)), 1);
-    part(new THREE.BoxGeometry(12, 8, len), 0, 0, 0, [standMats.concrete, pitFront, standMats.roof, standMats.concrete, standMats.concrete, standMats.concrete]);
+    pitFront.map!.repeat.set(Math.max(1, Math.round(pit.len / 32)), 1);
+    part(new THREE.BoxGeometry(12, 8, pit.len), 0, 0, 0, [standMats.concrete, pitFront, standMats.roof, standMats.concrete, standMats.concrete, standMats.concrete]);
   }
   // Start gantry: local x maps to the left normal, rotation.y = atan2(-NZ, NX) maps (1,0,0) -> (NX, 0, NZ)
   {
@@ -143,6 +133,56 @@ export function buildScenery(tr: Track, scene: THREE.Scene, def: TrackDef) {
   }
   batch.build(scene);
   return { cx, cz, minX, maxX, minZ, maxZ };
+}
+
+// Where the buildings go. A building may not reach another part of the circuit (a street circuit's straight often
+// has a hairpin or another straight just beyond its walls): each footprint is checked against every centreline
+// sample, and a stand bay that would intrude is left out, the pit building shortened from its ends until it fits.
+const CLEAR = 12;   // m from any centreline sample (road half-width, kerb, room for the wall)
+type Footprint = { x: number; z: number; yaw: number };
+const clear = (tr: Track, pts: [number, number][]) => pts.every(([x, z]) => tr.nearestDist(x, z) >= CLEAR);
+// The points of a box (local width w across, depth d with +z towards the track from `front`, length along) to test.
+function boxPoints(cx: number, cz: number, ax: number, az: number, halfLen: number, nx: number, nz: number, d0: number, d1: number) {
+  const pts: [number, number][] = [];
+  for (let u = -halfLen; u <= halfLen + 1e-6; u += Math.max(1, halfLen / 8)) {
+    for (const d of [d0, (d0 + d1) / 2, d1]) pts.push([cx + ax * u + nx * d, cz + az * u + nz * d]);
+  }
+  return pts;
+}
+
+// Grandstand bays (24 m wide, ~12 m deep) along the straight, opposite the pits.
+export function standBays(tr: Track, def: TrackDef): Footprint[] {
+  const bays: Footprint[] = [], stepI = Math.round(26 / (tr.L / tr.N));
+  for (let k = -def.stands[0]; k <= def.stands[1]; k++) {
+    const i = wrapI(k * stepI, tr.N);
+    const side = -def.pitSide, bar = side > 0 ? tr.barL : tr.barR, valid = side > 0 ? tr.barLValid : tr.barRValid;
+    if (!valid[i] || Math.abs(tr.KS[i]) > 1 / 600) continue;
+    const off = side * (bar[i] + 4), x = tr.X[i] + tr.NX[i] * off, z = tr.Z[i] + tr.NZ[i] * off;
+    // outward normal side*N, the bay runs along the tangent; it reaches 1.5 m towards the track and 10.5 m back
+    if (!clear(tr, boxPoints(x, z, tr.TX[i], tr.TZ[i], 12.5, side * tr.NX[i], side * tr.NZ[i], -1.5, 10.5))) continue;
+    bays.push({ x, z, yaw: Math.atan2(-side * tr.NX[i], -side * tr.NZ[i]) });
+  }
+  return bays;
+}
+
+// The pit building (12 m deep, 8 m high) along the chord of the straight from def.pit[0] to def.pit[1].
+export function pitBuilding(tr: Track, def: TrackDef): (Footprint & { len: number }) | null {
+  const ds = tr.L / tr.N;
+  let k0 = Math.round(def.pit[0] / ds), k1 = Math.round(def.pit[1] / ds);
+  while (k1 - k0 >= 20) {   // at least 40 m long
+    const i0 = wrapI(k0, tr.N), i1 = wrapI(k1, tr.N);
+    const ax = tr.X[i1] - tr.X[i0], az = tr.Z[i1] - tr.Z[i0], len = Math.hypot(ax, az);
+    const im = wrapI(Math.round((k0 + k1) / 2), tr.N), side = def.pitSide, off = side * ((side > 0 ? tr.barL : tr.barR)[im] + 9);
+    const x = tr.X[im] + tr.NX[im] * off, z = tr.Z[im] + tr.NZ[im] * off;
+    // the chord's outward normal, towards the building's side
+    const nx = (side * az) / len, nz = (-side * ax) / len;
+    if (clear(tr, boxPoints(x, z, ax / len, az / len, len / 2, nx, nz, -6, 6))) {
+      // On the left the building's local -x faces the track; on the right it is turned round so that face still does.
+      return { x, z, len, yaw: Math.atan2(ax, az) + (side > 0 ? 0 : Math.PI) };
+    }
+    k0 += 2; k1 -= 2;
+  }
+  return null;
 }
 
 // Pit building frontage, 32 m x 8 m per repeat: four garages under a glazed upper floor and a dark roof band.

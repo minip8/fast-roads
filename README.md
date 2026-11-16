@@ -1,7 +1,7 @@
 # Fast Roads
 
 Browser time-trial racer on real circuit layouts. Prototype covering build steps 1–3:
-two circuits (Albert Park in Melbourne and Silverstone), three cars (a 2026 F1 car and a GT3 on LibreCorsa's physics engine, and a rear-drive drift car on the game's own physics), and lap/sector
+the 2026 Formula 1 calendar's circuits (all 22 raced, plus Bahrain and Jeddah, whose rounds were cancelled), three cars (a 2026 F1 car and a GT3 on LibreCorsa's physics engine, and a rear-drive drift car on the game's own physics), and lap/sector
 timing with track limits.
 
 ## Run
@@ -10,7 +10,8 @@ Needs Node.js. Install once, then start the dev server and open the URL it print
 
     npm install
     npm run dev        # dev server with live reload
-    npm test           # headless physics tests (lap times, handling)
+    npm test           # headless physics tests (lap times at Melbourne and Silverstone, handling, every circuit's data)
+    npm run test:laps  # the pinned autopilot laps at every other circuit (a few minutes)
     npm run build      # type-check + static build in dist/ (host anywhere; `npm run preview` serves it locally)
 
 The built game works from any sub-path of any static host, and keeps working offline after the first visit: a small
@@ -18,7 +19,8 @@ service worker (`src/sw.js`, production builds only) caches the build; the page 
 online, so a new deploy shows up on the next load.
 
 For development, append `?autopilot` to the URL to skip the menu and watch the built-in driver lap the circuit.
-The autopilot isn't part of the game itself.
+The autopilot isn't part of the game itself. It laps every circuit cleanly in every car except the drift car at
+Spa, which slides wide in the fast sweepers there.
 
 ## Main menu
 
@@ -109,7 +111,7 @@ the upshift point.
 Each car keeps its own best lap and sector times at each circuit. Switching car puts you back at the start.
 
 **Every lap is a flying lap.** You start on the straight before the start/finish line (160 m back at Albert Park,
-60 m at Silverstone), already at the speed the car reaches there on a lap and in the gear for it, so keep the
+60 m at Silverstone; each circuit has its own spot), already at the speed the car reaches there on a lap and in the gear for it, so keep the
 throttle down: the lap starts as you cross the line. **R** (or Enter, or Restart lap in the menu) puts you back
 there at any time and drops the lap you were on; so does the game when the car ends up on its roof. The start
 speed is fixed per car and circuit (232 km/h for the F1 2026 at Albert Park, 151 km/h out of Club at Silverstone), so
@@ -152,11 +154,25 @@ and override the mouse while held.
 
 ## How it works (TypeScript in `src/`, one module per area)
 
-- **Circuits**: Albert Park (5.30 km) and the Silverstone Grand Prix layout (5.89 km, starting on the Hamilton
-  Straight). Each is a TUM centerline + widths CSV (`tracks/*.csv`, bundled at build time; `src/tracks.ts` lists them
-  with their grid spot and scenery) → Catmull-Rom → resampled every ~2 m.
+- **Circuits**: the 2026 calendar, in round order: Albert Park, Shanghai, Suzuka, Miami, Montreal, Monaco,
+  Barcelona-Catalunya, the Red Bull Ring, Silverstone (Grand Prix layout, starting on the Hamilton Straight), Spa,
+  the Hungaroring, Zandvoort, Monza, the Madring, Baku, Marina Bay, COTA, Mexico City, Interlagos, Las Vegas, Lusail
+  and Yas Marina, then Bahrain and Jeddah (on the calendar as published, cancelled in March 2026). Each is a
+  centreline + widths CSV in `tracks/` (first row on the start/finish line, rows in the racing direction), loaded
+  only for the circuit being driven; `src/tracks.ts` lists them with their grid spot, scenery and display data
+  (country, official lap length, round). Thirteen come from the TUM racetrack database as they are. The other eleven
+  (Miami, Monaco, Barcelona, Zandvoort, Madrid, Baku, Singapore, Las Vegas, Lusail, Yas Marina, Jeddah; the TUM files
+  of Barcelona, Zandvoort and Yas Marina are older layouts) are lon/lat centrelines from bacinger/f1-circuits that
+  `scripts/tracks/convert.mjs` projects to metres, turns to the racing direction, starts at the line, resamples
+  every 5 m and gives constant widths (the source has none: narrower at street circuits, the TUM file's mean where
+  it has an older layout); where two parts of a lap run side by side closer than the roads really are (Baku's
+  dual carriageway, Monaco's Loews hairpin), it moves them apart so a wall fits between. Each lap is within about 1%
+  of the official length. The game is flat: Suzuka's crossover is a level crossing, with the walls of each road
+  left open where the other passes through.
+  Each CSV → Catmull-Rom → resampled every ~2 m.
   Kerbs, gravel traps, and barrier offsets are derived from curvature; barriers are shrunk/dropped where they'd
-  intrude on another part of the circuit. Road, kerbs, gravel, and walls are ribbon meshes built from the samples.
+  intrude on another part of the circuit, and grandstands and the pit building are left out or shortened where
+  they would. Road, kerbs, gravel, and walls are ribbon meshes built from the samples.
 - **Physics** (the drift car): Rapier rigid body (fixed 120 Hz step, interpolated rendering). Custom raycast suspension with
   anti-roll bars, simplified Pacejka lateral curve with load sensitivity, friction circle, downforce and drag ∝ v²,
   torque curve + gearbox (automatic, or manual with a neutral and over-rev-protected downshifts), per-surface grip. Walls are static cuboid colliders.
@@ -202,7 +218,7 @@ and override the mouse while held.
   counting down to the turn-in point. Zones are found from the autopilot's speed plan; boards are skipped when they'd
   fall inside the previous corner.
 
-Tests (`npm test`) run the same physics headless in Node and check autopilot lap times to the millisecond, so any
+Tests (`npm test`, and `npm run test:laps` for the circuits beyond the first two) run the same physics headless in Node and check autopilot lap times to the millisecond, so any
 change to handling shows up. In the browser, `window.__game.simulate(seconds, true)` does the same with the autopilot.
 
 ## Credits
@@ -245,8 +261,31 @@ the game is not affiliated with or endorsed by Mercedes-AMG, Mercedes-Benz or Re
 
 ## Not yet
 
-Elevation (Albert Park is flat and Silverstone nearly so; Spa/COTA will need SRTM data), pit lane, ghosts, leaderboards, multiplayer.
+Elevation (every circuit is flat: Spa, COTA, Interlagos and the Red Bull Ring will need SRTM data, and Suzuka's crossover a bridge), pit lane, ghosts, leaderboards, multiplayer.
 
-Track data: [TUMFTM/racetrack-database](https://github.com/TUMFTM/racetrack-database) (LGPL-3.0).
+Track data: [TUMFTM/racetrack-database](https://github.com/TUMFTM/racetrack-database) (LGPL-3.0): Melbourne,
+Shanghai, Suzuka, Montreal, Spielberg, Silverstone, Spa, Budapest, Monza, Austin, Mexico City, São Paulo and Sakhir,
+and the widths at Barcelona, Zandvoort and Yas Marina. [bacinger/f1-circuits](https://github.com/bacinger/f1-circuits)
+(MIT): the centrelines of Miami, Monaco, Barcelona, Zandvoort, Madrid, Baku, Singapore, Las Vegas, Lusail, Yas Marina
+and Jeddah, converted by `scripts/tracks/convert.mjs` (each CSV's header names its source file), under this licence:
+
+> Copyright (c) 2019-2025 Tomislav Bacinger
+>
+> Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+> documentation files (the "Software"), to deal in the Software without restriction, including without limitation
+> the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and
+> to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+>
+> The above copyright notice and this permission notice shall be included in all copies or substantial portions
+> of the Software.
+>
+> THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO
+> THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+> AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+> CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+> IN THE SOFTWARE.
+
+Circuit names are used to say which real circuit a layout follows; the game is not affiliated with Formula 1 or the
+circuits.
 The physics engine and the F1 2026 and GT3 car data:
 [KhazP/librecorsa](https://github.com/KhazP/librecorsa) (MIT; see `src/lc/vendor/README.md`).

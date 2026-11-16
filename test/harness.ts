@@ -9,16 +9,20 @@ import { DT, G_WALL } from '../src/config';
 import { LcCar } from '../src/lc/lcCar';
 import { Session } from '../src/sim';
 import { buildTrack, parseCSV, type Track } from '../src/track';
-import { TRACKS, type TrackId } from '../src/tracks';
+import { loadTrackCsv, TRACKS, type TrackId } from '../src/tracks';
 import type { DriveInput, Vehicle } from '../src/vehicle';
 
 const tracks: Partial<Record<TrackId, Track>> = {};
+// Each circuit is built once per test file.
+export async function trackFor(id: TrackId): Promise<Track> {
+  return tracks[id] ??= buildTrack(parseCSV(await loadTrackCsv(id)));
+}
 
 // `walls: false` removes the barriers, for manoeuvres that need more room than the walled start straight has.
 // The car starts at rest at the start spot; `flying: true` starts it as the game does, already at flying-lap speed.
 export async function session(carId: CarId, { tc = true, walls = true, track = 'melbourne' as TrackId, flying = false } = {}) {
   await RAPIER.init();
-  const def = TRACKS[track], tr = tracks[track] ??= buildTrack(parseCSV(def.csv));
+  const def = TRACKS[track], tr = await trackFor(track);
   const s = new Session(tr, new THREE.Scene(), CARS[carId], flying ? def : { storeKey: def.storeKey, startBack: def.startBack });
   const { car, timing, world } = s;
   car.tc = tc;

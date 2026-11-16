@@ -43,5 +43,10 @@ export function autopilot(car: Vehicle, tr: Track, lat = 0): DriveInput {
   const profs = tr.speedProfiles || (tr.speedProfiles = {});
   const prof = profs[car.spec.id] || (profs[car.spec.id] = buildSpeedProfile(tr, car.spec));
   const vt = prof[pointAt(tr, s + 4 + v * 0.12).i];
-  return { throttle: clamp((vt - v) * 0.5, 0, 1) * clamp(1 - car.spec.autoLift * Math.abs(slide), 0, 1), brake: clamp((v - vt) * 0.4, 0, 1), steer: 0, analog: true, steerAngle, autoGears: true };
+  // Running out of road on the outside of a bend (the drift car sliding wide under power in a long fast curve, as in
+  // Monza's Curva Grande): lift, more the further out, so the tyres bring it back. Off (x1) until the car is within
+  // 1.5 m of the edge, which no pinned lap at Melbourne or Silverstone comes to (they keep 1.53 m or more).
+  const { i, lat: at } = car.proj, wide = Math.abs(at) - ((at > 0 ? tr.WL[i] : tr.WR[i]) - 1.5);
+  const lift = wide > 0 && Math.sign(at) !== Math.sign(tr.KS[i]) ? clamp(1 - wide, 0, 1) : 1;
+  return { throttle: clamp((vt - v) * 0.5, 0, 1) * clamp(1 - car.spec.autoLift * Math.abs(slide), 0, 1) * lift, brake: clamp((v - vt) * 0.4, 0, 1), steer: 0, analog: true, steerAngle, autoGears: true };
 }
