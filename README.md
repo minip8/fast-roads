@@ -171,9 +171,14 @@ and override the mouse while held.
   the barriers as wall segments. `src/lc/driver.ts`, `aids.ts` and `steering.ts` are ports of the parts of
   LibreCorsa's game layer that the engine relies on: pedal ramps, the keyboard steering assist, ABS and traction
   control, all run at the engine's 500 Hz. One game tick costs about half a millisecond for these cars.
-- **Sound**: all synthesised with Web Audio, no samples. Each car has its own engine voice (a smooth V6 in the F1, a
-  lumpy V8 in the drift car, a harder, brighter V8 in the GT3) that brightens under load, cuts briefly on upshifts, blips on downshifts and stutters on
-  the rev limiter. Tyres squeal as they near the limit of grip on asphalt and kerbs (cornering or wheelspin), which is
+- **Sound**: all synthesised, no recordings. Each car has its own engine voice (a smooth V6 in the F1, a lumpy V8 in
+  the drift car) that brightens under load, cuts briefly on upshifts, blips on downshifts and stutters on the rev
+  limiter. The GT3s' cross-plane V8 is made the way sample-based sims do it, with samples we synthesise ourselves
+  (`src/engineLoops.ts`): exhaust pulses in the 1-5-4-8-6-3-7-2 firing order through each bank's pipe, with
+  combustion noise and saturation, rendered into seamless loops at six rpm points on load and on the overrun, then
+  crossfaded by rpm and throttle with their pitch following the rpm. It burbles off the throttle, barks on it, pops
+  and crackles on the overrun, and has a straight-cut gear whine that follows road speed. The loops take about
+  0.1 s to make, one per frame, the first time a GT3 is driven. Tyres squeal as they near the limit of grip on asphalt and kerbs (cornering or wheelspin), which is
   the cue to catch a slide; kerbs rumble at the strip rate, road and wind noise rise with speed, and hard impacts
   thud. Sound starts on the first click or key press (browser autoplay rules), fades out while paused, and stops
   while muted or in a background tab.

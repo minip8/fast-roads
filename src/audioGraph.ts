@@ -1,5 +1,6 @@
 import type { CarId } from './cars';
 import { S_GRASS, S_GRAVEL, S_KERB } from './config';
+import { loopCount, makeLoop, type EngineLoop, type LoopVoice } from './engineLoops';
 import { clamp } from './util';
 
 // ============================================================================
@@ -8,6 +9,9 @@ import { clamp } from './util';
 //
 //   engine:  2 x oscillator (per-car harmonic wave) -> roughness AM -> lowpass (opens with throttle) -> body peak
 //            -> shift cut -> rev limiter chop -> level
+//            or, for a voice with loops (EngineVoice.loops, engineLoops.ts): on-load and overrun loop per rpm point,
+//            crossfaded, playbackRate following rpm -> roughness AM -> the same shift cut, limiter and level;
+//            plus overrun pops and gear whine (LoopPlayer, built when the voice is first used)
 //   tyres:   noise -> 2 narrow bandpasses (squeal, pitch wobble) + broad bandpass (scrub)
 //   surface: road roar, kerb rumble (chopped at the rumble-strip rate), grass rumble, gravel crunch
 //   wind:    noise -> bandpass rising with speed
@@ -35,6 +39,7 @@ export interface EngineVoice {
   body: [hz: number, q: number, dbCoast: number, dbLoad: number];   // fixed exhaust/airbox resonance
   rough: number;             // random amplitude wobble (uneven firing), 0..1
   squealHz: number;          // tyre squeal pitch
+  loops?: LoopVoice;         // synthesised loops in place of the oscillators (which play only while the loops are made)
 }
 
 // Layer levels at full effect (white noise through a narrow filter is quiet, hence the big numbers).
@@ -54,6 +59,7 @@ export class SoundGraph {
   private readonly roughDepth: GainNode;
   private readonly engLow: BiquadFilterNode;
   private readonly engBody: BiquadFilterNode;
+  private readonly oscOut: GainNode;      // the oscillators' share: 0 while a loop voice plays
   private readonly shift: GainNode;
   private readonly limiter: GainNode;
   private readonly limDepth: GainNode;
@@ -71,8 +77,14 @@ export class SoundGraph {
   private readonly wind: GainNode; private readonly windF: BiquadFilterNode;
   // impact
   private readonly thudOsc: OscillatorNode; private readonly thudTone: GainNode; private readonly thudNoise: GainNode;
+  // loop voices: players, and the one whose loops are being made (one loop per update, so no frame stalls)
+  private readonly players = new Map<LoopVoice, LoopPlayer>();
+  private making: { voice: LoopVoice; loops: EngineLoop[] } | null = null;
+  private readonly noise: AudioNode;
+  private readonly mod: AudioNode;
   // per-frame state
   private voiceId: CarId | null = null;
+  private oscOn = true;
   private car: AudioCar | null = null;
   private gear = 0;
   private wasActive = false;
@@ -108,12 +120,14 @@ export class SoundGraph {
     };
     const nA = noise(0), nB = noise(1.3), nC = noise(2.6);
     const mod = modSrc(1);
+    this.noise = nC; this.mod = mod;
 
     // ---- engine
     this.engine = gain(0, this.bus);
     this.limiter = gain(1, this.engine);
     this.shift = gain(1, this.limiter);
-    this.engBody = filter('peaking', 1000, 1, this.shift);
+    this.oscOut = gain(1, this.shift);
+    this.engBody = filter('peaking', 1000, 1, this.oscOut);
     this.engLow = filter('lowpass', 1000, 0.8, this.engBody);
     const hp = filter('highpass', 30, 0.7, this.engLow);
     const rough = gain(1, hp);
@@ -184,6 +198,8 @@ export class SoundGraph {
       this.engBody.frequency.value = v.body[0]; this.engBody.Q.value = v.body[1];
       this.roughDepth.gain.value = v.rough;
     }
+    const player = v.loops ? this.player(v.loops) : null;   // null until its loops are made
+    if (this.oscOn !== !player) { this.oscOn = !player; this.oscOut.gain.setValueAtTime(player ? 0 : 1, t); }
     const fresh = car !== this.car || !this.wasActive;
     this.car = car; this.wasActive = active;
     this.bus.gain.setTargetAtTime(active ? BUS_LEVEL : 0, t, active ? 0.08 : 0.04);
@@ -196,6 +212,7 @@ export class SoundGraph {
     this.engLow.frequency.setTargetAtTime(clamp(fire * (v.bright[0] + (v.bright[1] - v.bright[0]) * thr), 150, 14000), t, 0.03);
     this.engBody.gain.setTargetAtTime(v.body[2] + (v.body[3] - v.body[2]) * thr, t, 0.05);
     this.engine.gain.setTargetAtTime(v.level * (v.coast + (1 - v.coast) * thr) * (0.7 + 0.3 * rpmN), t, 0.03);
+    for (const p of this.players.values()) p.update(p === player ? car : null, active && !fresh, dt, t);
     const onLimiter = car.gear > 0 && thr > 0.3 && car.rpm >= car.spec.redline * 0.99 ? 1 : 0;
     this.limDepth.gain.setTargetAtTime(-0.42 * onLimiter, t, 0.02);   // limiter gain swings 1 -> ~0.16
     this.limiter.gain.setTargetAtTime(1 - 0.42 * onLimiter, t, 0.02);
@@ -248,6 +265,20 @@ export class SoundGraph {
     pv.x = vel.x; pv.y = vel.y; pv.z = vel.z; pp.x = pos.x; pp.y = pos.y; pp.z = pos.z;
   }
 
+  // The player for a loop voice, or null while its loops are still being made (one more each call).
+  private player(voice: LoopVoice) {
+    const p = this.players.get(voice);
+    if (p) return p;
+    if (this.making?.voice !== voice) this.making = { voice, loops: [] };
+    const loops = this.making.loops;
+    loops.push(makeLoop(voice, this.ctx.sampleRate, loops.length));
+    if (loops.length < loopCount(voice)) return null;
+    this.making = null;
+    const player = new LoopPlayer(this.ctx, voice, loops, this.shift, this.bus, this.noise, this.mod, this.limPitch);
+    this.players.set(voice, player);
+    return player;
+  }
+
   private thud(k: number, t: number) {
     this.thudReady = t + 0.25;
     const f = this.thudOsc.frequency, a = this.thudTone.gain, b = this.thudNoise.gain;
@@ -287,4 +318,80 @@ function softClipCurve() {
     c[i] = Math.sign(x) * (a <= k ? a : k + (1 - k) * Math.tanh((a - k) / (1 - k)));
   }
   return c;
+}
+
+// A loop voice: its loops crossfaded by rpm (equal power: neighbouring loops are not in phase) and by throttle (in
+// amplitude: a point's two loops share their firing times and play at the same rate, so they stay in phase), plus
+// overrun pops and gear whine. Built once, the first time the voice is heard; silent while another car is driven.
+class LoopPlayer {
+  private readonly rpms: number[];
+  private readonly src: AudioBufferSourceNode[] = [];
+  private readonly mix: GainNode[] = [];
+  private readonly out: GainNode;
+  private readonly popF: BiquadFilterNode; private readonly pop: GainNode; private readonly popLow: GainNode;
+  private readonly whineOsc: OscillatorNode; private readonly whine: GainNode;
+  private onAt = -1e9;   // when the throttle was last open (pops come in a burst after a lift)
+
+  constructor(ctx: BaseAudioContext, private readonly v: LoopVoice, loops: EngineLoop[], dest: AudioNode, bus: AudioNode,
+    noise: AudioNode, mod: AudioNode, limPitch: AudioNode) {
+    const gain = (g: number, to: AudioNode | AudioParam) => { const n = ctx.createGain(); n.gain.value = g; n.connect(to as AudioNode); return n; };
+    const rough = gain(1, dest);
+    mod.connect(gain(v.rough, rough.gain));
+    this.out = gain(0, rough);
+    this.rpms = loops.filter((_, k) => !(k & 1)).map((l) => l.rpm);
+    for (const loop of loops) {
+      const buf = ctx.createBuffer(1, loop.data.length, ctx.sampleRate); buf.copyToChannel(loop.data, 0);
+      const s = ctx.createBufferSource(); s.buffer = buf; s.loop = true;
+      const g = gain(0, this.out); s.connect(g); limPitch.connect(s.detune);
+      this.src.push(s); this.mix.push(g);
+    }
+    for (const s of this.src) s.start();   // together: each point's pair starts in phase
+
+    // pops: short bursts of band-passed noise (crackle), some with a low thump
+    this.pop = gain(0, bus); this.popLow = gain(0, bus);
+    this.popF = ctx.createBiquadFilter(); this.popF.type = 'bandpass'; this.popF.Q.value = 0.8; this.popF.connect(this.pop);
+    const low = ctx.createBiquadFilter(); low.type = 'lowpass'; low.frequency.value = 280; low.connect(this.popLow);
+    noise.connect(this.popF); noise.connect(low);
+    // whine: a tone with a little second and third harmonic, its pitch wandering a few cents
+    this.whine = gain(0, bus);
+    this.whineOsc = ctx.createOscillator();
+    this.whineOsc.setPeriodicWave(ctx.createPeriodicWave(new Float32Array([0, 0, 0, 0]), new Float32Array([0, 1, 0.3, 0.12])));
+    this.whineOsc.connect(this.whine); mod.connect(gain(12, this.whineOsc.detune)); this.whineOsc.start();
+  }
+
+  // car: null while another voice plays. live: driving, and not just placed (no pops then).
+  update(car: AudioCar | null, live: boolean, dt: number, t: number) {
+    if (!car) { this.out.gain.setTargetAtTime(0, t, 0.02); this.whine.gain.setTargetAtTime(0, t, 0.02); return; }
+    const v = this.v, rpms = this.rpms, thr = clamp(car.throttle, 0, 1), abs = Math.abs(car.speedF);
+    const rpm = Math.max(car.rpm, car.spec.idle * 0.9);
+    let i = 0; while (i < rpms.length - 2 && rpm > rpms[i + 1]) i++;
+    const x = clamp(Math.log(rpm / rpms[i]) / Math.log(rpms[i + 1] / rpms[i]), 0, 1);
+    for (let p = 0; p < rpms.length; p++) {
+      const w = p === i ? Math.cos(x * Math.PI / 2) : p === i + 1 ? Math.sin(x * Math.PI / 2) : 0;
+      const rate = rpm / rpms[p];
+      this.src[2 * p].playbackRate.setTargetAtTime(rate, t, 0.012);
+      this.src[2 * p + 1].playbackRate.setTargetAtTime(rate, t, 0.012);
+      this.mix[2 * p].gain.setTargetAtTime(w * thr, t, 0.03);
+      this.mix[2 * p + 1].gain.setTargetAtTime(w * (1 - thr), t, 0.03);
+    }
+    this.out.gain.setTargetAtTime(v.level, t, 0.03);
+
+    // overrun pops: from 3,500 rpm up, in a burst for the first second or so after a lift, then now and then
+    if (thr > 0.2) this.onAt = t;
+    if (v.crackle > 0 && live && car.gear > 0 && thr < 0.05 && rpm > 3500) {
+      const rate = 28 * clamp((rpm - 3500) / 3500, 0, 1) * (0.15 + 0.85 * Math.exp(-(t - this.onAt) / 0.9));   // per second
+      const times: number[] = [];
+      for (let k = Math.floor(rate * dt + Math.random()); k > 0; k--) times.push(t + Math.random() * dt);
+      for (const tp of times.sort((a, b) => a - b)) {
+        const a = v.crackle * (0.2 + 0.8 * Math.random() ** 2);
+        this.popF.frequency.setValueAtTime(700 + 2800 * Math.random(), tp);
+        this.pop.gain.setValueAtTime(a, tp); this.pop.gain.setTargetAtTime(0, tp + 0.001, 0.002 + 0.006 * Math.random());
+        if (Math.random() < 0.35) { this.popLow.gain.setValueAtTime(a * 2.5, tp); this.popLow.gain.setTargetAtTime(0, tp + 0.002, 0.015); }
+      }
+    }
+    // gear whine follows the road speed
+    const [hz, level] = v.whine;
+    this.whineOsc.frequency.setTargetAtTime(Math.max(20, abs * hz), t, 0.03);
+    this.whine.gain.setTargetAtTime(level * clamp(abs / 50, 0, 1) * (0.6 + 0.4 * thr), t, 0.05);
+  }
 }

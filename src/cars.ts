@@ -124,11 +124,18 @@ const F1_VOICE: EngineVoice = {
   harmonics: [0.12, 1, 0.18, 0.55, 0.1, 0.36, 0.07, 0.22, 0.05, 0.14, 0.03, 0.09, 0.02, 0.05],
   detune: 6, level: 0.17, coast: 0.42, bright: [2.2, 6.5], body: [1500, 1.2, 1, 4], rough: 0.06, squealHz: 950,
 };
-// Flat-out 6.2 l V8 at 7,900 rpm: the drift car's lumpy half orders, but harder and brighter.
+// 6.2 l cross-plane V8 (the AMG M159) at 7,900 rpm, side exits: synthesised loops (engineLoops.ts). The oscillator
+// numbers are its voice for the moment its loops take to make, and set the level.
 const GT3_VOICE: EngineVoice = {
   firingDiv: 15,
   harmonics: [0.5, 1, 0.45, 0.6, 0.3, 0.4, 0.2, 0.25, 0.12, 0.14, 0.08, 0.08],
   detune: 7, level: 0.2, coast: 0.4, bright: [2.6, 8], body: [320, 1.1, 2, 5], rough: 0.16, squealHz: 850,
+  loops: {
+    firing: [0, 1, 0, 1, 1, 0, 1, 0],         // 1-5-4-8-6-3-7-2, cylinders 1-4 on one bank
+    rpms: [2000, 2800, 3900, 5300, 7000, 8400],
+    pipes: [1.15, 1.22], exitGap: 0.15,
+    level: 3, rough: 0.08, crackle: 0.5, whine: [38, 0.01],
+  },
 };
 
 // The body numbers of a LibreCorsa car from its data, for our meshes and autopilot: mass with its fuel, centre of

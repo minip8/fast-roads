@@ -90,7 +90,12 @@ Run `npm run typecheck` and `npm test` before committing.
   static parts into one mesh per material (grandstands, pit, gantry, brake boards, car bodies)
 - `audio.ts`: `EngineAudio`, the AudioContext's lifecycle (created on the first gesture, suspended while muted or
   hidden); `audioGraph.ts`: `SoundGraph`, every sound node, built once, with `update()` moving only parameters.
-  It reads the car through the `AudioCar` interface and each car's `spec.sound` (`EngineVoice`).
+  It reads the car through the `AudioCar` interface and each car's `spec.sound` (`EngineVoice`). A voice with
+  `loops` (only the GT3s') plays synthesised loop buffers instead of the oscillators: `engineLoops.ts` makes them
+  in plain JS (exhaust pulses per cylinder in the firing order, a waveguide pipe per bank, saturation; whole engine
+  cycles, so they loop seamlessly), one per `update()` the first time the voice is used (the oscillators play
+  meanwhile), and `LoopPlayer` crossfades them by rpm and throttle and adds overrun pops and gear whine.
+  `test/engineLoops.test.ts` checks the loops (seams, level, cross-plane spectrum, brighter on load).
 - `timing.ts`, `input.ts`, `dust.ts`, `autopilot.ts`
 - `stage.ts`: renderer, scene, lights, sky, shadow-following sun, static track visuals (`buildStage`)
 - `camera.ts`: `CameraRig` (camera modes)
