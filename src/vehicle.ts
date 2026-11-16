@@ -26,6 +26,20 @@ export interface VehicleWheel {
   readonly contact: { readonly x: number; readonly y: number; readonly z: number };   // contact point while grounded (dust)
 }
 
+// Tyre and brake condition of one wheel (order as `wheels`), for the HUD. Refreshed every tick, never reallocated.
+export interface TyreState {
+  readonly coreC: number;            // carcass temperature (deg C): what the working window is about
+  readonly surfaceC: number;         // tread surface temperature (deg C)
+  readonly pressurePsi: number;      // hot inflation pressure (psi gauge)
+  readonly brakeC: number;           // brake disc surface temperature (deg C)
+  readonly wear?: number;            // tread worn, 0..1; undefined: the car does not wear its tyres
+}
+export interface VehicleTyres {
+  readonly wheels: readonly TyreState[];
+  readonly windowC: readonly (readonly [number, number])[];   // front, rear: carcass temperatures of full grip
+  readonly optimalPsi: readonly number[];                      // front, rear: hot pressure of full grip
+}
+
 export interface Vehicle {
   readonly spec: CarInfo;
   readonly mesh: CarMesh;            // added to the scene by the vehicle; render() poses it
@@ -50,6 +64,7 @@ export interface Vehicle {
   readonly tcActive: boolean; readonly absActive: boolean;   // traction control / ABS cut in during the last tick
   readonly battery?: number;         // energy store charge, 0..1 (hybrids)
   readonly flapsOpen?: boolean;      // movable wings open (cars that have them)
+  readonly tyres?: VehicleTyres;     // tyre temperatures and pressures (cars whose physics models them)
 
   step(dt: number, input: DriveInput): void;   // before world.step(): apply this tick's forces
   readState(): void;                 // after world.step(): refresh the physics state above

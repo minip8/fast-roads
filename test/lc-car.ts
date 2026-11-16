@@ -118,6 +118,7 @@ export function lcCarSuite(id: 'lcgt3' | 'lcf1') {
       expect(car.vel.length()).toBeLessThan(0.05);
       expect([v.ersEnergyJ, v.lapDeployJ]).toEqual([battery, deployed]);   // the battery and lap energy are kept
       expect(v.wheels.map((w) => w.surfaceTempC)).toEqual(blanket);        // ...on tyres back in their blankets
+      expect(car.tyres!.wheels.map((t) => t.surfaceC)).toEqual(blanket);    // ...as the HUD sees them
       s.restart();
       const fresh = lc(car).vehicle;
       expect(fresh).not.toBe(first);
@@ -143,6 +144,42 @@ export function lcCarSuite(id: 'lcgt3' | 'lcf1') {
       drive(DT, () => inp());
       expect(finite(car)).toBe(true);
       expect(Math.hypot(car.pos.x - grid.x, car.pos.z - grid.z)).toBeLessThan(0.05);
+    });
+
+    // The engine's tyre and brake heat as Vehicle.tyres reports it (the HUD's tyre widget), over the pinned flying lap
+    it('reports its tyres: out of the blankets, worked over a lap, back in the blankets on a restart', async () => {
+      const { car, timing, drive, session: s } = await session(id, { flying: true });
+      const ty = car.tyres!, v0 = lc(car).vehicle, cold = id === 'lcf1' ? 80 : 60;   // the blankets (coldRefC)
+      const W = id === 'lcf1' ? [95, 110] : [70, 85];   // the compounds' full-grip carcass temperatures
+      expect(ty.windowC).toEqual([W, W]);
+      expect(ty.optimalPsi).toEqual([0, 1].map((a) => v0.tyreOptimum(a as 0 | 1).psi));
+      const atStart = ty.wheels.map((t) => ({ ...t }));
+      expect(atStart.every((t) => t.coreC === cold && t.surfaceC === cold && t.wear === undefined)).toBe(true);   // wear is off
+      expect(atStart.map((t) => t.pressurePsi)).toEqual(v0.wheels.map((w) => w.coldPressurePsi));
+      const disc = atStart[0].brakeC;
+      const peakBrake = [0, 0, 0, 0];
+      drive(200, null, () => { ty.wheels.forEach((t, k) => { peakBrake[k] = Math.max(peakBrake[k], t.brakeC); }); return timing.lastLap !== null; });
+      expect(timing.lastLap).not.toBeNull();
+      const v = lc(car).vehicle, end = ty.wheels;
+      expect(v).toBe(v0);
+      end.forEach((t, k) => {   // the engine's own numbers
+        const w = v.wheels[k];
+        expect([t.coreC, t.surfaceC, t.pressurePsi, t.brakeC]).toEqual([w.coreTempC, w.surfaceTempC, w.pressurePsi, w.brakeDisc.surfaceTempC]);
+      });
+      // Every carcass warmer than the blankets, and its pressure up with it; still short of the window after one lap
+      expect(end.every((t) => t.coreC > cold + 0.5 && t.coreC < W[0])).toBe(true);
+      expect(end.every((t, k) => t.pressurePsi > atStart[k].pressurePsi)).toBe(true);
+      // Melbourne is mostly right-handers: the left tyres work harder
+      expect(end[0].coreC + end[2].coreC).toBeGreaterThan(end[1].coreC + end[3].coreC);
+      expect(end[0].surfaceC + end[2].surfaceC).toBeGreaterThan(end[1].surfaceC + end[3].surfaceC + 2);
+      // The front discs do most of the braking (the F1's rear axle brakes with its MGU-K)
+      expect(Math.min(peakBrake[0], peakBrake[1])).toBeGreaterThan(Math.max(peakBrake[2], peakBrake[3]) + 100);
+      expect(Math.min(peakBrake[0], peakBrake[1])).toBeGreaterThan(disc + 100);
+      // A restart is a fresh car: tyres in their blankets, discs at their start temperature, in the same objects
+      s.restart();
+      expect(lc(car).vehicle).not.toBe(v0);
+      expect(car.tyres).toBe(ty);
+      expect(ty.wheels.map((t) => ({ ...t }))).toEqual(atStart);
     });
 
     it('shifts by hand (every queued press in turn), refuses a downshift that would over-rev, has a neutral, and reverses: on the throttle in R by hand, on the brake in the automatic box', async () => {

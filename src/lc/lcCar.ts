@@ -4,7 +4,7 @@ import { S_ASPHALT } from '../config';
 import { type CarMesh, poseCockpit } from '../carMeshes';
 import type { LcSpec } from '../cars';
 import { pointAt, projectOnTrack, surfaceAt, trackLimitOut, type SurfaceRes, type Track, type TrackPos } from '../track';
-import type { DriveInput, Vehicle, VehicleWheel } from '../vehicle';
+import type { DriveInput, TyreState, Vehicle, VehicleTyres, VehicleWheel } from '../vehicle';
 import type { EngineDriver } from './engineDriver';
 import { trackGround, trackWalls } from './ground';
 import { VehiclePhysics, type VehicleInputs } from './vendor/sim/f12026-car/VehiclePhysics';
@@ -47,10 +47,17 @@ class LcWheel implements VehicleWheel {
   readonly sres: SurfaceRes = { surf: 0, h: 0 };
 }
 
+class LcTyre implements TyreState {
+  coreC = 0; surfaceC = 0; pressurePsi = 0; brakeC = 0; wear?: number;
+}
+
 export class LcCar implements Vehicle {
   readonly wheels = [new LcWheel(), new LcWheel(), new LcWheel(), new LcWheel()];
   readonly mesh: CarMesh;
-  vehicle!: VehiclePhysics;                 // replaced on a spawn (placeAt on the grid): read it at call time
+  // The engine's tyre temperatures, pressures and brake discs; the windows are the compound's (set in build)
+  readonly tyres: VehicleTyres & { wheels: LcTyre[]; windowC: [number, number][]; optimalPsi: number[] } =
+    { wheels: [new LcTyre(), new LcTyre(), new LcTyre(), new LcTyre()], windowC: [[0, 0], [0, 0]], optimalPsi: [0, 0] };
+  vehicle!: VehiclePhysics;                // replaced on a spawn (placeAt on the grid): read it at call time
   private driver!: EngineDriver;
   // driver-facing state
   gear = 1; rpm = 0; steer = 0; throttle = 0; brake = 0;
@@ -108,6 +115,10 @@ export class LcCar implements Vehicle {
     v.realism = { tyreWearScale: 0, thermalGripScale: 1, fuelUse: false, wetSeverity: 1 };
     v.setFuelMass(sp.fuelKg);
     v.refreshStaticGeometry();              // spring preloads for that load
+    for (const axle of [0, 1] as const) {
+      const o = v.tyreOptimum(axle);
+      this.tyres.windowC[axle] = [o.tempC[0], o.tempC[1]]; this.tyres.optimalPsi[axle] = o.psi;
+    }
     this.vehicle = v;
     this.groundFor = this.forceSurface;
     this.driver = sp.driver(v);
@@ -275,6 +286,9 @@ export class LcCar implements Vehicle {
       w.surf = this.forceSurface ?? w.sres.surf;
       w.out = trackLimitOut(tr, w.proj.i, w.proj.lat);
       w.slip = e.grounded ? Math.min(SLIP_MAX, e.combinedSlip * SLIP_PEAK) : 0;
+      const t = this.tyres.wheels[k];
+      t.coreC = e.coreTempC; t.surfaceC = e.surfaceTempC; t.pressurePsi = e.pressurePsi; t.brakeC = e.brakeDisc.surfaceTempC;
+      t.wear = v.realism.tyreWearScale > 0 ? e.wear : undefined;   // wear is off (build): no number that never moves
     }
   }
 

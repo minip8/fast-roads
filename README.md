@@ -35,7 +35,7 @@ The game opens on a menu with **Drive** at the top right and three tabs:
   - *Camera*: camera, field of view (−15° to +20° on every camera), widen the view with speed, camera shake on kerbs
     and off track, driver camera hands.
   - *HUD*: speed units (km/h / mph), timing panel (full / compact / hidden), live delta, track map (hidden / small /
-    medium / large), mouse steering bar, key help (at start / always / hidden), frame rate counter, HUD size (70–150%)
+    medium / large), tyre temperatures (shown / hidden), mouse steering bar, key help (at start / always / hidden), frame rate counter, HUD size (70–150%)
     and panel background (0–100%).
   - *Graphics*: render resolution (50–100% of the screen's pixels), shadows (off / low / high), brightness.
   - *Audio*: sound on/off and volume.
@@ -89,8 +89,13 @@ the upshift point.
   - **The wheels really spin and lock.** The engine has no driver aids of its own, so the game adds LibreCorsa's:
     ABS (always on) and traction control (the menu's setting). With traction control off, a held throttle swings
     the GT3's tail 20° out mid-corner and spins the F1 out of slow corners.
-  - **Tyres start in their blankets** (60 °C on the GT3, 80 °C on the F1) and come up to temperature over the first
-    corners; a restart fits fresh ones (and gives the F1 a full battery). They do not wear and no fuel is burnt.
+  - **Tyres start in their blankets** (60 °C on the GT3, 80 °C on the F1) and heat and cool as they work: the tread
+    surface, the carcass, inner/middle/outer bands, and the inflation pressure with the carcass temperature. Grip
+    follows the temperature (full grip with the carcass at 70–85 °C on the GT3, 95–110 °C on the F1) and the
+    pressure. On the autopilot's laps they stay a little short of that window (after five laps at Albert Park the F1's
+    carcasses are at 85–89 °C and the GT3's at 61–66 °C, about 1–2% of grip lost). The brake discs heat too, and
+    their pads bite less when cold. A restart fits fresh tyres and brakes (and gives the F1 a full battery). The
+    tyres do not wear (nor grain, blister or flat-spot) and no fuel is burnt.
   - **The F1's hybrid and flaps work themselves.** The battery deploys and harvests by itself (its "race" mode,
     with the per-lap energy allowance of the 2026 rules), and the front and rear flaps open on every straight of at
     least 250 m while the throttle is down and close on the brakes.
@@ -121,7 +126,10 @@ every attempt begins the same way.
 
 Bottom right: F1-style shift lights (5 green, 5 red, 5 blue) fill towards the shift point and all flash there
 (where the automatic box shifts up: 12,200 rpm in the F1 2026, 7,500 in the GT3, 7,200 in the drift car); throttle (green) and brake (red) bars show how hard each pedal is
-applied; then the gear and speed. Top left: the lap time, live delta to your best lap, sectors (purple: your best ever, green: best
+applied; then the gear and speed. Left of it, in the F1 2026 and GT3 (the drift car's physics has no tyre heat):
+the four tyres as on the car, each with its carcass temperature (°C), hot pressure (psi) and brake disc temperature
+(B), coloured against the compound's working window: blue more than 10 °C short of it, light blue nearly there,
+green in it, orange up to 10 °C over, red beyond (on a phone: temperatures and pressures only, bottom left). Top left: the lap time, live delta to your best lap, sectors (purple: your best ever, green: best
 this session, yellow: slower), last / best / optimal laps and the laps driven. Top right: the track map. Bottom left
 for the first seconds of driving: the keys, as currently bound (then a small reminder of the help and menu keys).
 What shows, and how big, is set in the menu's HUD settings.

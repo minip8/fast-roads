@@ -106,6 +106,7 @@ export async function main() {
     timingPanel: (v) => hud.setTimingPanel(v),
     delta: (v) => hud.setDelta(v === 'on'),
     minimap: (v) => hud.setMinimap(v),
+    tyres: (v) => hud.setTyres(v === 'on'),
     mouseBar: (v) => { $('mouseSteer').hidden = settings.steering !== 'mouse' || v === 'off'; },
     help: (v) => hud.setHelpMode(v),
     fps: (v) => hud.setFps(v === 'on'),

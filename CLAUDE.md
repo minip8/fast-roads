@@ -60,7 +60,7 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   on flat ground; `test/lc-gt3-reference.ts` ports LibreCorsa's own GT3 measurement and must match upstream's
   numbers to four decimals, so any accidental change to `src/lc/vendor/` shows up), `test/lc-driver.ts` (ABS, TC,
   keyboard and analog steering through `src/lc/driver.ts`, one file per car) and `test/lc-car.ts` (the cars in the
-  game's `Session`: start spot, walls, surfaces, placement and restarts, shifts and reverse, rendering, the F1's flaps and lap energy).
+  game's `Session`: start spot, walls, surfaces, placement and restarts, shifts and reverse, rendering, the F1's flaps and lap energy, tyre telemetry over a lap).
   Tests that reach into our own physics use `ourCar(car)` / `ourSpec(spec)` from the harness, which fail for a car
   on another engine.
 - In the browser, `window.__game` exposes `simulate(seconds, driver, probeSecs)`, `car` (a getter: the car object is
@@ -151,7 +151,9 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   focused (`cycle`), Enter selects; gamepad buttons arrive through `Menu.press` (`Input.pollMenuPad`)
 - `hud.ts`, `minimap.ts`: in-game HUD (`Hud.update` runs every frame but writes only text/classes/styles that
   changed; its setters apply the HUD settings, `setKeys` writes the key help from the bindings); `dom.ts`: `$`
-  element lookup
+  element lookup; `tyreHud.ts`: the HUD's tyre widget (`tyreBand`: carcass temperature against the compound's
+  window), shown for a car with `Vehicle.tyres` (the LC cars: `LcCar.refresh` copies the engine's tyre and brake
+  temperatures and pressures into it each tick, in place; the drift car has none)
 - `main.ts`: wires it together and owns game state (the `Session`, `started`/`paused`/autopilot, the
   `applySetting` table, hotkeys, the `window.__game` hook (typed `GameHook`), the frame loop)
 
@@ -200,7 +202,11 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
     `placeAt` on the first-placement spot (the start spot, which is the only place the session puts it) builds a
     fresh engine instance (full battery, fuel, tyres in blankets; cheap because the engine memoises that settle),
     rolling at the given speed through the engine's own rolling start; anywhere else (tests) it is a teleport that
-    keeps battery and lap energy (20–40 ms: the engine settles the car by simulating).
+    keeps battery and lap energy (20–40 ms: the engine settles the car by simulating). Either way the tyres and
+    brakes go back to their start temperatures. Of the engine's tyre model, heat (surface, carcass, I/M/O bands),
+    pressure and brake-disc heat are live and change grip; wear, graining, blistering and flat spots are off
+    (`realism.tyreWearScale: 0` in `build`), and fuel is not burnt (that is LibreCorsa's game adapter's job, not
+    the engine's): turning any of it on moves the pinned laps.
   - `lc/ground.ts`: the engine's ground (our surfaces mapped to its road/kerb/grass/gravel table, kerb height on
     top of flat ground) and walls (the road-facing face of each barrier cuboid) from a `Track`. Lookups use a
     per-track grid and no search hint, so they are stateless, which the engine's settle memo requires.

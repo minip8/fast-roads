@@ -4,6 +4,7 @@ import { keyLabel, keysFor, MENU_KEY, type Action, type Bindings } from './keys'
 import { Minimap, type Bounds } from './minimap';
 import type { Timing } from './timing';
 import type { Track } from './track';
+import { TyreWidget } from './tyreHud';
 import { clamp, fmtDelta, fmtSec, fmtTime } from './util';
 import type { Vehicle } from './vehicle';
 
@@ -41,6 +42,7 @@ export class Hud {
     sec: [0, 1, 2].map((k) => $('sec' + k)), secTime: [0, 1, 2].map((k) => $('sec' + k).querySelector('b')!) };
   private readonly lights: HTMLElement[] = [];
   private readonly minimap: Minimap;
+  private readonly tyres = new TyreWidget($('tyres'));
   private litCount = -1;
   private msgTimer = 0;
   private helpTimer = 0;
@@ -69,6 +71,7 @@ export class Hud {
   setTimingPanel(mode: 'full' | 'compact' | 'off') { this.el.timing.hidden = mode === 'off'; this.el.timing.classList.toggle('compact', mode === 'compact'); }
   setDelta(on: boolean) { this.showDelta = on; this.el.delta.hidden = !on; }
   setMinimap(size: 'off' | 'small' | 'medium' | 'large') { this.el.map.hidden = size === 'off'; this.el.map.className = 'panel ' + size; }
+  setTyres(on: boolean) { this.tyres.setEnabled(on); }
   setFps(on: boolean) { this.el.fps.hidden = !on; this.fpsFrames = 0; this.fpsTime = 0; setText(this.el.fps, '— fps'); }
   setScale(pct: number) { this.root.style.setProperty('--hud-scale', String(pct / 100)); }
   setOpacity(pct: number) { this.root.style.setProperty('--panel-a', String(pct / 100)); this.root.classList.toggle('clear', pct < 40); }
@@ -142,6 +145,7 @@ export class Hud {
     setText(el.speed, String(Math.round(Math.abs(car.speedF) * this.perSpeed)));
     setText(el.gear, car.gear < 0 ? 'R' : car.gear === 0 || (!car.manual && Math.abs(car.speedF) < 0.5 && car.throttle < 0.05) ? 'N' : String(car.gear));
     this.updateDash(car);
+    this.tyres.update(car);
     let surf = 0;
     for (const w of car.wheels) surf = Math.max(surf, w.surf);
     const surfName = SURF[surf].name;
