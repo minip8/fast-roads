@@ -13,7 +13,7 @@ export interface Settings {
   // race (the menu's Race tab)
   track: TrackId; car: CarId;
   // driving
-  gearbox: 'auto' | 'manual'; tc: OnOff; assist: OnOff;
+  gearbox: 'auto' | 'manual'; tc: OnOff; assist: OnOff; ghost: OnOff;
   // controls
   steering: 'keyboard' | 'mouse'; mouseSens: MouseSensitivity; mouseDeadzone: MouseDeadzone; padDeadzone: PadDeadzone;
   // camera
@@ -59,6 +59,7 @@ export const SETTING_DEFS: { [K in SettingKey]: SettingDef<K> } = {
   gearbox: { label: 'Gears', section: 'driving', hint: 'Manual: shift with {shiftUp} / {shiftDown}, RB / LB or the mouse wheel', options: [['auto', 'Automatic'], ['manual', 'Manual']] },
   tc: { label: 'Traction control', section: 'driving', hint: 'Limits wheelspin on the throttle', options: onOff() },
   assist: { label: 'Countersteer assist', section: 'driving', hint: 'Drift car only: catches slides for you', options: [['off', 'Off'], ['on', 'On']] },
+  ghost: { label: 'Ghost car', section: 'driving', hint: 'Your best lap here in this car, to race against', options: onOff('Shown', 'Hidden') },
 
   steering: { label: 'Steering', section: 'controls', hint: 'Mouse: the cursor’s distance from the screen centre turns the wheel', options: [['keyboard', 'Keyboard'], ['mouse', 'Mouse']] },
   mouseSens: { label: 'Mouse sensitivity', section: 'controls', hint: 'Low spreads the steering over more of the screen', options: [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']] },
@@ -92,7 +93,7 @@ export const SETTING_DEFS: { [K in SettingKey]: SettingDef<K> } = {
 export const SETTING_KEYS = Object.keys(SETTING_DEFS) as SettingKey[];
 export const DEFAULT_SETTINGS: Settings = {
   track: 'melbourne', car: 'lcf1',
-  gearbox: 'auto', tc: 'on', assist: 'off',
+  gearbox: 'auto', tc: 'on', assist: 'off', ghost: 'on',
   steering: 'keyboard', mouseSens: 'medium', mouseDeadzone: 'small', padDeadzone: 'medium',
   camera: 'onboard', fov: 0, speedFov: 'on', shake: 'on', hands: 'off',
   units: 'kmh', timingPanel: 'full', delta: 'on', minimap: 'medium', tyres: 'on', mouseBar: 'on', help: 'auto', fps: 'off', hudScale: 100, hudOpacity: 70,

@@ -1,3 +1,4 @@
+import { GhostRecorder, GHOST_SUFFIX, loadGhost, saveGhost, unpackGhost, type GhostLap } from './ghost';
 import type { Track } from './track';
 import { lerp } from './util';
 import type { Vehicle } from './vehicle';
@@ -34,6 +35,11 @@ export class Timing {
   lapStart!: number | null; valid!: boolean; invalidReason!: string;
   cur!: SectorTimes; trace!: number[];
   next!: number; sectorStart!: number;           // next line expected (-1 after wrong-way); current sector start
+  // The best lap's recording (ghost.ts), replayed by the ghost car; saved next to the best times. Null if there is
+  // no best lap, or its recording was lost (storage full) or is from before ghosts were recorded.
+  ghost!: GhostLap | null;
+  ghostSaved = true;                             // whether the last new best lap's recording fitted in storage
+  private readonly rec = new GhostRecorder();    // the lap under way
 
   constructor(private readonly track: Track, storeKey: string) {
     const N = track.N;
@@ -49,12 +55,14 @@ export class Timing {
   // Best times are kept per car; switching store also clears this session's laps.
   useStore(key: string) {
     this.storeKey = key; this.store = loadStore(key);
+    this.ghost = loadGhost(key, this.store.bestLap);
     this.sessionBestSectors = [null, null, null]; this.sessionBest = null;
     this.laps = []; this.lastLap = null;
   }
   reset() {
     this.lapStart = null; this.next = 0; this.valid = true; this.sectorStart = 0;
     this.cur = [null, null, null]; this.trace = []; this.invalidReason = '';
+    this.rec.stop();
   }
   invalidate(reason: string) {
     if (this.lapStart != null && this.valid) { this.valid = false; this.invalidReason = reason; this.events.push({ type: 'invalid', reason }); }
@@ -62,6 +70,7 @@ export class Timing {
   // Called once per physics tick. t0 = sim time at start of tick.
   tick(prev: { x: number; z: number }, curr: { x: number; z: number }, t0: number, dt: number, car: Vehicle) {
     const rx = curr.x - prev.x, rz = curr.z - prev.z;
+    this.rec.tick(car);
     for (let k = 0; k < 3; k++) {
       const ln = this.lines[k];
       const sx = ln.bx - ln.ax, sz = ln.bz - ln.az;
@@ -72,7 +81,7 @@ export class Timing {
       if (t < 0 || t > 1 || u < 0 || u > 1) continue;
       const tc = t0 + t * dt;
       if (rx * ln.tx + rz * ln.tz < 0) { this.invalidate('WRONG WAY'); if (k === 0) this.next = -1; continue; }
-      this.cross(k, tc);
+      this.cross(k, tc, t0, t0 + dt, car);
     }
     // track limits
     if (this.lapStart != null && this.valid && car.wheels.every((w) => w.out)) this.invalidate('TRACK LIMITS');
@@ -85,12 +94,15 @@ export class Timing {
       }
     }
   }
-  private cross(k: number, tc: number) {
+  // tc: when the line was crossed; tStart, tEnd: sim time at the start and end of this tick
+  private cross(k: number, tc: number, tStart: number, tEnd: number, car: Vehicle) {
     if (k === 0) {
       if (this.lapStart != null && this.next === 0) {
         this.cur[2] = tc - this.sectorStart;
+        this.rec.finish(car, tEnd - this.lapStart, tc - this.lapStart);
         this.completeLap(tc - this.lapStart);
       }
+      this.rec.begin(car, tStart - tc);
       this.lapStart = tc; this.sectorStart = tc; this.next = 1; this.valid = true;
       this.cur = [null, null, null]; this.trace = [0]; this.invalidReason = '';
       return;
@@ -127,7 +139,12 @@ export class Timing {
         pb = true;
         this.store.bestLap = lapTime; this.store.bestTrace = this.trace.slice(); this.store.bestLapSectors = sectors;
       }
-      saveStore(this.storeKey, this.store);
+      saveStore(this.storeKey, this.store);   // first: the times must not depend on the recording fitting
+      if (pb) {
+        const packed = this.rec.pack();
+        this.ghost = packed && unpackGhost(packed);   // as it will load next time
+        this.ghostSaved = saveGhost(this.storeKey, packed);
+      }
     }
     const prevBest = pb ? null : this.store.bestLap;
     this.lastLap = { time: lapTime, sectors, classes, valid, pb, reason: this.invalidReason };
@@ -162,5 +179,9 @@ function isBestStore(s: object | null): s is BestStore {
   return (b.bestLap === null || isTime(b.bestLap)) && isSectors(b.bestSectors)
     && (b.bestTrace === null || (Array.isArray(b.bestTrace) && b.bestTrace.every((t) => t === null || Number.isFinite(t))))
     && (b.bestLapSectors === null || isSectors(b.bestLapSectors));
+}
+// Deletes the best times and ghost saved for a key ("Reset best times"); useStore(key) then starts afresh.
+export function clearStore(key: string) {
+  try { localStorage.removeItem(key); localStorage.removeItem(key + GHOST_SUFFIX); } catch { /* storage unavailable */ }
 }
 function saveStore(key: string, s: BestStore) { try { localStorage.setItem(key, JSON.stringify(s)); } catch { /* storage unavailable */ } }

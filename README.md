@@ -29,9 +29,9 @@ The game opens on a menu with **Drive** at the top right and three tabs:
 - **Race**: a card for each car (what it is, power, weight, your best lap at this circuit) and each circuit (its
   outline with the start/finish line, place, length, your best lap there in the chosen car). With seven or more
   circuits a search box filters them. Choosing another circuit reloads the game onto it. **Reset best times**
-  clears the chosen car's at this circuit (click twice to confirm).
+  clears the chosen car's at this circuit, and its ghost (click twice to confirm).
 - **Settings**, in five sections:
-  - *Driving*: gears (automatic / manual), traction control, countersteer assist (drift car).
+  - *Driving*: gears (automatic / manual), traction control, countersteer assist (drift car), ghost car (shown / hidden).
   - *Camera*: camera, field of view (−15° to +20° on every camera), widen the view with speed, camera shake on kerbs
     and off track, driver camera hands.
   - *HUD*: speed units (km/h / mph), timing panel (full / compact / hidden), live delta, track map (hidden / small /
@@ -114,6 +114,13 @@ the upshift point.
   wear, fuel use, damage, car setup, the F1's manual boost and energy modes, and its car models and sounds.
 
 Each car keeps its own best lap and sector times at each circuit. Switching car puts you back at the start.
+
+**Ghost car.** Your best lap at this circuit in this car is replayed by a translucent copy of the car, so you can
+race yourself. It sets off from the line as your lap does and stays in step with it: it is level with you when the
+live delta reads zero, and it crosses the line at your best lap time, where it disappears until your next lap starts.
+It has no collision and casts no shadow, fades out when it is close to the camera (so in the Driver and Onboard
+cameras it never blocks the view), and shows on the track map as a light blue dot. Only a valid lap that beats your
+best becomes the ghost; it is saved with your best times, so it is there after a reload. Turn it off under Driving.
 
 **Every lap is a flying lap.** You start on the straight before the start/finish line (160 m back at Albert Park,
 60 m at Silverstone; each circuit has its own spot), already at the speed the car reaches there on a lap and in the gear for it, so keep the
@@ -223,6 +230,10 @@ and override the mouse while held.
 - **Timing**: start/finish + two sector lines as segments; crossings are detected per tick and interpolated within
   the tick. A lap is deleted if all four wheels pass the kerb (or white line where there's no kerb) or when
   crossing a line backwards; a restart drops the lap under way. Best lap, best sectors, and the best-lap trace (for the live delta) persist in localStorage.
+- **Ghost**: every lap is recorded at 10 Hz (position, heading, pitch, roll, steering) as it is driven; a new best
+  lap's recording is packed (1 cm deltas and small angle steps, 11 bytes a sample: about 13 kB, 17 k characters of
+  base64, for a two-minute lap) and saved next to the best times, which are saved first so a full storage only loses
+  the ghost. Playback interpolates the samples smoothly (cubic for position) at the frame rate.
 - **Brake markers**: 300/200/100 m boards before every braking zone where the speed drops by more than ~50 km/h,
   counting down to the turn-in point. Zones are found from the autopilot's speed plan; boards are skipped when they'd
   fall inside the previous corner.
@@ -270,7 +281,7 @@ the game is not affiliated with or endorsed by Mercedes-AMG, Mercedes-Benz or Re
 
 ## Not yet
 
-Elevation (every circuit is flat: Spa, COTA, Interlagos and the Red Bull Ring will need SRTM data, and Suzuka's crossover a bridge), pit lane, ghosts, leaderboards, multiplayer.
+Elevation (every circuit is flat: Spa, COTA, Interlagos and the Red Bull Ring will need SRTM data, and Suzuka's crossover a bridge), pit lane, leaderboards, multiplayer.
 
 Track data: [TUMFTM/racetrack-database](https://github.com/TUMFTM/racetrack-database) (LGPL-3.0): Melbourne,
 Shanghai, Suzuka, Montreal, Spielberg, Silverstone, Spa, Budapest, Monza, Austin, Mexico City, São Paulo and Sakhir,

@@ -31,6 +31,7 @@ export interface HudFrame {
   simTime: number; alpha: number;   // physics time and interpolation fraction into the next tick
   dt: number; autoOn: boolean; paused: boolean;
   mouseSteer: number | null;        // mouse steering position, or null when mouse steering is off
+  ghost?: { x: number; z: number } | null;   // the ghost car's position for the minimap, or null when it isn't shown
 }
 
 export class Hud {
@@ -157,7 +158,7 @@ export class Hud {
       this.fpsFrames++; this.fpsTime += f.dt;
       if (this.fpsTime >= 0.5) { setText(el.fps, Math.round(this.fpsFrames / this.fpsTime) + ' fps'); this.fpsFrames = 0; this.fpsTime = 0; }
     }
-    if (!el.map.hidden) this.minimap.draw(car);
+    if (!el.map.hidden) this.minimap.draw(car, f.ghost);
   }
 
   // Shift lights fill from the car's shiftLightsFrom to its auto-upshift point, then all flash; pedal bars.

@@ -56,6 +56,10 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
 - `test/handling.test.ts` holds loose-bound checks of tuning intent: the drift car's brake-and-turn kick, slides,
   stopping distance, gearbox and reverse. `car.forceSurface = S_ASPHALT` keeps manoeuvres off grass. Keep them short (about 1–2 s after the manoeuvre):
   the start straight is walled (`walls: false` removes the barriers for manoeuvres that need the room).
+- `test/ghost.test.ts`: ghost laps. The timing rules (which lap becomes the ghost, packing round trip, storage,
+  corrupt data, quota) run with a scripted car fed straight to `Timing.tick` (no physics, so quick); playback
+  accuracy with an autopilot lap of the drift car (on LibreCorsa's engine a tick is 4 or 5 engine steps, so per-tick
+  positions are themselves uneven and make a poor reference).
 - LibreCorsa-engine cars (`src/lc/`) have three layers of tests: `test/lc-engine.test.ts` (the vendored engine alone
   on flat ground; `test/lc-gt3-reference.ts` ports LibreCorsa's own GT3 measurement and must match upstream's
   numbers to four decimals, so any accidental change to `src/lc/vendor/` shows up), `test/lc-driver.ts` (ABS, TC,
@@ -134,6 +138,10 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   firing note) and the graph's biquads. Measure a sound change rather than guessing: render it offline
   (an `OfflineAudioContext` in headless Chromium plays the real graph) and compare spectra and levels.
 - `timing.ts`, `input.ts`, `dust.ts`, `autopilot.ts`
+- `ghost.ts`: ghost laps without rendering (`GhostRecorder`, which `Timing` runs; the packed format; `ghostPose`
+  interpolation; load/save); `ghostCar.ts`: `GhostCar`, which draws `timing.ghost` as a translucent copy of the
+  current car's body (cloned materials, never the shared model ones; rebuilt on car switch, re-ghosted when a model
+  is swapped in) and fades it near the camera
 - `stage.ts`: renderer, scene, lights, sky, shadow-following sun, static track visuals (`buildStage`)
 - `camera.ts`: `CameraRig` (camera modes)
 - `settings.ts`: setting types, menu rows (`SETTING_DEFS`: label, section, optional hint, options, `slider`),
@@ -273,7 +281,11 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   its own between the sound graph and the speakers; there are no per-sound volumes).
 - **Timing**: start/finish and two sector lines as segments, with crossings interpolated within a tick; track-limit
   invalidation; best lap/sectors/trace stored per circuit and car under `TrackDef.storeKey + spec.storeKey`
-  (`useStore` switches).
+  (`useStore` switches). Every lap is recorded (`GhostRecorder`, 10 Hz, from the pose just before the line to the
+  end of the tick the lap ended in); a new valid best lap's recording becomes `timing.ghost` and is saved under the
+  same key + `.ghost` (base64, after the best times, so a full storage loses only the ghost), and is loaded only if
+  its lap time is the stored best lap. `clearStore` (Reset best times) removes both. The ghost plays at the lap time
+  the car is drawn at (`simTime - (1 - alpha) * DT - lapStart`), which keeps it level with the car when the delta is 0.
 - **Input**: keyboard, gamepad and visible-cursor mouse steering (cursor x relative to screen centre, with
   sensitivity/deadzone settings) merge in `Input.poll` into one input object. `input.mouse.active` is set each frame
   by the game loop (driving, not paused or in the menu). Driving keys come from `input.bindings`; one-shot actions

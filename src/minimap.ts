@@ -40,10 +40,15 @@ export class Minimap {
   private x(x: number) { return this.offX + (x - this.bounds.minX) * this.scale; }
   private y(z: number) { return this.offZ + (z - this.bounds.minZ) * this.scale; }
 
-  draw(car: Vehicle) {
+  // ghost: where the ghost car is (null: not shown)
+  draw(car: Vehicle, ghost: { x: number; z: number } | null = null) {
     const c = this.ctx;
     c.clearRect(0, 0, this.canvas.width, this.canvas.height);
     c.drawImage(this.base, 0, 0);
+    if (ghost) {
+      c.beginPath(); c.arc(this.x(ghost.x), this.y(ghost.z), 7, 0, Math.PI * 2);
+      c.fillStyle = 'rgba(159,216,255,.75)'; c.strokeStyle = 'rgba(0,0,0,.6)'; c.lineWidth = 2; c.stroke(); c.fill();
+    }
     const hx = car.fwd.x, hz = car.fwd.z, px = this.x(car.pos.x), py = this.y(car.pos.z);
     c.beginPath(); c.moveTo(px + hx * 14, py + hz * 14); c.lineTo(px - hz * 8 - hx * 8, py + hx * 8 - hz * 8); c.lineTo(px + hz * 8 - hx * 8, py - hx * 8 - hz * 8); c.closePath();
     c.fillStyle = '#ff6a13'; c.strokeStyle = '#111'; c.lineWidth = 3; c.stroke(); c.fill();

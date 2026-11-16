@@ -7,6 +7,7 @@ import { CockpitDisplay } from './cockpitDisplay';
 import { DT, MAX_STEPS_PER_FRAME } from './config';
 import { $ } from './dom';
 import { Dust } from './dust';
+import { GhostCar } from './ghostCar';
 import { Hud } from './hud';
 import { Input, MOUSE_DEADZONE, MOUSE_RANGE, PAD_DEADZONE } from './input';
 import { bindKey, copyBindings, DEFAULT_BINDINGS, keyLabel, keysFor, loadBindings, MENU_KEY, saveBindings, type Action } from './keys';
@@ -15,7 +16,7 @@ import { DEFAULT_SETTINGS, loadSettings, nextOption, saveSettings, SETTING_KEYS,
 import { Session } from './sim';
 import { buildStage } from './stage';
 import { StartupError } from './startup';
-import { loadStore, type Timing } from './timing';
+import { clearStore, loadStore, type Timing } from './timing';
 import { buildTrack, parseCSV, type Track } from './track';
 import { loadTrackCsv, TRACKS, type TrackId } from './tracks';
 import { clamp } from './util';
@@ -66,6 +67,7 @@ export async function main() {
   const hud = new Hud(track, stage.bounds, timing);
   const cam = new CameraRig(stage);
   const cockpitDisplay = new CockpitDisplay();
+  const ghost = new GhostCar(scene);
   hud.setKeys(bindings);
 
   // Game state
@@ -93,6 +95,7 @@ export async function main() {
     gearbox: (v) => { session.car.manual = v === 'manual'; },
     tc: (v) => { session.car.tc = v === 'on'; },
     assist: (v) => { session.car.assist = v === 'on'; },
+    ghost: (v) => { ghost.enabled = v === 'on'; },
     steering: (v) => { input.setMouse(v === 'mouse'); applySetting.mouseBar(settings.mouseBar); },
     mouseSens: (v) => { input.mouse.range = MOUSE_RANGE[v]; },
     mouseDeadzone: (v) => { input.mouse.deadzone = MOUSE_DEADZONE[v]; },
@@ -151,7 +154,7 @@ export async function main() {
     rebind: (action, slot, code) => { setBindings(bindKey(bindings, action, slot, code)); menu.rebuild(); },
     resetBindings: () => { setBindings(copyBindings(DEFAULT_BINDINGS)); menu.rebuild(); },
     resetBestTimes: () => {
-      try { localStorage.removeItem(timing.storeKey); } catch { /* storage unavailable */ }
+      clearStore(timing.storeKey);
       timing.useStore(timing.storeKey);
       hud.clearLaps();
     },
@@ -232,11 +235,12 @@ export async function main() {
     car.render(alpha, paused ? 0 : fdt);
     dust.update(paused ? 0 : fdt, car, camera, renderer);
     cam.update(fdt, car);
+    ghost.update(car, timing, session.simTime, alpha, camera);
     cockpitDisplay.update(car, timing, session.simTime, alpha, cam.mode === 'driver');
     audio.update(car, fdt, started && !paused);
 
     hud.handleEvents(timing);
-    hud.update({ car, timing, simTime: session.simTime, alpha, dt: fdt, autoOn, paused, mouseSteer: input.mouse.enabled ? input.mouse.steer : null });
+    hud.update({ car, timing, simTime: session.simTime, alpha, dt: fdt, autoOn, paused, mouseSteer: input.mouse.enabled ? input.mouse.steer : null, ghost: ghost.shown ? ghost.mapPos : null });
 
     renderer.render(scene, camera);
   };
