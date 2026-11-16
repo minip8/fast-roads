@@ -21,7 +21,8 @@ Made by `scripts/cars/convert.mjs` (see its header to reproduce it from the orig
 
 - Turned and scaled to this game's axes and car dimensions (wheelbase 2.65 m, its tyres on the road), and split
   into separately moving parts: the body, the four wheels (tyre, rim, brake disc), the four brake calipers, the
-  steering wheel and the rear lights (lit under braking).
+  steering wheel (with the button labels, which the original keeps in the interior stickers mesh) and the rear
+  lights (lit under braking).
 - Removed one mesh with a placeholder grid material, and the glass and window-tint faces that face into the
   cabin.
 - Simplified from about 497,000 to about 153,000 triangles: the cabin barely, hidden parts (engine bay,

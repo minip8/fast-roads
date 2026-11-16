@@ -293,6 +293,40 @@ for (let i = 0; i < rim.length; i += 3) grow(rimBox, ...toWheel(rim[i], rim[i + 
 const steerCentre = toBody(...centre(rimBox));
 const grip = ((rimBox.max[0] - rimBox.min[0]) / 2) * 0.86;
 
+// --- 4b. Whatever is mounted on the steering wheel but sits in another mesh (labels, screws, buttons, knobs,
+// paddles, lights: the Red Bull model keeps those in its interior meshes) turns with it: each connected piece of
+// the body that lies wholly inside the wheel's own box (its rim's extent, a little margin round the edge, and its
+// depth from the face to the back of the paddles) moves to the steering wheel. Whole pieces, so a label is never
+// cut in half; nothing reaching out of the box (column, stalks, the dash display behind) moves.
+const local = (x, y, z) => toWheel(x, y, z);
+const rimDepth = car.steerDepth ?? [rimBox.min[2], rimBox.max[2]];
+const inWheel = (p) => p[0] > rimBox.min[0] - 0.01 && p[0] < rimBox.max[0] + 0.01 && p[1] > rimBox.min[1] - 0.01 &&
+  p[1] < rimBox.max[1] + 0.01 && p[2] > rimDepth[0] - 0.005 && p[2] < rimDepth[1] + 0.005;
+const moved = new Map();
+for (const s of [...soups.values()]) {
+  if (s.kind !== 'body') continue;
+  const nTri = s.pos.length / 9, parent = new Int32Array(nTri).map((_, i) => i), byVertex = new Map();
+  const find = (i) => { while (parent[i] !== i) i = parent[i] = parent[parent[i]]; return i; };
+  for (let t = 0; t < nTri; t++) for (let v = 0; v < 3; v++) {
+    const o = t * 9 + v * 3, key = `${Math.round(s.pos[o] * 1e5)},${Math.round(s.pos[o + 1] * 1e5)},${Math.round(s.pos[o + 2] * 1e5)}`;
+    const other = byVertex.get(key);
+    if (other === undefined) byVertex.set(key, t); else parent[find(t)] = find(other);
+  }
+  const outside = new Set();
+  for (let t = 0; t < nTri; t++) for (let v = 0; v < 3; v++) {
+    const o = t * 9 + v * 3;
+    if (!inWheel(local(s.pos[o], s.pos[o + 1], s.pos[o + 2]))) outside.add(find(t));
+  }
+  const keep = { pos: [], nrm: [], uv: [] }, take = soup('steer', 'steer', s.material);
+  for (let t = 0; t < nTri; t++) {
+    const d = outside.has(find(t)) ? keep : take;
+    d.pos.push(...s.pos.slice(t * 9, t * 9 + 9)); d.nrm.push(...s.nrm.slice(t * 9, t * 9 + 9)); d.uv.push(...s.uv.slice(t * 6, t * 6 + 6));
+    if (d === take) moved.set(s.material?.getName(), (moved.get(s.material?.getName()) ?? 0) + 1);
+  }
+  Object.assign(s, keep);
+}
+console.log(`  steering wheel ${[0, 1, 2].map((k) => (rimBox.max[k] - rimBox.min[k]).toFixed(3)).join(' x ')} m (width, height, depth); moved onto it: ${[...moved].map(([m, n]) => `${m} ${n}`).join(', ') || 'nothing'}`);
+
 // --- 5. Build the output scene: one node per part, one primitive per material. -----------------------------------
 const frames = { body: { origin: [0, 0, 0], rake: 0 } };
 CORNERS.forEach((c, k) => { frames[`wheel_${c}`] = frames[`hub_${c}`] = { origin: hubsG[k], rake: 0 }; });

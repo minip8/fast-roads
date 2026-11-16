@@ -14,7 +14,10 @@ function glbJson(file: string) {
   const b = readFileSync(file);
   expect(b.toString('ascii', 0, 4)).toBe('glTF');
   const len = b.readUInt32LE(12);
-  return JSON.parse(b.toString('utf8', 20, 20 + len)) as { nodes: { name: string; extras?: Record<string, unknown> }[] };
+  return JSON.parse(b.toString('utf8', 20, 20 + len)) as {
+    nodes: { name: string; mesh?: number; extras?: Record<string, unknown> }[];
+    meshes: { primitives: { material?: number }[] }[]; materials: { name: string }[];
+  };
 }
 
 describe.each(MODELS)('%s model file', (id, def) => {
@@ -32,6 +35,13 @@ describe.each(MODELS)('%s model file', (id, def) => {
     });
     const grip = byName.get('steering_wheel')!.extras!.grip as number;
     expect(grip).toBeGreaterThan(0.08); expect(grip).toBeLessThan(0.2);
+  });
+
+  // The Red Bull model keeps the wheel's button labels in its interior stickers mesh: they must turn with the wheel.
+  it.runIf(id === 'lcgt3')('turns the labels with the steering wheel', () => {
+    const json = glbJson(file), node = json.nodes.find((n) => n.name === 'steering_wheel')!;
+    const mats = json.meshes[node.mesh!].primitives.map((p) => json.materials[p.material!].name);
+    expect(mats).toContain('MI_Mercedes_AMG_GT3_Evo_Interior_Stickers');
   });
 
   it('is small, and carries its licence and credits', () => {
