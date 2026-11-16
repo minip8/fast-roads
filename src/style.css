@@ -105,7 +105,7 @@ canvas#view { display: block; width: 100vw; height: 100vh; }
 #loadState[hidden] { display: none; }
 #loadState::before { content: ''; width: 14px; height: 14px; border-radius: 50%; border: 2px solid rgba(255,255,255,.18);
   border-top-color: var(--accent); animation: spin .8s linear infinite; }
-#loadState.err { color: var(--red); }
+#loadState.err { color: var(--red); display: block; line-height: 1.5; }   /* text, then the Try again link inline */
 #loadState.err::before { content: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 #menuBody { display: flex; flex-direction: column; min-height: 0; flex: 1; }
