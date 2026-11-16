@@ -61,6 +61,7 @@ class LcWheel implements VehicleWheel {
 
 class LcTyre implements TyreState {
   coreC = 0; surfaceC = 0; pressurePsi = 0; brakeC = 0; wear?: number;
+  readonly bandsC: [number, number, number] = [0, 0, 0];
 }
 
 export class LcCar implements Vehicle {
@@ -305,6 +306,7 @@ export class LcCar implements Vehicle {
       w.slip = e.grounded ? Math.min(SLIP_MAX, peakSlip(e, this.longMult[k < 2 ? 0 : 1])) : 0;
       const t = this.tyres.wheels[k];
       t.coreC = e.coreTempC; t.surfaceC = e.surfaceTempC; t.pressurePsi = e.pressurePsi; t.brakeC = e.brakeDisc.surfaceTempC;
+      t.bandsC[0] = e.bandTempsC[0]; t.bandsC[1] = e.bandTempsC[1]; t.bandsC[2] = e.bandTempsC[2];
       t.wear = v.realism.tyreWearScale > 0 ? e.wear : undefined;   // wear is off (build): no number that never moves
     }
   }

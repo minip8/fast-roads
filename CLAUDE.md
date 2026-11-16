@@ -194,7 +194,8 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
 - `hud.ts`, `minimap.ts`: in-game HUD (`Hud.update` runs every frame but writes only text/classes/styles that
   changed; its setters apply the HUD settings, `setKeys` writes the key help from the bindings); `dom.ts`: `$`
   element lookup; `tyreHud.ts`: the HUD's tyre widget (`tyreBand`: carcass temperature against the compound's
-  window), shown for a car with `Vehicle.tyres` (the LC cars: `LcCar.refresh` copies the engine's tyre and brake
+  window, the tile; `treadBand`: the tread surface's I/M/O bands (`TyreState.bandsC`) against it with 20 °C margins,
+  the strip; tread number `surfaceC`), shown for a car with `Vehicle.tyres` (the LC cars: `LcCar.refresh` copies the engine's tyre and brake
   temperatures and pressures into it each tick, in place; the drift car has none)
 - `main.ts`: wires it together and owns game state (the `Session`, `started`/`paused`/autopilot, the
   `applySetting` table, hotkeys, the `window.__game` hook (typed `GameHook`), the frame loop)

@@ -29,7 +29,8 @@ export interface VehicleWheel {
 // Tyre and brake condition of one wheel (order as `wheels`), for the HUD. Refreshed every tick, never reallocated.
 export interface TyreState {
   readonly coreC: number;            // carcass temperature (deg C): what the working window is about
-  readonly surfaceC: number;         // tread surface temperature (deg C)
+  readonly surfaceC: number;         // tread surface temperature (deg C): reacts within seconds, a quarter of the grip's
+  readonly bandsC: readonly [inner: number, middle: number, outer: number];   // ...its inner, middle and outer bands
   readonly pressurePsi: number;      // hot inflation pressure (psi gauge)
   readonly brakeC: number;           // brake disc surface temperature (deg C)
   readonly wear?: number;            // tread worn, 0..1; undefined: the car does not wear its tyres

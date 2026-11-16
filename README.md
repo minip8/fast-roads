@@ -147,9 +147,13 @@ chicane, say) and the lap that follows is deleted, as is the one you were on if 
 Bottom right: F1-style shift lights (5 green, 5 red, 5 blue) fill towards the shift point and all flash there
 (where the automatic box shifts up: 12,200 rpm in the F1 2026, 7,500 in the GT3, 7,200 in the drift car); throttle (green) and brake (red) bars show how hard each pedal is
 applied; then the gear and speed. Left of it, in the F1 2026 and GT3 (the drift car's physics has no tyre heat):
-the four tyres as on the car, each with its carcass temperature (°C), hot pressure (psi) and brake disc temperature
-(B), coloured against the compound's working window: blue more than 10 °C short of it, light blue nearly there,
-green in it, orange up to 10 °C over, red beyond (on a phone: temperatures and pressures only, bottom left). Top left: the lap time, live delta to your best lap, sectors (purple: your best ever, green: best
+the four tyres as on the car, each with its carcass temperature (°C, large), tread surface temperature (T), hot
+pressure (psi) and brake disc temperature (B). The tile is coloured by the carcass against the compound's working
+window: blue more than 10 °C short of it, light blue nearly there, green in it, orange up to 10 °C over, red beyond.
+The strip across its top is the tread surface's outer, middle and inner bands (outer edge outside, as on the car),
+coloured against the same window with 20 °C margins: the carcass moves slowly and sets the window, the tread heats
+in a corner and cools on a straight within seconds (the grip reads a quarter of it). On a phone: the strip,
+carcass temperatures and pressures only, bottom left. Top left: the lap time, live delta to your best lap, sectors (purple: your best ever, green: best
 this session, yellow: slower), last / best / optimal laps and the laps driven. Top right: the track map. Top centre: the rear-view mirror. Bottom left
 for the first seconds of driving: the keys, as currently bound (then a small reminder of the help and menu keys).
 What shows, and how big, is set in the menu's HUD settings.

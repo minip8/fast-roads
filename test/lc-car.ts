@@ -152,8 +152,9 @@ export function lcCarSuite(id: 'lcgt3' | 'lcf1') {
       const W = id === 'lcf1' ? [95, 110] : [70, 85];   // the compounds' full-grip carcass temperatures
       expect(ty.windowC).toEqual([W, W]);
       expect(ty.optimalPsi).toEqual([0, 1].map((a) => v0.tyreOptimum(a as 0 | 1).psi));
-      const atStart = ty.wheels.map((t) => ({ ...t }));
-      expect(atStart.every((t) => t.coreC === cold && t.surfaceC === cold && t.wear === undefined)).toBe(true);   // wear is off
+      const copy = () => ty.wheels.map((t) => ({ ...t, bandsC: [...t.bandsC] }));
+      const atStart = copy();
+      expect(atStart.every((t) => t.coreC === cold && t.surfaceC === cold && t.bandsC.every((b) => b === cold) && t.wear === undefined)).toBe(true);   // wear is off
       expect(atStart.map((t) => t.pressurePsi)).toEqual(v0.wheels.map((w) => w.coldPressurePsi));
       const disc = atStart[0].brakeC;
       const peakBrake = [0, 0, 0, 0];
@@ -164,10 +165,13 @@ export function lcCarSuite(id: 'lcgt3' | 'lcf1') {
       end.forEach((t, k) => {   // the engine's own numbers
         const w = v.wheels[k];
         expect([t.coreC, t.surfaceC, t.pressurePsi, t.brakeC]).toEqual([w.coreTempC, w.surfaceTempC, w.pressurePsi, w.brakeDisc.surfaceTempC]);
+        expect(t.bandsC).toEqual(w.bandTempsC);
       });
       // Every carcass warmer than the blankets, and its pressure up with it; still short of the window after one lap
       expect(end.every((t) => t.coreC > cold + 0.5 && t.coreC < W[0])).toBe(true);
       expect(end.every((t, k) => t.pressurePsi > atStart[k].pressurePsi)).toBe(true);
+      // The GT3's negative camber loads its fronts' inner shoulders: their inner band runs hottest (the widget's strip)
+      if (id === 'lcgt3') expect(end.slice(0, 2).every((t) => t.bandsC[0] > t.bandsC[2])).toBe(true);
       // Melbourne is mostly right-handers: the left tyres work harder
       expect(end[0].coreC + end[2].coreC).toBeGreaterThan(end[1].coreC + end[3].coreC);
       expect(end[0].surfaceC + end[2].surfaceC).toBeGreaterThan(end[1].surfaceC + end[3].surfaceC + 2);
@@ -178,7 +182,7 @@ export function lcCarSuite(id: 'lcgt3' | 'lcf1') {
       s.restart();
       expect(lc(car).vehicle).not.toBe(v0);
       expect(car.tyres).toBe(ty);
-      expect(ty.wheels.map((t) => ({ ...t }))).toEqual(atStart);
+      expect(copy()).toEqual(atStart);
     });
 
     it('shifts by hand (every queued press in turn), refuses a downshift that would over-rev, has a neutral, and reverses: on the throttle in R by hand, on the brake in the automatic box', async () => {
