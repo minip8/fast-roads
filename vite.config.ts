@@ -121,5 +121,6 @@ export default defineConfig({
       },
     },
   },
-  test: { testTimeout: 60_000, setupFiles: ['test/setup.ts'] },   // a lap simulates 2-3 minutes of driving
+  // only this checkout's tests (agents' git worktrees under .claude/ hold copies)
+  test: { include: ['test/**/*.test.ts'], testTimeout: 60_000, setupFiles: ['test/setup.ts'] },   // a lap simulates 2-3 minutes of driving
 });
