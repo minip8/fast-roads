@@ -52,7 +52,7 @@ export async function main() {
   await new Promise((r) => setTimeout(r, 0));   // let the loading text paint
 
   const csv = await loadTrackCsv(def.id).catch((err: unknown) => { throw new StartupError('download', `${def.name} failed to load`, { cause: err }); });
-  const track = buildTrack(parseCSV(csv));
+  const track = buildTrack(parseCSV(csv), { street: def.street });
   const stage = buildStage($<HTMLCanvasElement>('view'), track, def);
   const { renderer, scene, camera } = stage;
 

@@ -170,7 +170,8 @@ and override the mouse while held.
   of the official length. The game is flat: Suzuka's crossover is a level crossing, with the walls of each road
   left open where the other passes through.
   Each CSV → Catmull-Rom → resampled every ~2 m.
-  Kerbs, gravel traps, and barrier offsets are derived from curvature; barriers are shrunk/dropped where they'd
+  Kerbs, gravel traps, and barrier offsets are derived from curvature (the street circuits, Monaco, Baku, Singapore,
+  Las Vegas and Jeddah, have no gravel and walls 3.5 m from the edge); barriers are shrunk/dropped where they'd
   intrude on another part of the circuit, and grandstands and the pit building are left out or shortened where
   they would. Road, kerbs, gravel, and walls are ribbon meshes built from the samples.
 - **Physics** (the drift car): Rapier rigid body (fixed 120 Hz step, interpolated rendering). Custom raycast suspension with

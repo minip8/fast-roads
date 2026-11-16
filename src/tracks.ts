@@ -30,6 +30,7 @@ export interface TrackDef {
   skyline: boolean;                 // a city on the horizon
   trees: number;                    // how many trees to scatter round the circuit
   pitSide: 1 | -1;                  // pit building on the left (1) or right (-1) of the start straight; stands opposite
+  street?: boolean;                 // a street circuit: walls close in, no gravel traps (buildTrack's option)
 }
 
 // The rest of a circuit's definition: storeKey follows from the id.
@@ -72,7 +73,7 @@ export const TRACKS: Record<TrackId, TrackDef> = {
     name: 'Monaco', place: 'Monte Carlo', country: 'Monaco', lengthKm: 3.337, round: 6,
     startBack: 100, flying: { drift: 164, lcgt3: 167, lcf1: 197 },
     pit: [-100, 20], stands: [1, 2],
-    skyline: true, trees: 300, pitSide: -1,
+    skyline: true, trees: 300, pitSide: -1, street: true,
   }),
   barcelona: def('barcelona', {
     name: 'Barcelona-Catalunya', place: 'Montmeló', country: 'Spain', lengthKm: 4.657, round: 7,
@@ -111,7 +112,7 @@ export const TRACKS: Record<TrackId, TrackDef> = {
     name: 'Zandvoort', place: 'Zandvoort', country: 'Netherlands', lengthKm: 4.259, round: 12,
     startBack: 160, flying: { drift: 195, lcgt3: 201, lcf1: 233 },
     pit: [-250, 250], stands: [10, 12],
-    skyline: false, trees: 500, pitSide: -1,
+    skyline: false, trees: 500, pitSide: 1,
   }),
   monza: def('monza', {
     name: 'Monza', place: 'Monza', country: 'Italy', lengthKm: 5.793, round: 13,
@@ -129,13 +130,13 @@ export const TRACKS: Record<TrackId, TrackDef> = {
     name: 'Baku City Circuit', place: 'Baku', country: 'Azerbaijan', lengthKm: 6.003, round: 15,
     startBack: 160, flying: { drift: 222, lcgt3: 268, lcf1: 278 },
     pit: [-400, 120], stands: [14, 4],
-    skyline: true, trees: 300, pitSide: 1,
+    skyline: true, trees: 300, pitSide: 1, street: true,
   }),
   singapore: def('singapore', {
     name: 'Marina Bay', place: 'Singapore', country: 'Singapore', lengthKm: 4.927, round: 16,
     startBack: 160, flying: { drift: 209, lcgt3: 195, lcf1: 228 },
     pit: [-300, 80], stands: [12, 3],
-    skyline: true, trees: 600, pitSide: 1,
+    skyline: true, trees: 600, pitSide: 1, street: true,
   }),
   austin: def('austin', {
     name: 'Circuit of the Americas', place: 'Austin', country: 'United States', lengthKm: 5.513, round: 17,
@@ -159,7 +160,7 @@ export const TRACKS: Record<TrackId, TrackDef> = {
     name: 'Las Vegas Strip Circuit', place: 'Las Vegas', country: 'United States', lengthKm: 6.201, round: 20,
     startBack: 160, flying: { drift: 160, lcgt3: 165, lcf1: 201 },
     pit: [-200, 70], stands: [7, 2],
-    skyline: true, trees: 100, pitSide: 1,
+    skyline: true, trees: 100, pitSide: 1, street: true,
   }),
   lusail: def('lusail', {
     name: 'Lusail International Circuit', place: 'Lusail', country: 'Qatar', lengthKm: 5.419, round: 21,
@@ -184,7 +185,7 @@ export const TRACKS: Record<TrackId, TrackDef> = {
     name: 'Jeddah Corniche Circuit', place: 'Jeddah', country: 'Saudi Arabia', lengthKm: 6.174,
     startBack: 160, flying: { drift: 222, lcgt3: 229, lcf1: 258 },
     pit: [-350, 300], stands: [15, 13],
-    skyline: true, trees: 80, pitSide: 1,
+    skyline: true, trees: 80, pitSide: 1, street: true,
   }),
 };
 

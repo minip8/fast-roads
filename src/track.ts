@@ -41,7 +41,11 @@ export function parseCSV(text: string): RawPoint[] {
   return pts;
 }
 
-export function buildTrack(raw: RawPoint[]): Track {
+// street: a street circuit, walled in close (STREET_RUNOFF beyond the edge) with no gravel traps.
+export interface TrackOptions { street?: boolean }
+const STREET_RUNOFF = 3.5;   // m from the track edge to the wall (the kerb and about 2 m of pavement)
+
+export function buildTrack(raw: RawPoint[], { street = false }: TrackOptions = {}): Track {
   const n = raw.length, SUB = 5, dense: RawPoint[] = [];
   for (let i = 0; i < n; i++) {
     const p0 = raw[wrapI(i - 1, n)], p1 = raw[i], p2 = raw[(i + 1) % n], p3 = raw[(i + 2) % n];
@@ -94,8 +98,8 @@ export function buildTrack(raw: RawPoint[]): Track {
   const mk = (fn: (i: number) => boolean) => { const a = new Uint8Array(N); for (let i = 0; i < N; i++) a[i] = fn(i) ? 1 : 0; return a; };
   const kerbL = removeShortRuns(dilate(mk((i) => KS[i] > 1 / 220 || KS[i] < -1 / 120), 6, 6), 8);
   const kerbR = removeShortRuns(dilate(mk((i) => -KS[i] > 1 / 220 || -KS[i] < -1 / 120), 6, 6), 8);
-  const gravelL = removeShortRuns(dilate(mk((i) => KS[i] < -1 / 130), 8, 25), 10);
-  const gravelR = removeShortRuns(dilate(mk((i) => -KS[i] < -1 / 130), 8, 25), 10);
+  const gravelL = street ? new Uint8Array(N) : removeShortRuns(dilate(mk((i) => KS[i] < -1 / 130), 8, 25), 10);
+  const gravelR = street ? new Uint8Array(N) : removeShortRuns(dilate(mk((i) => -KS[i] < -1 / 130), 8, 25), 10);
 
   // --- barriers: lateral offset from centerline per side, plus validity mask
   const nearestDist = (x: number, z: number) => {
@@ -106,7 +110,7 @@ export function buildTrack(raw: RawPoint[]): Track {
   const barrier = (side: number) => {
     const edge = side > 0 ? WL : WR, gravel = side > 0 ? gravelL : gravelR;
     let off = new Float64Array(N);
-    for (let i = 0; i < N; i++) off[i] = edge[i] + (gravel[i] ? KERB_W + GRAVEL_W + 3 : 7);
+    for (let i = 0; i < N; i++) off[i] = edge[i] + (gravel[i] ? KERB_W + GRAVEL_W + 3 : street ? STREET_RUNOFF : 7);
     off = smoothClosed(off, 12, 3);
     const valid = new Uint8Array(N);
     for (let i = 0; i < N; i++) {

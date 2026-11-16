@@ -15,7 +15,7 @@ import type { DriveInput, Vehicle } from '../src/vehicle';
 const tracks: Partial<Record<TrackId, Track>> = {};
 // Each circuit is built once per test file.
 export async function trackFor(id: TrackId): Promise<Track> {
-  return tracks[id] ??= buildTrack(parseCSV(await loadTrackCsv(id)));
+  return tracks[id] ??= buildTrack(parseCSV(await loadTrackCsv(id)), { street: TRACKS[id].street });
 }
 
 // `walls: false` removes the barriers, for manoeuvres that need more room than the walled start straight has.

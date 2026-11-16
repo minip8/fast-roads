@@ -19,7 +19,7 @@ dev and the tests use the inline copy.
     npm run dev         # dev server; ?autopilot in the URL skips the menu and lets the built-in driver lap
     npm run typecheck   # tsc for src/, then for test/ (only test/ gets Node types)
     npm test            # Vitest project `unit`: headless physics (~35 s: the test files run in parallel)
-    npm run test:laps   # Vitest project `laps`: the pinned laps at the 22 other circuits (~4 min)
+    npm run test:laps   # Vitest project `laps`: the pinned laps at the 22 other circuits (2-4 min)
     npx vitest run test/handling.test.ts -t 'reverse'   # one file / one test by name
     npm run build       # typecheck + static build in dist/ (base './'); npm run preview serves it
     node scripts/cars/convert.mjs lcgt3 <source.glb>   # remake a car model (sources: see its header)
@@ -44,7 +44,7 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   start and restart themselves. Each lap is run by its own `laps-*.test.ts` file so the seven (about
   10–20 s each) run in parallel. The other 22 circuits' laps (TC on, all three cars: `CALENDAR` in `test/laps.ts`)
   are 66 more, too many for every commit: they are the Vitest project `laps` (`test/calendar/<circuit>.test.ts`,
-  three laps a file; `npm run test:laps`, about 4 minutes on 12 cores), and `npm test` is the project `unit`
+  three laps a file; `npm run test:laps`, 2-4 minutes on 12 cores), and `npm test` is the project `unit`
   (`test/*.test.ts`), set up in `vite.config.ts`. Every lap test also checks there were no resets and that the car's
   centre never came within 2 m of a wall, except the one lap pinned as not clean (`NOT_CLEAN`: the drift car slides
   wide at Spa's Blanchimont and Bus Stop and has its lap deleted). `session(carId, { track })` picks the circuit (Melbourne by default);
@@ -119,7 +119,7 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   (`import.meta.glob` makes each CSV its own chunk, so the game downloads only the circuit being driven)
 - `track.ts`: track geometry and colliders (`Track`)
 - `trackMeshes.ts`, `textures.ts`, `scenery.ts`, `brakeMarkers.ts`: visuals (`standBays` / `pitBuilding` in
-  `scenery.ts` place the buildings, leaving out or shortening any that would reach another part of the circuit); `batch.ts`: `Batch`, which merges many
+  `scenery.ts` place the buildings, leaving out or shortening any that would stand inside another stretch's walls); `batch.ts`: `Batch`, which merges many
   static parts into one mesh per material (grandstands, pit, gantry, brake boards, car bodies)
 - `audio.ts`: `EngineAudio`, the AudioContext's lifecycle (created on the first gesture, suspended while muted or
   hidden); `audioGraph.ts`: `SoundGraph`, every sound node, built once, with `update()` moving only parameters.
@@ -168,7 +168,8 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   the start spot): run the lap with a guess, and take the speed the lap test reports there at the end of the lap. Everything is
   built once at startup for `settings.track`, so changing the Circuit setting saves it and reloads the page.
   `buildTrack` turns it into a closed spline sampled every ~2 m (arrays `X, Z, TX, TZ, NX, NZ, K, S, WL, WR`, kerb/
-  gravel/barrier offsets). Almost everything works in track coordinates `(s, lat)` via `projectOnTrack` / `pointAt`.
+  gravel/barrier offsets; `{ street: true }`, from `TrackDef.street`, means no gravel and walls `STREET_RUNOFF` from
+  the edge). Almost everything works in track coordinates `(s, lat)` via `projectOnTrack` / `pointAt`.
 - **Car specs (`CARS`)**: the cars are `lcf1` (the default; menu name "F1 2026"), `lcgt3` ("GT3") and `drift`. The ids
   of removed cars are not reused: `loadSettings` maps the saved ids of the removed Rapier cars (`f1`, `gt3`) to their
   LibreCorsa twins. Each spec holds every physics, engine, gearbox, steering, collider, camera, sound and autopilot

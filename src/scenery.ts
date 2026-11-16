@@ -136,11 +136,22 @@ export function buildScenery(tr: Track, scene: THREE.Scene, def: TrackDef) {
 }
 
 // Where the buildings go. A building may not reach another part of the circuit (a street circuit's straight often
-// has a hairpin or another straight just beyond its walls): each footprint is checked against every centreline
-// sample, and a stand bay that would intrude is left out, the pit building shortened from its ends until it fits.
-const CLEAR = 12;   // m from any centreline sample (road half-width, kerb, room for the wall)
+// has a hairpin or another straight just beyond its walls): no point of its footprint may lie inside any stretch's
+// walls (at the side of a centreline sample, closer than its barrier offset + 0.5 m). The straight it stands beside
+// (samples a to b, and 100 m either side) is left out of that: the building is placed off its walls. A stand bay
+// that would intrude is left out, the pit building shortened from its ends until it fits.
+const clear = (tr: Track, pts: [number, number][], a: number, b: number) => pts.every(([x, z]) => {
+  const ds = tr.L / tr.N, m = Math.round(100 / ds);
+  for (let j = 0; j < tr.N; j++) {
+    if (wrapI(j - (a - m), tr.N) <= b - a + 2 * m) continue;
+    const dx = x - tr.X[j], dz = z - tr.Z[j];
+    if (dx * dx + dz * dz > 3600 || Math.abs(dx * tr.TX[j] + dz * tr.TZ[j]) > 1.5) continue;
+    const lat = dx * tr.NX[j] + dz * tr.NZ[j];
+    if (Math.abs(lat) < (lat > 0 ? tr.barL[j] : tr.barR[j]) + 0.5) return false;
+  }
+  return true;
+});
 type Footprint = { x: number; z: number; yaw: number };
-const clear = (tr: Track, pts: [number, number][]) => pts.every(([x, z]) => tr.nearestDist(x, z) >= CLEAR);
 // The points of a box (local width w across, depth d with +z towards the track from `front`, length along) to test.
 function boxPoints(cx: number, cz: number, ax: number, az: number, halfLen: number, nx: number, nz: number, d0: number, d1: number) {
   const pts: [number, number][] = [];
@@ -159,7 +170,7 @@ export function standBays(tr: Track, def: TrackDef): Footprint[] {
     if (!valid[i] || Math.abs(tr.KS[i]) > 1 / 600) continue;
     const off = side * (bar[i] + 4), x = tr.X[i] + tr.NX[i] * off, z = tr.Z[i] + tr.NZ[i] * off;
     // outward normal side*N, the bay runs along the tangent; it reaches 1.5 m towards the track and 10.5 m back
-    if (!clear(tr, boxPoints(x, z, tr.TX[i], tr.TZ[i], 12.5, side * tr.NX[i], side * tr.NZ[i], -1.5, 10.5))) continue;
+    if (!clear(tr, boxPoints(x, z, tr.TX[i], tr.TZ[i], 12.5, side * tr.NX[i], side * tr.NZ[i], -1.5, 10.5), i, i)) continue;
     bays.push({ x, z, yaw: Math.atan2(-side * tr.NX[i], -side * tr.NZ[i]) });
   }
   return bays;
@@ -176,7 +187,7 @@ export function pitBuilding(tr: Track, def: TrackDef): (Footprint & { len: numbe
     const x = tr.X[im] + tr.NX[im] * off, z = tr.Z[im] + tr.NZ[im] * off;
     // the chord's outward normal, towards the building's side
     const nx = (side * az) / len, nz = (-side * ax) / len;
-    if (clear(tr, boxPoints(x, z, ax / len, az / len, len / 2, nx, nz, -6, 6))) {
+    if (clear(tr, boxPoints(x, z, ax / len, az / len, len / 2, nx, nz, -6, 6), i0, i0 + k1 - k0)) {
       // On the left the building's local -x faces the track; on the right it is turned round so that face still does.
       return { x, z, len, yaw: Math.atan2(ax, az) + (side > 0 ? 0 : Math.PI) };
     }
