@@ -46,6 +46,10 @@ export interface Vehicle {
   shiftDenied: boolean;              // set when a manual downshift was refused (it would over-rev); the game clears it
   forceSurface?: number;             // testing: pretend every wheel is on this surface
   readonly tipped: number;           // seconds spent on its side or roof at walking pace (needsReset puts it back)
+  // Instruments (the cockpit display shows what a car has; undefined: the car has none)
+  readonly tcActive: boolean; readonly absActive: boolean;   // traction control / ABS cut in during the last tick
+  readonly battery?: number;         // energy store charge, 0..1 (hybrids)
+  readonly flapsOpen?: boolean;      // movable wings open (cars that have them)
 
   step(dt: number, input: DriveInput): void;   // before world.step(): apply this tick's forces
   readState(): void;                 // after world.step(): refresh the physics state above

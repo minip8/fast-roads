@@ -49,6 +49,7 @@ export class Car implements Vehicle {
   private readonly ray: RAPIER.Ray;
   // driver-facing state
   gear: number; rpm: number; steer = 0; throttle = 0; brake = 0;
+  tcActive = false; absActive = false;      // TC held the drive back / ABS the brakes on some wheel this tick (instruments)
   private steerIn = 0;                      // the driver's part of the wheel angle (steer adds the countersteer assist)
   private looseAsk = 0;                     // eased share of the rear looseness in play (see rearLoose)
   private rearSlip = 0; private slipRate = 0;   // rear slide angle (rad) and its smoothed rate, for the assist
@@ -123,6 +124,7 @@ export class Car implements Vehicle {
     this.body.setLinvel({ x: tr.TX[i] * speed, y: 0, z: tr.TZ[i] * speed }, true);
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     this.gear = 1; this.steer = this.steerIn = this.rearSlip = this.slipRate = 0; this.looseAsk = this.spec.rearLoose[2]; this.shiftTimer = 0; this.tipped = 0;
+    this.tcActive = this.absActive = false;
     // rolling: the gear the automatic box would be in (the lowest that is below its shift point)
     const top = this.spec.gearTop;
     while (this.gear < top.length - 1 && (this.spec.redline * speed) / top[this.gear] > this.spec.shiftPoint) this.gear++;
@@ -317,7 +319,7 @@ export class Car implements Vehicle {
     this.looseAsk = looseEase > 0 ? this.looseAsk + (ask - this.looseAsk) * (1 - Math.exp(-dt / looseEase)) : ask;
     const looseK = 1 - loose * (1 - dug) * clamp(1 - Math.abs(vF) / looseV, 0, 1) * this.looseAsk;
     const rearGrip = (1 - this.spec.brakeKick * clamp(brake, 0, 1) * clamp(Math.abs(this.steerIn) / 0.15, 0, 1)) * looseK * (1 + catchExtra * dug);
-    let plough = 0;
+    let plough = 0, tcOn = false, absOn = false;
     for (const w of this.wheels) {
       if (!w.grounded) { w.slip = 0; w.omega *= 0.99; continue; }
       const n = w.normal;
@@ -344,12 +346,17 @@ export class Car implements Vehicle {
       // longitudinal: drive (rear), brakes, rolling + surface drag
       let Fdrive = w.front ? 0 : drive / 2;
       const dg = w.front ? this.spec.driveGrip : this.spec.driveGrip / looseK;   // like brakeGrip, for putting power down
-      if (this.tc && Fdrive > 0) Fdrive = Math.min(Fdrive, dg * Math.max(Math.sqrt(Math.max(0, Fmax * Fmax - Fy * Fy)) * 0.97 + this.spec.tcSlack * Fmax, this.spec.spinDrive * Fmax));
+      if (this.tc && Fdrive > 0) {
+        const cap = dg * Math.max(Math.sqrt(Math.max(0, Fmax * Fmax - Fy * Fy)) * 0.97 + this.spec.tcSlack * Fmax, this.spec.spinDrive * Fmax);
+        if (Fdrive > cap) { Fdrive = cap; tcOn = true; }
+      }
       // ABS: cornering force keeps priority; brakes get the grip that's left, but never less than absMin.
       // brakeGrip stretches the friction circle for braking only: the tyres stop harder than they corner.
       const bg = this.spec.brakeGrip;
       const longAvail = bg * Math.sqrt(Math.max(0, Fmax * Fmax - Fy * Fy));
-      const brakeF = Math.min(brake * this.spec.brakeMax * (w.front ? this.spec.brakeFront : 1 - this.spec.brakeFront) / 2, Math.max(longAvail, this.spec.absMin * bg * Fmax));
+      const brakeAsked = brake * this.spec.brakeMax * (w.front ? this.spec.brakeFront : 1 - this.spec.brakeFront) / 2;
+      const brakeF = Math.min(brakeAsked, Math.max(longAvail, this.spec.absMin * bg * Fmax));
+      if (brakeF < brakeAsked) absOn = true;
       const resist = brakeF + w.rrBlend * w.Fz + wPlough * PLOUGH_WHEEL_SHARE;
       const Fres = -Math.sign(vx) * Math.min(resist, (mc * Math.abs(vx)) / dt);
       let Fx = Fdrive + Fres;
@@ -380,6 +387,7 @@ export class Car implements Vehicle {
       w.slip = Math.max(Math.abs(alpha) / 0.15, slide * 2);
       w.omega = vx / this.spec.wheelRadius * (1 + (!w.front && Fdrive > 0 ? slide * 0.8 : 0)) * (brake > 0.9 && slide > 0.3 ? 0.2 : 1);
     }
+    this.tcActive = tcOn; this.absActive = absOn;
     // CoM share of the ploughing resistance, along -velocity in the ground plane; never reverses the car in one tick
     const vh = Math.hypot(this.vel.x, this.vel.z);
     if (plough > 0 && vh > 0.05) {

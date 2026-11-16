@@ -81,7 +81,7 @@ Run `npm run typecheck` and `npm test` before committing.
   speed)`), and the lap under way is dropped
 - `carMeshes.ts`: car bodies, static parts merged per material, each with a seated driver and steering wheel
   (`Cockpit`: the Driver camera's eye, the helmet it hides, and `poseCockpit`, which both cars' `render` call to turn
-  the wheel and arms). Paint and metal reflect the environment map that
+  the wheel and arms, and `screen`, the live instruments). Paint and metal reflect the environment map that
   `stage.ts` hands over with `setCarEnvironment` before any car is built. `CarMesh.dispose()` frees a body on car
   switch. The GT3 (`LC_GT3_MODEL`) is a 3D model (`public/cars/<id>/model.glb` + `LICENSE.md`,
   CC BY-NC-SA: credits in README): the procedural body is built first (and is all the tests get), and when
@@ -91,6 +91,13 @@ Run `npm run typecheck` and `npm test` before committing.
   every car built from it (`userData.shared`: never disposed). `scripts/cars/convert.mjs` makes the files from the
   Sketchfab downloads (part names and `extras.frame` documented there); `test/carModels.test.ts` checks them
   against the specs' axles. The vite config finds every `public/cars/<id>/model.glb` by itself (`__CAR_MODELS__`).
+- `cockpitDisplay.ts`: the live instruments in the Driver camera (`Cockpit.screen`): one unlit mesh per car (the
+  screen plus its shift-light strip, `buildScreen`, built with the body, Node too) textured by a canvas made in the
+  browser on first use (`userData.owned`: disposed with the car). `CockpitDisplay.update` (from `main.ts`'s frame
+  loop) redraws it only in the Driver camera, when a value of `dashValues` changes, at most 30 Hz; its `unit` is the
+  speed unit. A model's own screen is hidden in the car's copy and the live one placed over it (`CarModelDef.screen`).
+  Extra readouts come from `Vehicle` (`tcActive`, `absActive`, optional `battery`, `flapsOpen`). Tests:
+  `test/cockpitDisplay.test.ts` (values, meshes, disposal; no drawing in Node).
 - `tracks.ts`: the circuits (`TRACKS`, `TrackDef`): CSV, names, best-times key, start spot and each car's flying-lap speed there, scenery placement
 - `track.ts`: track geometry and colliders (`Track`)
 - `trackMeshes.ts`, `textures.ts`, `scenery.ts`, `brakeMarkers.ts`: visuals; `batch.ts`: `Batch`, which merges many

@@ -114,6 +114,8 @@ class LcDriver implements EngineDriver {
   }
 
   afterStep() { this.aids.afterStep(); }
+  get tcActive() { return this.aids.tcActive; }
+  get absActive() { return this.aids.absActive; }
 }
 
 export const makeDriver = (car: DriverCar): EngineDriverFactory => (v) => new LcDriver(v, car);

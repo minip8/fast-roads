@@ -31,6 +31,11 @@ Cameras: **Onboard** (above the F1's airbox, on the other cars' bonnets), **Driv
 the cockpit, steering wheel and the driver's arms; the wheel turns with the road wheels at each car's steering
 ratio), **Chase** and **Far**. Every car carries a driver, visible from outside too. The driver's arms and gloves
 are hidden in the Driver camera unless **Driver camera hands** is set to Shown (they always show from outside).
+In the Driver camera the instruments are live: the F1's steering-wheel screen (speed, gear, live delta to your best
+lap, battery charge, straight-mode flaps, TC) under 15 shift lights; the GT3's dash display (rpm bar, gear, speed,
+lap time, delta, last lap, ABS and TC lights, pedals) under its 10 LEDs; the drift car's cluster (tachometer, gear,
+speed, lap time, TC and ABS lights) with a shift light on top. The shift lights fill as the HUD's do and flash at
+the upshift point.
 
 ## Cars
 
@@ -144,7 +149,8 @@ and override the mouse while held.
   LibreCorsa's game layer that the engine relies on: pedal ramps, the keyboard steering assist, ABS and traction
   control, all run at the engine's 500 Hz. One game tick costs about half a millisecond for these cars.
 - **Car bodies**: built from boxes and extrusions in code (`src/carMeshes.ts`), each with a seated driver whose
-  hands turn the steering wheel in the driver camera. The GT3 instead shows a 3D model (`public/cars/lcgt3/`, about
+  hands turn the steering wheel in the driver camera. The instruments (`src/cockpitDisplay.ts`) are drawn on a
+  small canvas per car, redrawn only in the Driver camera, when a shown value changes, at most 30 times a second. The GT3 instead shows a 3D model (`public/cars/lcgt3/`, about
   4.3 MB, 155k triangles, most of them in the cabin): the built body shows until the model has downloaded, and stays if it can't.
   `scripts/cars/convert.mjs` makes it from the Sketchfab download (turned, scaled to the car's axles, split into
   body, wheels, calipers, steering wheel and brake lights, simplified, WebP textures, meshopt geometry). The

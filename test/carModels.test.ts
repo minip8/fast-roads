@@ -15,8 +15,9 @@ function glbJson(file: string) {
   expect(b.toString('ascii', 0, 4)).toBe('glTF');
   const len = b.readUInt32LE(12);
   return JSON.parse(b.toString('utf8', 20, 20 + len)) as {
-    nodes: { name: string; mesh?: number; extras?: Record<string, unknown> }[];
-    meshes: { primitives: { material?: number }[] }[]; materials: { name: string }[];
+    nodes: { name: string; mesh?: number; extras?: Record<string, unknown>; translation?: number[]; scale?: number[] }[];
+    meshes: { primitives: { material?: number; attributes: Record<string, number> }[] }[]; materials: { name: string }[];
+    accessors: { min?: number[]; max?: number[]; componentType: number; normalized?: boolean }[];
   };
 }
 
@@ -42,6 +43,27 @@ describe.each(MODELS)('%s model file', (id, def) => {
     const json = glbJson(file), node = json.nodes.find((n) => n.name === 'steering_wheel')!;
     const mats = json.meshes[node.mesh!].primitives.map((p) => json.materials[p.material!].name);
     expect(mats).toContain('MI_Mercedes_AMG_GT3_Evo_Interior_Stickers');
+  });
+
+  // The live display covers the model's own screen and shift lights, which each car hides in its copy.
+  it('puts the live display over the model\'s screen and shift lights', () => {
+    const json = glbJson(file), body = json.nodes.find((n) => n.name === 'body')!, sc = def.screen!;
+    const t = body.translation ?? [0, 0, 0], s = body.scale ?? [1, 1, 1];
+    // a part's bounds in body coordinates (quantized positions: normalized int16, the node's transform gives metres)
+    const bounds = (material: string) => {
+      const prim = json.meshes[body.mesh!].primitives.find((p) => json.materials[p.material!].name === material)!;
+      const a = json.accessors[prim.attributes.POSITION], q = a.componentType === 5122 && a.normalized ? 32767 : 1;
+      return [0, 1, 2].map((k) => [t[k] + s[k] * a.min![k] / q, t[k] + s[k] * a.max![k] / q]);
+    };
+    for (const [name, quad] of [[sc.hide[0], sc.display], [sc.hide[1], sc.leds!]] as const) {
+      const [x, y, z] = bounds(name);
+      expect(Math.abs(quad.x - (x[0] + x[1]) / 2), name).toBeLessThan(0.003);
+      expect(Math.abs(quad.y - (y[0] + y[1]) / 2), name).toBeLessThan(0.003);
+      expect(Math.abs(quad.w - (x[1] - x[0])), name).toBeLessThan(0.004);
+      expect(Math.abs(quad.h * Math.cos(quad.tilt ?? 0) - (y[1] - y[0])), name).toBeLessThan(0.004);
+      expect(quad.z, name).toBeLessThan((z[0] + z[1]) / 2);                 // in front of it, seen from the seat...
+      expect(quad.z, name).toBeGreaterThan(z[0] - 0.004);                   // ...and close
+    }
   });
 
   it('is small, and carries its licence and credits', () => {
@@ -90,6 +112,7 @@ describe('model swap', () => {
     expect(mesh.cockpit.arms[0].r).toBe(0.12);
     expect(mesh.brakeLight).not.toBe(oldLight);
     expect(mesh.brakeLight.material).not.toBe(m.mat);                     // its own, so lighting it lights only this car
+    expect(mesh.cockpit.screen?.mesh.parent?.parent).toBe(mesh.root);      // the model's display, on its dash
     mesh.wheels.forEach((w, k) => {
       const c = ['FL', 'FR', 'RL', 'RR'][k];
       expect(w.spinner.children.map((o) => o.name)).toEqual([`wheel_${c}`]);

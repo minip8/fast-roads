@@ -3,6 +3,7 @@ import { EngineAudio } from './audio';
 import { autopilot } from './autopilot';
 import { CameraRig } from './camera';
 import { CARS } from './cars';
+import { CockpitDisplay } from './cockpitDisplay';
 import { DT, MAX_STEPS_PER_FRAME } from './config';
 import { $ } from './dom';
 import { Dust } from './dust';
@@ -60,6 +61,7 @@ export async function main() {
   const dust = new Dust(scene);
   const hud = new Hud(track, stage.bounds, timing);
   const cam = new CameraRig(stage);
+  const cockpitDisplay = new CockpitDisplay();   // its speed unit: cockpitDisplay.unit
 
   // Game state
   // The autopilot is a development/testing tool: only ?autopilot in the URL (or the __game test hook) turns it on.
@@ -187,6 +189,7 @@ export async function main() {
     car.render(alpha, paused ? 0 : fdt);
     dust.update(paused ? 0 : fdt, car, camera, renderer);
     cam.update(fdt, car);
+    cockpitDisplay.update(car, timing, session.simTime, alpha, cam.mode === 'driver');
     audio.update(car, fdt, started && !paused);
 
     hud.handleEvents(timing);

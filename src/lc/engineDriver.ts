@@ -18,6 +18,7 @@ export interface EngineDriver {
   frame(dt: number, input: DriveInput, tc: boolean): void;    // tc: the player's traction control setting
   inputs(h: number, out: VehicleInputs): void;                // steer is the engine's: -1..1, + = right
   afterStep(h: number): void;
+  readonly tcActive: boolean; readonly absActive: boolean;   // the aids cut in on the last engine step (instruments)
 }
 
 // Builds a car's driver around its engine instance (a car spec carries one of these).

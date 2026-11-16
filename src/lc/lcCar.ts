@@ -53,6 +53,7 @@ export class LcCar implements Vehicle {
   private driver!: EngineDriver;
   // driver-facing state
   gear = 1; rpm = 0; steer = 0; throttle = 0; brake = 0;
+  tcActive = false; absActive = false;      // the aids cut in on any engine step of the last tick
   tc = true; manual = false; assist = false;
   pendingShift = 0; shiftDenied = false;
   forceSurface?: number;
@@ -138,7 +139,7 @@ export class LcCar implements Vehicle {
     this.vehicle.reset(p.x, p.z, Math.atan2(tr.TX[p.i], tr.TZ[p.i]), speed > 0 ? speed : spawn ? 0 : 1e-3, false);
     this.driver.reset();
     this.revTimer = 0; this.shiftBusy = 0; this.neutral = false; this.flapAsked = false; this.tipped = 0; this.ticks = 0; this.progressI = -1;
-    this.throttle = this.brake = 0;
+    this.throttle = this.brake = 0; this.tcActive = this.absActive = false;
     this.readState();
     this.proj.i = -1;
     projectOnTrack(tr, this.pos.x, this.pos.z, -1, this.proj);
@@ -220,6 +221,7 @@ export class LcCar implements Vehicle {
     this.ticks -= n * tickHz;
     this.driver.frame(dt, inp, this.tc);
     const out = this.inp;
+    let tcOn = false, absOn = false;
     for (let k = 0; k < n; k++) {
       this.driver.inputs(H, out);
       out.shiftUp = k === 0 && shift > 0;
@@ -231,7 +233,9 @@ export class LcCar implements Vehicle {
       out.drs = this.flapAsked = !this.flapAsked && this.spec.straightMode && v.telemetry.drsAvailable && !v.drsOpen && out.throttle > 0.95;
       v.step(H, out);
       this.driver.afterStep(H);
+      tcOn ||= this.driver.tcActive; absOn ||= this.driver.absActive;
     }
+    this.tcActive = tcOn; this.absActive = absOn;
     if (!v.stateIsSane()) this.tipped = Infinity;   // blown up within this tick: reset before anything renders it
     this.throttle = out.throttle; this.brake = out.brake;
     this.refresh();
@@ -245,6 +249,10 @@ export class LcCar implements Vehicle {
     const roadRpm = (Math.abs(this.speedF) / r) * gb.ratios[to - 1] * gb.finalDrive * 60 / (2 * Math.PI);
     return roadRpm > gb.gears.redline_rpm + (gb.downshift?.overRevRpm ?? -200);
   }
+
+  // Instruments: the 2026 F1's battery and flaps (the GT3 has neither; its engine keeps a 1 J store for the maths).
+  get battery() { const v = this.vehicle, max = v.config.ers.ERS_MAX_CHARGE; return max > 1000 ? v.ersEnergyJ / max : undefined; }
+  get flapsOpen() { return this.spec.straightMode ? this.vehicle.drsOpen : undefined; }
 
   // Our view of the engine's driver-facing and wheel state after a tick.
   private refresh() {

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Batch } from './batch';
 import type { CarInfo } from './cars';
+import { buildScreen, type CockpitScreen, type Quad, type ScreenStyle } from './cockpitDisplay';
 
 // Car bodies. Built in Node too (the tests construct cars), so nothing here may touch the DOM.
 // A car with a model file (carModels.ts) starts as its procedural body and swaps the model in when it has loaded,
@@ -24,6 +25,7 @@ export interface Cockpit {
   ratio: number;                     // steering-wheel angle per road-wheel angle
   handMax: number;                   // how far the hands turn with the wheel before sliding round the rim (rad)
   arms: { mesh: THREE.Mesh; glove: THREE.Mesh; shoulder: THREE.Vector3; side: number; r: number }[];
+  screen: CockpitScreen | null;      // the live instruments (cockpitDisplay.ts), on the wheel or the dash
 }
 
 // Reflections for paint and metal (a blurred sky, set by the stage before any car is built). Without one, metallic
@@ -89,20 +91,22 @@ function addDriver(group: THREE.Group, add: Add, o: DriverOpts): Cockpit {
   mount.position.set(o.x, w.y, w.z); mount.rotation.x = w.rake;   // top of the wheel leans away from the driver
   mount.add(wheel); group.add(mount);
   const wheelParts: [THREE.BufferGeometry, THREE.Material][] = [];
-  const display = new THREE.MeshStandardMaterial({ color: 0x0a0c10, emissive: 0x3fd0ff, emissiveIntensity: 0.25 });
+  let screen: CockpitScreen | null = null;
   const marker = mat({ color: 0xffd23f, roughness: 0.5 });
   const grip = w.r;
-  if (w.kind === 'f1') {   // F1: a carbon body with two grips and a screen
-    wheelParts.push([B(w.r * 1.6, 0.1, 0.04), dark], [B(0.08, 0.04, 0.005).translate(0, 0.01, -0.021), display],
+  if (w.kind === 'f1') {   // F1: a carbon body with two grips, a screen and shift lights along the top
+    screen = buildScreen('f1', { x: 0, y: 0.005, z: -0.0205, w: 0.1, h: 0.05 }, { x: 0, y: 0.0375, z: -0.0205, w: 0.15, h: 0.0117 });
+    wheelParts.push([B(w.r * 1.6, 0.1, 0.04), dark],
       [new THREE.CylinderGeometry(0.028, 0.028, 0.14, 10).translate(-w.r, 0, 0), dark],
       [new THREE.CylinderGeometry(0.028, 0.028, 0.14, 10).translate(w.r, 0, 0), dark],
       [B(0.06, 0.012, 0.045).translate(0, 0.05, 0), marker]);
-  } else if (w.kind === 'gt3') {   // GT3: open rectangle with two grips, flat top and bottom, button panel and screen
+  } else if (w.kind === 'gt3') {   // GT3: open rectangle with two grips, flat top and bottom, button panel, screen and shift lights
+    screen = buildScreen('gt3', { x: 0, y: 0.038, z: -0.0155, w: 0.064, h: 0.048 }, { x: 0, y: 0.09, z: -0.0145, w: 0.12, h: 0.0094 });
     const bar = B(2 * w.r, 0.022, 0.028), knob = new THREE.CylinderGeometry(0.011, 0.011, 0.012, 10).rotateX(Math.PI / 2);
     wheelParts.push([new THREE.CylinderGeometry(0.024, 0.024, 0.19, 10).translate(-w.r, 0, 0), dark],
       [new THREE.CylinderGeometry(0.024, 0.024, 0.19, 10).translate(w.r, 0, 0), dark],
       [bar.clone().translate(0, 0.09, 0), dark], [bar.translate(0, -0.09, 0), dark],
-      [B(0.18, 0.13, 0.03), dark], [B(0.07, 0.032, 0.004).translate(0, 0.04, -0.017), display],
+      [B(0.18, 0.13, 0.03), dark],
       [B(0.04, 0.012, 0.03).translate(0, 0.101, 0), marker]);
     const colours = [0xd8262e, 0xf2c21b, 0x2f7de1, 0x2fbf5a];
     colours.forEach((c, k) => {
@@ -119,6 +123,7 @@ function addDriver(group: THREE.Group, add: Add, o: DriverOpts): Cockpit {
       [B(0.03, 0.04, 0.04).translate(0, w.r, 0), marker]);
   }
   for (const [g, m] of wheelParts) { const mesh = new THREE.Mesh(g, m); mesh.castShadow = true; wheel.add(mesh); }
+  if (screen) wheel.add(screen.mesh);
   const arms: Cockpit['arms'] = [];
   const armGeo = new THREE.CylinderGeometry(0.034, 0.042, 1, 8);
   for (const s of [-1, 1]) {
@@ -128,7 +133,7 @@ function addDriver(group: THREE.Group, add: Add, o: DriverOpts): Cockpit {
     arms.push({ mesh, glove: g, shoulder: new THREE.Vector3(o.x + s * 0.17, hy + o.shoulder[0], hz + o.shoulder[1]), side: s, r: grip });
   }
   const cockpit: Cockpit = { eye: new THREE.Vector3(o.x, hy + 0.02, hz + 0.06), look: o.look, head, mount, wheel, ratio: o.ratio,
-    handMax: w.kind === 'round' ? HAND_MAX : Infinity, arms };   // on a racing wheel the hands stay on the grips
+    handMax: w.kind === 'round' ? HAND_MAX : Infinity, arms, screen };   // on a racing wheel the hands stay on the grips
   poseCockpit(cockpit, 0);
   return cockpit;
 }
@@ -155,13 +160,18 @@ export function poseCockpit(c: Cockpit, steer: number) {
 
 // Frees the geometries and materials under obj, except a loaded model's (userData.shared: every car built from the
 // model uses them, and the model stays loaded). Textures belong to those shared materials or are the shared
-// environment map, so none is disposed here.
+// environment map, so none is disposed here, except a display's own canvas (userData.owned).
 function disposeTree(obj: THREE.Object3D) {
   obj.traverse((o) => {
     if (!(o instanceof THREE.Mesh)) return;
     const geo: THREE.BufferGeometry = o.geometry;
     if (!geo.userData.shared) geo.dispose();
-    for (const m of [o.material as THREE.Material | THREE.Material[]].flat()) if (!m.userData.shared) m.dispose();
+    for (const m of [o.material as THREE.Material | THREE.Material[]].flat()) {
+      if (m.userData.shared) continue;
+      const map = (m as THREE.MeshBasicMaterial).map;
+      if (map?.userData.owned) map.dispose();
+      m.dispose();
+    }
   });
 }
 
@@ -302,11 +312,16 @@ export function buildDriftMesh(spec: CarInfo): CarMesh {
   add(B(0.32, 0.012, 0.92), accent, 0, 0.776, -0.5);                                 // roof stripe
   add(B(1.3, 0.12, 0.5), dark, 0, 0.35, 0.35);                                       // dashboard
   add(B(1.26, 0.01, 0.9), dark, 0, 0.732, -0.5);                                     // headliner
-  add(B(0.3, 0.07, 0.14), dark, -0.36, 0.43, 0.22, 0.2);                             // instrument binnacle
+  add(B(0.3, 0.12, 0.1), dark, -0.36, 0.45, 0.22);                                  // instrument binnacle
+  add(B(0.32, 0.018, 0.13), dark, -0.36, 0.52, 0.225);                              // ...and its hood
+  add(B(0.13, 0.03, 0.02), dark, -0.36, 0.544, 0.175);                               // shift-light pod
   add(B(0.24, 0.03, 0.5), dark, 0, 0.3, -0.2);                                       // centre console
   // right-hand drive (x is left)
   const cockpit = addDriver(bodyGroup, add, { x: -0.36, head: [0.6, -0.45], helmet: 0xff6a13, suit: 0x23272e, shoulder: [-0.2, 0.02],
     wheel: { y: 0.38, z: -0.03, rake: 0.4, r: 0.18, kind: 'round' }, ratio: 9, look: 0.35 });
+  // the shift light is a pod on top of the hood, where it shows over the wheel's rim
+  cockpit.screen = buildScreen('cluster', { x: -0.36, y: 0.452, z: 0.16, w: 0.23, h: 0.09, tilt: 0.15 }, { x: -0.36, y: 0.553, z: 0.1645, w: 0.12, h: 0.0094 });
+  bodyGroup.add(cockpit.screen.mesh);
   add(B(0.32, 0.012, 1.3), accent, 0, 0.29, 1.44, 0.116);                            // bonnet stripe
   add(B(1.74, 0.04, 0.26), dark, 0, -0.3, 2.08);                                     // front splitter
   add(B(0.9, 0.09, 0.02), dark, 0, -0.05, 2.205);                                    // intake
@@ -403,12 +418,21 @@ export function buildGt3Mesh(spec: CarInfo, paint: Paint, model?: CarModelDef): 
 export interface CarModelDef {
   url: string;                                 // relative to the page, under public/
   driver: { head: [y: number, z: number]; shoulder: [dy: number, dz: number]; helmet: number; suit: number };
+  // The live display over the model's own (fixed artwork): the materials of the parts it replaces, which are hidden
+  // in each car's copy, and where the screen and its shift lights go (body coordinates).
+  screen?: { style: ScreenStyle; hide: string[]; display: Quad; leds: Quad | null };
 }
 
 // The Mercedes-AMG GT3 (credits in public/cars/lcgt3/LICENSE.md): the driver sits on the left.
 export const LC_GT3_MODEL: CarModelDef = {
   url: 'cars/lcgt3/model.glb',
   driver: { head: [0.5, -0.62], shoulder: [-0.2, 0.02], helmet: 0x1b2a4e, suit: 0x1b2a4e },
+  // Its dash screen (4:3, its face leaning 4 deg forward) and the ten LEDs above it, 1-2 mm in front of them.
+  screen: {
+    style: 'gt3', hide: ['MI_Mercedes_AMG_GT3_Evo_Cockpit_Screen', 'MI_Mercedes_AMG_GT3_Evo_Interactive_Lights'],
+    display: { x: 0.402, y: 0.3728, z: 0.1253, w: 0.1189, h: 0.0892, tilt: 0.07 },
+    leds: { x: 0.402, y: 0.4292, z: 0.1281, w: 0.1, h: 0.0078 },
+  },
 };
 
 // Loads a model file (carModels.ts sets it in the browser; null in Node). The promise resolves to the file's scene;
@@ -469,6 +493,13 @@ function swapInModel(mesh: CarMesh, spec: CarInfo, model: THREE.Object3D, def: C
   if (!body || !steering) { console.warn(`car model ${def.url} has no body or steering wheel, keeping the built body`); return; }
   const bodyGroup = new THREE.Group();
   bodyGroup.add(body.obj);
+  let screen: CockpitScreen | null = null;
+  if (def.screen) {
+    const hide = def.screen.hide;
+    body.obj.traverse((o) => { if (o instanceof THREE.Mesh && hide.includes((o.material as THREE.Material).name)) o.visible = false; });   // this car's copy only
+    screen = buildScreen(def.screen.style, def.screen.display, def.screen.leds);
+    bodyGroup.add(screen.mesh);
+  }
 
   // The brake light gets its own material, lit by render().
   const light = part(model, 'brake_light');
@@ -492,6 +523,7 @@ function swapInModel(mesh: CarMesh, spec: CarInfo, model: THREE.Object3D, def: C
   const cockpit = addDriver(bodyGroup, add, { x: so.x, head: d.head, helmet: d.helmet, suit: d.suit, shoulder: d.shoulder, seat: false,
     wheel: { y: so.y, z: so.z, rake: steering.rake, r: steering.data.grip ?? 0.12, kind: 'model', model: steering.obj },
     ratio: mesh.cockpit.ratio, look: mesh.cockpit.look });
+  cockpit.screen = screen;
   done();
 
   // Out with the built body: everything but the wheels' pivots, which render() moves.
