@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CarId } from '../src/cars';
 import { DT, S_ASPHALT } from '../src/config';
 import { Input } from '../src/input';
-import { SHIFT_HOLD, type DriveInput, type Vehicle } from '../src/vehicle';
+import type { DriveInput, Vehicle } from '../src/vehicle';
 import { ourCar, session } from './harness';
 
 // Accelerate down the start straight to v0 (m/s), then hold `input` for 1.2 s.
@@ -248,7 +248,7 @@ describe('drift car', () => {
 
 describe('manual gearbox', () => {
   for (const id of ['f1', 'drift', 'gt3'] as const) {
-    it(`${id}: a downshift that would over-rev waits for the revs, then is refused; neutral is below first, reverse below neutral`, async () => {
+    it(`${id}: a downshift that would over-rev is refused at once; neutral is below first, reverse below neutral`, async () => {
       const { car, drive } = await session(id, { walls: false });
       car.forceSurface = S_ASPHALT;
       car.manual = true;
@@ -259,13 +259,11 @@ describe('manual gearbox', () => {
       expect(car.gear).toBe(2);
       car.pendingShift = -1;
       drive(DT, () => pedals(0.3, 0));
-      expect([car.gear, car.shiftDenied, car.pendingShift]).toEqual([2, false, -1]);   // held
-      drive(SHIFT_HOLD + 0.1, () => pedals(0.6, 0));
-      expect([car.gear, car.shiftDenied, car.pendingShift]).toEqual([2, true, 0]);     // refused
+      expect([car.gear, car.shiftDenied, car.pendingShift]).toEqual([2, true, 0]);     // refused, and the press is gone
       car.shiftDenied = false;
-      drive(5, () => pedals(0, 0.5), () => car.speedF < limit * 1.03);
-      car.pendingShift = -1;                                                           // a moment early under braking
-      drive(0.7, () => pedals(0, 0.5));
+      drive(5, () => pedals(0, 0.5), () => car.speedF < limit * 0.95);
+      car.pendingShift = -1;
+      drive(DT, () => pedals(0, 0.5));
       expect([car.gear, car.shiftDenied, car.pendingShift]).toEqual([1, false, 0]);
 
       car.pendingShift = -1;

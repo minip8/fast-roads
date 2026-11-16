@@ -5,7 +5,7 @@ import { type CarMesh, poseCockpit } from './carMeshes';
 import type { BrushTyre, CarSpec } from './cars';
 import { pointAt, projectOnTrack, surfaceAt, trackLimitOut, type SurfaceRes, type Track, type TrackPos } from './track';
 import { clamp, lerp } from './util';
-import { SHIFT_HOLD, type DriveInput, type Vehicle } from './vehicle';
+import type { DriveInput, Vehicle } from './vehicle';
 
 // ============================================================================
 // Car
@@ -64,9 +64,8 @@ export class Car implements Vehicle {
   private lastVF = 0; private accF = 0;     // last tick's forward speed, and the smoothed forward acceleration (m/s2)
   tc = true; manual = false;                // gearbox is automatic unless manual
   assist = false;                           // countersteer assist (only cars whose spec has one); off unless the player turns it on
-  pendingShift = 0; shiftDenied = false;    // queued manual shifts; set when a downshift was refused (still over-revving after SHIFT_HOLD)
+  pendingShift = 0; shiftDenied = false;    // queued manual shifts; set when a downshift would over-rev
   shiftTimer = 0; private revTimer = 0;
-  private shiftHold = 0;                    // s a downshift has waited for the revs to come down
   forceSurface?: number;                    // testing: pretend every wheel is on this surface
   tipped = 0;                               // seconds spent on its side or roof at walking pace (see needsReset)
   // physics state, refreshed by readState()
@@ -133,7 +132,7 @@ export class Car implements Vehicle {
     this.body.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true);
     this.body.setLinvel({ x: tr.TX[i] * speed, y: 0, z: tr.TZ[i] * speed }, true);
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
-    this.gear = 1; this.steer = this.steerIn = this.rearSlip = this.slipRate = 0; this.looseAsk = this.spec.rearLoose[2]; this.shiftTimer = this.shiftHold = 0; this.tipped = 0; this.accF = 0;
+    this.gear = 1; this.steer = this.steerIn = this.rearSlip = this.slipRate = 0; this.looseAsk = this.spec.rearLoose[2]; this.shiftTimer = 0; this.tipped = 0; this.accF = 0;
     this.lastVF = speed;
     // rolling: the gear the automatic box would be in (the lowest that is below its shift point)
     const top = this.spec.gearTop;
@@ -231,21 +230,19 @@ export class Car implements Vehicle {
     // manual: one queued shift per tick (E/Q or paddles)
     if (!autoBox && this.pendingShift !== 0) {
       const dir = Math.sign(this.pendingShift), g = this.gear;
-      let held = false;
+      this.pendingShift -= dir;
       if (dir > 0) {
         if (g === -1) this.gear = 0;
         else if (g === 0) this.gear = this.lowestGear(vF);
         else if (g < this.spec.gearTop.length - 1) { this.gear++; this.shiftTimer = 0.06; }
       } else if (g > 1) {
-        // A downshift that would over-rev the engine waits for the revs to come down (SHIFT_HOLD), then is refused
+        // block downshifts that would over-rev the engine
         if (!this.overRevs(g - 1, vF)) { this.gear--; this.shiftTimer = 0.04; }
-        else held = true;
+        else this.shiftDenied = true;
       } else if (g === 1) this.gear = 0;                         // neutral, at any speed
       else if (g === 0 && Math.abs(vF) < 1) this.gear = -1;      // reverse, only at a standstill
-      if (!held) { this.pendingShift -= dir; this.shiftHold = 0; }
-      else if ((this.shiftHold += dt) > SHIFT_HOLD) { this.pendingShift = 0; this.shiftHold = 0; this.shiftDenied = true; }
     }
-    if (autoBox) { this.pendingShift = 0; this.shiftHold = 0; }
+    if (autoBox) this.pendingShift = 0;
     this.shiftTimer -= dt;
 
     let drive = 0;

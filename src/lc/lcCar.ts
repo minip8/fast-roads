@@ -4,7 +4,7 @@ import { S_ASPHALT } from '../config';
 import { type CarMesh, poseCockpit } from '../carMeshes';
 import type { LcSpec } from '../cars';
 import { pointAt, projectOnTrack, surfaceAt, trackLimitOut, type SurfaceRes, type Track, type TrackPos } from '../track';
-import { SHIFT_HOLD, type DriveInput, type Vehicle, type VehicleWheel } from '../vehicle';
+import type { DriveInput, Vehicle, VehicleWheel } from '../vehicle';
 import type { EngineDriver } from './engineDriver';
 import { trackGround, trackWalls } from './ground';
 import { VehiclePhysics, type VehicleInputs } from './vendor/sim/f12026-car/VehiclePhysics';
@@ -60,7 +60,6 @@ export class LcCar implements Vehicle {
   private barriers = true;                  // the engine meets the track's barriers (tests may take them away)
   private revTimer = 0;                     // s the brake has been held at a standstill (reverse after 0.35)
   private shiftBusy = 0;                    // s until the engine has finished the manual shift under way
-  private shiftHold = 0;                    // s a downshift has waited for the revs to come down (SHIFT_HOLD)
   private neutral = false;                  // our neutral: the engine's box has none, so its clutch is held open
   private flapAsked = false;                // the last engine step asked for the flaps (the engine acts on the rising edge)
   private ticks = 0;                        // engine steps owed, in 1/(game tick rate) units of a second
@@ -138,7 +137,7 @@ export class LcCar implements Vehicle {
     if (this.groundFor !== this.forceSurface) { this.vehicle.setGround(trackGround(tr, this.forceSurface)); this.groundFor = this.forceSurface; }
     this.vehicle.reset(p.x, p.z, Math.atan2(tr.TX[p.i], tr.TZ[p.i]), speed > 0 ? speed : spawn ? 0 : 1e-3, false);
     this.driver.reset();
-    this.revTimer = 0; this.shiftBusy = this.shiftHold = 0; this.neutral = false; this.flapAsked = false; this.tipped = 0; this.ticks = 0; this.progressI = -1;
+    this.revTimer = 0; this.shiftBusy = 0; this.neutral = false; this.flapAsked = false; this.tipped = 0; this.ticks = 0; this.progressI = -1;
     this.throttle = this.brake = 0;
     this.readState();
     this.proj.i = -1;
@@ -189,8 +188,7 @@ export class LcCar implements Vehicle {
     // sent meanwhile would replace each other (three quick presses gave two gears).
     this.shiftBusy = Math.max(0, this.shiftBusy - dt);
     if (!autoBox && this.pendingShift !== 0 && shift === 0 && this.shiftBusy <= 0) {
-      // One press: reverse, neutral, first... A press that cannot be taken yet is held (the box in neutral still
-      // finding its gear; a downshift that would over-rev, for up to SHIFT_HOLD before it is refused).
+      // One press: reverse, neutral, first... A press in neutral is held while the box is still finding its gear.
       const dir = Math.sign(this.pendingShift);
       let held = false;
       if (this.neutral) {
@@ -200,13 +198,11 @@ export class LcCar implements Vehicle {
         if (g === -1) { this.neutral = true; shift = 1; }
         else if (g < top) shift = 1;
       } else if (g > 1) {
-        if (!this.overRevs(g - 1)) shift = -1;
-        else if ((this.shiftHold += dt) > SHIFT_HOLD) { this.pendingShift = 0; this.shiftDenied = true; }
-        else held = true;
+        if (this.overRevs(g - 1)) this.shiftDenied = true; else shift = -1;
       } else if (g === 1) this.neutral = true;   // at any speed
-      if (!held) { this.pendingShift -= Math.sign(this.pendingShift); this.shiftHold = 0; }
+      if (!held) this.pendingShift -= dir;
     }
-    if (autoBox) { this.pendingShift = 0; this.shiftHold = 0; }
+    if (autoBox) this.pendingShift = 0;
     if (shift !== 0) { const gb = this.spec.config.gearbox; this.shiftBusy = shift < 0 ? gb.downshiftTimeS ?? gb.shiftTimeS : gb.shiftTimeS; }
     // In reverse the brake pedal drives backwards and the throttle brakes. The pedals swap only while the engine is
     // in reverse: on the way in (the downshift from first can take 0.1 s) the brake stays the brake, and on the way
@@ -242,7 +238,7 @@ export class LcCar implements Vehicle {
   }
 
   // Whether a downshift into gear `to` would be refused: the engine's own test (requestShift), road rpm over the
-  // redline plus the box's margin, so a press can wait for the gear to fit instead of being sent and lost.
+  // redline plus the box's margin, so shiftDenied is set without waiting a tick to see the gear stay.
   private overRevs(to: number) {
     const v = this.vehicle, gb = this.spec.config.gearbox, [dl, dr] = v.drivenWheels;
     const r = Math.max(0.2, 0.5 * (v.wheels[dl].rollingRadius + v.wheels[dr].rollingRadius) || 0.35);

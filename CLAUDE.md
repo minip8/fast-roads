@@ -160,7 +160,7 @@ Run `npm run typecheck` and `npm test` before committing.
     fixed 2 ms steps, has its own rigid body and wall response, and has no ABS, TC or input shaping.
   - `lc/lcCar.ts`: `LcCar implements Vehicle`. Each 120 Hz tick runs 4 or 5 engine steps (25 per 6 ticks, counted in
     integers so it never drifts), with the driver around each. It owns our gearbox conventions (reverse on the
-    brake at a standstill, one manual shift per tick, held downshifts and `shiftDenied`, neutral), the F1's flaps (open by themselves in
+    brake at a standstill, one manual shift per tick, `shiftDenied`, neutral), the F1's flaps (open by themselves in
     `straightWindows`: straights of 250 m+) and lap energy (`locateProgress`), and maps engine state to ours.
     `placeAt` on the first-placement spot (the start spot, which is the only place the session puts it) builds a
     fresh engine instance (full battery, fuel, tyres in blankets; cheap because the engine memoises that settle),
@@ -188,8 +188,8 @@ Run `npm run typecheck` and `npm test` before committing.
     not move the pinned lap times
   - traction control (`tcSlack`)
   - gearbox: `gear` is -1 reverse, 0 neutral (manual only: below first at any speed; reverse is below it at a
-    standstill), 1.. forward. A manual downshift that would pass `overRev` waits up to `SHIFT_HOLD` (`vehicle.ts`)
-    for the revs to fall, then sets `shiftDenied`; `LcCar` does the same around the engine's own refusal
+    standstill), 1.. forward. A manual downshift that would pass `overRev` is refused at once and sets
+    `shiftDenied`; `LcCar` applies the engine's own test
   - per-surface grip blending and grass/gravel ploughing
   - downforce and drag
 

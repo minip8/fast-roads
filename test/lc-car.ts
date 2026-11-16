@@ -9,7 +9,7 @@ import { VehiclePhysics } from '../src/lc/vendor/sim/f12026-car/VehiclePhysics';
 import { needsReset } from '../src/sim';
 import { pointAt } from '../src/track';
 import { TRACKS } from '../src/tracks';
-import { SHIFT_HOLD, type DriveInput, type Vehicle } from '../src/vehicle';
+import type { DriveInput, Vehicle } from '../src/vehicle';
 import { session } from './harness';
 
 export const lc = (car: Vehicle) => { if (!(car instanceof LcCar)) throw new Error(`${car.spec.id} is not on LibreCorsa's engine`); return car; };
@@ -145,7 +145,7 @@ export function lcCarSuite(id: 'lcgt3' | 'lcf1') {
       expect(Math.hypot(car.pos.x - grid.x, car.pos.z - grid.z)).toBeLessThan(0.05);
     });
 
-    it('shifts by hand (every queued press in turn), holds then refuses a downshift that would over-rev, has a neutral, and reverses on the brake', async () => {
+    it('shifts by hand (every queued press in turn), refuses a downshift that would over-rev, has a neutral, and reverses on the brake', async () => {
       const { car, drive } = await session(id, { walls: false });
       car.forceSurface = S_ASPHALT;
       car.manual = true;
@@ -168,19 +168,14 @@ export function lcCarSuite(id: 'lcgt3' | 'lcf1') {
       const margin = lc(car).spec.config.gearbox.downshift?.overRevRpm ?? -200, limit = (car.spec.redline + margin) / rpmPerMs;
       drive(15, () => manual({ throttle: 0.5 }), () => car.speedF > limit * 1.05);
       expect(car.gear).toBe(2);
-      // The press waits for the revs to come down, and is refused when they have not after SHIFT_HOLD...
       car.pendingShift = -1;
       drive(DT, () => manual({ throttle: 0.5 }));
-      expect([car.gear, car.shiftDenied, car.pendingShift]).toEqual([2, false, -1]);
-      drive(SHIFT_HOLD + 0.1, () => manual({ throttle: 0.5 }));
       expect([car.gear, car.shiftDenied, car.pendingShift]).toEqual([2, true, 0]);
       car.shiftDenied = false;
-      // ...so pressed a moment early under braking, it goes in as soon as first fits
-      drive(10, () => manual({ brake: 0.5 }), () => car.speedF < limit * 1.03);
-      expect(car.speedF).toBeGreaterThan(limit);
+      drive(10, () => manual({ brake: 0.3 }), () => car.speedF < limit * 0.8);
       car.pendingShift = -1;
-      drive(0.7, () => manual({ brake: 0.5 }));
-      expect([car.gear, car.shiftDenied, car.pendingShift]).toEqual([1, false, 0]);
+      drive(0.2, () => manual({ brake: 0.3 }));
+      expect([car.gear, car.shiftDenied]).toEqual([1, false]);
 
       // Neutral is below first, at any speed: the car coasts and the engine revs free. Reverse is below neutral, only
       // at a standstill, and the brake held in neutral does not select it. Up from reverse: neutral, then first.

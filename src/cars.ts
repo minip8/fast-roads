@@ -239,7 +239,7 @@ export const CARS: Record<CarId, AnyCarSpec> = {
     gearTop: [0, 14, 22, 30, 39, 49, 60],
     redline: 7500, idle: 1000,
     torque: [[1000, 345], [2500, 460], [4000, 540], [5000, 552], [6500, 518], [7500, 460], [7800, 0]],
-    shiftPoint: 7200, overRev: 8000, shiftLightsFrom: 5200,
+    shiftPoint: 7200, overRev: 7700, shiftLightsFrom: 5200,
     launchRpm: 3500, engineBrake: 480, reverseForce: 3600, reverseTop: 12,
     rotInertia: [0, 0],
     // steerLock is the wheels' full travel; steering into a corner uses less, the rest is for opposite lock

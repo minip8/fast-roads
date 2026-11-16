@@ -133,7 +133,7 @@ applied; then the gear and speed.
 | V | Mouse steering on/off (also in the menu) |
 | C | Cycle camera (onboard / driver / chase / far) |
 | G | Automatic / manual gears (also in the menu) |
-| E / Q | Shift up / down (manual): reverse, neutral, first... A downshift that would over-rev waits up to 0.8 s for the revs to fall |
+| E / Q | Shift up / down (manual): reverse, neutral, first... A downshift that would over-rev is refused |
 | T | Traction control on/off |
 | Esc / P | Open the menu (pauses) |
 | M / H | Mute / hide help |
