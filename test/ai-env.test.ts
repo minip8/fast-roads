@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { autopilot } from '../src/autopilot';
-import { CARS, type CarId } from '../src/cars';
+import { CARS, type CarId, type LcSpec } from '../src/cars';
 import type { DeepPartial, EnvConfig } from '../src/ai/config';
 import { END, getTrack, INFO, INFO_FIELDS, RaceEnv, speedProfile } from '../src/ai/env';
 import { CAR_IDS, observationSpec, observe, steerLockOf } from '../src/ai/observation';
@@ -121,7 +121,7 @@ describe('autopilot through the environment', () => {
     }
     const i = e.info;
     expect(i[INFO.end_reason]).toBe(END.lapDone);
-    expect(i[INFO.lap_time].toFixed(3)).toBe('116.680');   // as test/laps.ts pins it
+    expect(i[INFO.lap_time].toFixed(3)).toBe('116.548');   // as test/laps.ts pins it
     expect(i[INFO.lap_valid]).toBe(1);
     expect(i[INFO.sector1] + i[INFO.sector2] + i[INFO.sector3]).toBeCloseTo(i[INFO.lap_time], 6);
     // the progress reward sums to the distance from the start spot round to the line (to within the last step)
@@ -176,12 +176,15 @@ describe('random starts', () => {
         expect(e.car.speedF).toBeCloseTo(30, 0);
         expect(e.proj.lat).toBeCloseTo(1.5, 1);
         expect(Math.asin(at(e, 'heading_sin'))).toBeCloseTo(0.1, 2);
-        // a fresh car each episode: the battery full again, the tyres in their blankets
+        // a fresh car each episode: the battery full again, the tyres back at their start heat (as on a lap: warmTyres)
         if (car !== 'drift') {
+          const spec = CARS[car] as LcSpec, start = spec.warmTyres.rear.core.reduce((a, b) => a + b) / 3;
+          expect(e.car.tyres!.wheels[2].coreC).toBeCloseTo(start, 6);
           for (let n = 0; n < 40; n++) e.step(0, 1);
-          const warm = e.car.tyres!.wheels[2].coreC, bat = e.car.battery;
+          const worked = e.car.tyres!.wheels[2].coreC, bat = e.car.battery;
+          expect(worked).not.toBeCloseTo(start, 2);
           e.reset({ car, s: 700, lat: 1.5, heading: 0.1, speed: 30 });
-          expect(e.car.tyres!.wheels[2].coreC).toBeLessThan(warm);
+          expect(e.car.tyres!.wheels[2].coreC).toBeCloseTo(start, 6);
           if (car === 'lcf1') expect(e.car.battery).toBeGreaterThan(bat!);
         }
       }

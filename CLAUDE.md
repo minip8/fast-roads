@@ -40,8 +40,8 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   the game loop does, including the automatic resets; `until` stops early once the test has what it measures.
 - The simulation is deterministic, and Node and the browser agree to the millisecond. `test/laps.ts` pins
   autopilot lap times from the game's flying start at every circuit, so any physics or tuning change shows up
-  there. Melbourne and Silverstone run in `npm test`: Melbourne `lcf1` 116.680 s, `lcgt3` 133.918 s, drift car 157.515 s with TC on and 157.492 s off;
-  Silverstone `lcf1` 124.082 s, `lcgt3` 144.224 s, drift car 169.789 s. When a change is intended, check the
+  there. Melbourne and Silverstone run in `npm test`: Melbourne `lcf1` 116.548 s, `lcgt3` 133.860 s, drift car 157.515 s with TC on and 157.492 s off;
+  Silverstone `lcf1` 123.931 s, `lcgt3` 144.184 s, drift car 169.789 s. When a change is intended, check the
   handling still makes sense, then update the expected times. Each lap test also checks that the car passes the start
   spot at the end of the lap within 2 km/h of its `TrackDef.flying` speed; `test/start.test.ts` checks the flying
   start (the run-up through Albert Park's last corners), the restart, and track limits in the run-up. Each lap is run by its own `laps-*.test.ts` file so the seven (about
@@ -50,8 +50,7 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   three laps a file; `npm run test:laps`, 2-4 minutes on 12 cores), and `npm test` is the project `unit`
   (`test/*.test.ts`), set up in `vite.config.ts`. Every lap test also checks there were no resets and that the car's
   centre never came within 2 m of a wall, except the one lap pinned as not clean (`NOT_CLEAN`: the drift car slides
-  wide at Spa's Blanchimont and Bus Stop and has its lap deleted; the F1 spins in Monza's Parabolica on the run-up, on
-  tyres fresh from the blankets, so its lap is deleted for the run-up's track limits). `session(carId, { track })` picks the circuit (Melbourne by default);
+  wide at Spa's Blanchimont and Bus Stop and has its lap deleted). `session(carId, { track })` picks the circuit (Melbourne by default);
   `trackFor(id)` builds a circuit once per test file.
 - `test/tracks.test.ts` checks every circuit's data cheaply (in `npm test`): lap length within 1.5% of the official
   `lengthKm`, a unique best-times key, the start spot (a corner of radius 250 m or less between it and the line, at
@@ -260,13 +259,16 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
     `straightWindows`: straights of 250 m+) and lap energy (`locateProgress`), and maps engine state to ours.
     A new car's first placement (wherever: the RL environment places fresh cars anywhere), and `placeAt` on that
     first-placement spot again (the start spot, which is the only place the session puts it), builds a
-    fresh engine instance (full battery, fuel, tyres in blankets; cheap because the engine memoises that settle),
+    fresh engine instance (full battery, fuel; cheap because the engine memoises that settle),
     rolling at the given speed through the engine's own rolling start; anywhere else (tests) it is a teleport that
     keeps battery and lap energy (20–40 ms: the engine settles the car by simulating). The start spot is before
     the last corners, so the F1 crosses the line with what the run-up left in the battery (48% at Albert Park; a
     lap leaves it at its 20% floor, so a restart's lap still starts better off than a second lap); the per-lap
     energy allowances reset at the line, where the progress wraps. Either way the tyres and
-    brakes go back to their start temperatures. Of the engine's tyre model, heat (surface, carcass, I/M/O bands),
+    brakes are fresh, the discs at their start temperature and the tyres not in their blankets but at the heat of a
+    lap (`warmTyres`: `LcSpec.warmTyres`, every band's surface, bulk and core node per axle, the autopilot's at the
+    start spot after seven laps; the pressure by the engine's gas law), written before the engine's `reset` with
+    `keepTyres`, so its settle runs on them and the memo still applies. Of the engine's tyre model, heat (surface, carcass, I/M/O bands),
     pressure and brake-disc heat are live and change grip; wear, graining, blistering and flat spots are off
     (`realism.tyreWearScale: 0` in `build`), and fuel is not burnt (that is LibreCorsa's game adapter's job, not
     the engine's): turning any of it on moves the pinned laps.

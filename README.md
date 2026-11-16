@@ -98,12 +98,14 @@ and Driver cameras or hide it. It hides while you look back, in the menu, and on
   - **The wheels really spin and lock.** The engine has no driver aids of its own, so the game adds LibreCorsa's:
     ABS (always on) and traction control (the menu's setting). With traction control off, a held throttle swings
     the GT3's tail 20° out mid-corner and spins the F1 out of slow corners.
-  - **Tyres start in their blankets** (60 °C on the GT3, 80 °C on the F1) and heat and cool as they work: the tread
-    surface, the carcass, inner/middle/outer bands, and the inflation pressure with the carcass temperature. Grip
-    follows the temperature (full grip with the carcass at 70–85 °C on the GT3, 95–110 °C on the F1) and the
-    pressure. On the autopilot's laps they stay a little short of that window (after five laps at Albert Park the F1's
-    carcasses are at 85–89 °C and the GT3's at 61–66 °C, about 1–2% of grip lost). The brake discs heat too, and
-    their pads bite less when cold. A restart fits fresh tyres and brakes (and gives the F1 a full battery). The
+  - **Tyres start warm, as on a lap** (carcass about 91 °C on the F1, 64 front / 67 rear on the GT3, the tread
+    cooler, the pressures up to match: the autopilot's tyres passing the start spot after seven laps), not out of
+    their blankets, and heat and cool as they work: the tread surface, the carcass, inner/middle/outer bands, and the
+    inflation pressure with the carcass temperature. Grip follows the temperature (full grip with the carcass at
+    70–85 °C on the GT3, 95–110 °C on the F1) and the pressure. At the autopilot's pace they stay a little short of
+    that window (about 1–2% of grip lost, as in LibreCorsa itself); driven at the limit they reach it (the GT3 at
+    Silverstone 72–78 °C, the F1 93–97 °C). The brake discs heat too, and their pads bite less when cold. A restart
+    fits fresh tyres (at that start heat) and brakes, and gives the F1 a full battery. The
     tyres do not wear (nor grain, blister or flat-spot) and no fuel is burnt.
   - **The F1's hybrid and flaps work themselves.** The battery deploys and harvests by itself (its "race" mode,
     with the per-lap energy allowance of the 2026 rules), and the front and rear flaps open on every straight of at

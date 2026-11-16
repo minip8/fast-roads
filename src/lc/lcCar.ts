@@ -7,8 +7,10 @@ import { pointAt, projectOnTrack, surfaceAt, trackLimitOut, type SurfaceRes, typ
 import type { DriveInput, TyreState, Vehicle, VehicleTyres, VehicleWheel } from '../vehicle';
 import type { EngineDriver } from './engineDriver';
 import { trackGround, trackWalls } from './ground';
-import { compoundData } from './vendor/sim/f12026-car/F12026CarConfig';
-import { createTyreRuntime, VehiclePhysics, type VehicleInputs, type WheelState } from './vendor/sim/f12026-car/VehiclePhysics';
+import { resetBrakeDiscState } from './vendor/sim/brake-physics';
+import { compoundData, type TyresCompoundData } from './vendor/sim/f12026-car/F12026CarConfig';
+import { createTyreRuntime, defaultColdPressurePsi, VehiclePhysics, type VehicleInputs, type WheelState } from './vendor/sim/f12026-car/VehiclePhysics';
+import { tyreGaugePressureAtTemperature } from './vendor/sim/tyre-pressure';
 
 // ============================================================================
 // A car on LibreCorsa's engine (src/lc/vendor), as the game sees any car. The engine runs its own fixed 500 Hz
@@ -92,6 +94,7 @@ export class LcCar implements Vehicle {
   private readonly inp: VehicleInputs = { throttle: 0, brake: 0, steer: 0 };
   private readonly swapped: DriveInput = { throttle: 0, brake: 0, steer: 0, analog: false };
   private readonly longMult: [front: number, rear: number];   // the tyres' lateral over longitudinal peak slip (peakSlip)
+  private readonly tyreData: [front: TyresCompoundData, rear: TyresCompoundData];   // the compound, as each axle has it
   // physics state, refreshed by readState()
   proj: TrackPos = { i: -1, lat: 0, s: 0 };
   pos = new THREE.Vector3(); quat = new THREE.Quaternion(); vel = new THREE.Vector3(); angv = new THREE.Vector3();
@@ -101,15 +104,16 @@ export class LcCar implements Vehicle {
 
   // The Rapier world is not used: the engine has its own body, and meets our walls through trackWalls.
   constructor(_world: RAPIER.World, readonly track: Track, readonly scene: THREE.Scene, readonly spec: LcSpec) {
-    const tyre = compoundData(spec.config, spec.config.compoundSlots.soft);
-    this.longMult = [createTyreRuntime(tyre).brush?.longStiffnessMult ?? 1, createTyreRuntime(tyre, true).brush?.longStiffnessMult ?? 1];
+    const tyre = compoundData(spec.config, spec.config.compoundSlots.soft), axles = [createTyreRuntime(tyre), createTyreRuntime(tyre, true)];
+    this.longMult = [axles[0].brush?.longStiffnessMult ?? 1, axles[1].brush?.longStiffnessMult ?? 1];
+    this.tyreData = [axles[0].data, axles[1].data];
     this.build();
     this.mesh = spec.mesh(spec);
     scene.add(this.mesh.root);
   }
 
-  // A new engine instance, as the car leaves the garage: fuel, full battery, tyres in their blankets, discs at their
-  // start temperature. Not yet placed.
+  // A new engine instance, as the car leaves the garage: fuel, full battery, discs at their start temperature (the
+  // tyres, in their blankets here, are warmed on placement: warmTyres). Not yet placed.
   private build() {
     const sp = this.spec, tr = this.track;
     const v = new VehiclePhysics({
@@ -140,6 +144,27 @@ export class LcCar implements Vehicle {
     this.driver = sp.driver(v);
   }
 
+  // Fresh tyres and brakes as the engine's own placement makes them (its setTyreBlanketState: no wear, graining,
+  // blisters, dirt or flat spots, the cold pressures that reach the optimum with the carcass mid-window, discs at their
+  // start temperature), but with the tyres' heat as on a lap (spec.warmTyres: every band's surface, bulk and core
+  // node) and their pressure at that heat by the engine's own gas law. The engine then places the car keeping that
+  // state (reset's keepTyres), so its settle runs on these tyres; the state is the same on every placement, which
+  // keeps the settle memo's reuse.
+  private warmTyres() {
+    const v = this.vehicle, br = v.config.brakes, mean = (a: readonly number[]) => (a[0] + a[1] + a[2]) / 3;
+    for (const w of v.wheels) {
+      const d = this.tyreData[w.isFront ? 0 : 1], h = this.spec.warmTyres[w.isFront ? 'front' : 'rear'];
+      for (let b = 0; b < 3; b++) { w.bandTempsC[b] = h.surface[b]; w.bandCarcassTempsC[b] = h.bulk[b]; w.bandCoreTempsC[b] = h.core[b]; }
+      w.surfaceTempC = mean(h.surface); w.coreTempC = mean(h.core);
+      w.circumferentialTempsC.fill(w.surfaceTempC);
+      w.circumferentialWear.fill(0);
+      w.wear = 0; w.flatSpotSeverity = 0; w.grainLevel = 0; w.blisterLevel = 0; w.dirtyLevel = 0;
+      resetBrakeDiscState(w.brakeDisc, br.discStartTempC ?? 380, br.discMaterial ?? 'carbon-ceramic', br.padMuCurve);
+      w.coldPressurePsi = defaultColdPressurePsi(d);
+      w.pressurePsi = tyreGaugePressureAtTemperature(w.coldPressurePsi, d.pressureData.coldRefC, Math.max(v.ambientC - 5, w.coreTempC));
+    }
+  }
+
   // Testing: without barriers, as a session whose Rapier walls were removed.
   setBarriers(on: boolean) {
     this.barriers = on;
@@ -157,7 +182,7 @@ export class LcCar implements Vehicle {
   // it where it was first placed (the start spot: the session puts it there to start and on every restart): a fresh
   // car as from the garage, whose settle at the start spot the engine has usually done before (its settle memo).
   // Anywhere else (the tests) the same car is put back, with its fuel, battery and lap energy, on fresh tyres and
-  // brakes. At rest that settle is new
+  // brakes. Either way the tyres are as on a lap (warmTyres), not out of the blankets. At rest that settle is new
   // every time, so it is the engine's rolling one at 1 mm/s: a third of the cost, because it skips the 1.2 s on the
   // brakes that winds the tyres up against a slope, and our ground is flat.
   placeAt(s: number, lat = 0, speed = 0, heading = 0) {
@@ -166,7 +191,8 @@ export class LcCar implements Vehicle {
     if (spawn) this.spawnS = s;
     else if (s === this.spawnS && lat === 0) { this.build(); spawn = true; }
     if (this.groundFor !== this.forceSurface) { this.vehicle.setGround(trackGround(tr, this.forceSurface)); this.groundFor = this.forceSurface; }
-    this.vehicle.reset(p.x, p.z, Math.atan2(tr.TX[p.i], tr.TZ[p.i]) + heading, speed > 0 ? speed : spawn ? 0 : 1e-3, false);
+    this.warmTyres();
+    this.vehicle.reset(p.x, p.z, Math.atan2(tr.TX[p.i], tr.TZ[p.i]) + heading, speed > 0 ? speed : spawn ? 0 : 1e-3, true);
     this.driver.reset();
     this.revTimer = 0; this.shiftBusy = 0; this.neutral = false; this.flapAsked = false; this.tipped = 0; this.ticks = 0; this.progressI = -1;
     this.throttle = this.brake = 0; this.tcActive = this.absActive = false;

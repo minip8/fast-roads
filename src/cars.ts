@@ -99,7 +99,12 @@ export interface LcSpec extends CarInfo {
   fuelKg: number;                           // on board at the start (their garage default); never burnt
   turbo: boolean;
   straightMode: boolean;                    // 2026 F1: flaps fitted, opening by themselves on every straight
+  // The tyres' heat when the car is placed (LcCar.warmTyres): as on a lap, not out of the blankets. Per axle, the
+  // engine's three nodes of each tread band (inner, middle, outer: surface, bulk, core; deg C).
+  warmTyres: { front: TyreHeat; rear: TyreHeat };
 }
+export interface TyreHeat { surface: Band3; bulk: Band3; core: Band3 }
+type Band3 = [inner: number, middle: number, outer: number];
 
 // A spec for any engine: a union of each engine's spec type, told apart by `physics`.
 export type AnyCarSpec = CarSpec | LcSpec;
@@ -154,6 +159,12 @@ export const CARS: Record<CarId, AnyCarSpec> = {
     blurb: 'Hybrid single-seater with active aero', powerKw: 771,   // 421 kW engine (Lc26Tune) + 350 kW MGU-K
     hint: 'LibreCorsa physics: hybrid and flaps work themselves · ABS always on · keep TC on unless you like spinning',
     config: LC26_TUNED_CONFIG, driver: f1Driver, fuelKg: 35, turbo: true, straightMode: true,
+    // The autopilot's tyres passing the start spot after seven laps (Melbourne, Silverstone, Monza averaged): carcass
+    // 91 deg C, 4 under the window (it heats on to 95-97 driven harder), the tread 64-69
+    warmTyres: {
+      front: { surface: [65, 64.5, 64], bulk: [78, 76.5, 75], core: [93.5, 91.5, 88] },
+      rear: { surface: [69, 69, 69], bulk: [79.5, 79.5, 78.5], core: [92, 91.5, 90.5] },
+    },
     ...lcBody(LC26_TUNED_CONFIG, 35),
     rho: 1.225,
     ClA: 5.0,                                 // measured on the engine, flaps shut: 2.75 N per (m/s)^2 at 108 km/h, 3.19 from 180
@@ -169,8 +180,13 @@ export const CARS: Record<CarId, AnyCarSpec> = {
   lcgt3: {
     id: 'lcgt3', name: 'GT3', storeKey: '.lcgt3', physics: 'lc', mesh: (spec) => buildGt3Mesh(spec, LC_GT3_PAINT, LC_GT3_MODEL),
     blurb: 'Front-engined V8 GT racer', powerKw: 406,   // AmgGt3Config's crank power
-    hint: 'LibreCorsa physics: tyres warm up over the first corners · ABS always on · with TC off the throttle steers it',
+    hint: 'LibreCorsa physics: tyre heat and pressure change the grip · ABS always on · with TC off the throttle steers it',
     config: AMG_GT3_CONFIG, driver: gt3Driver, fuelKg: 50, turbo: false, straightMode: false,
+    // As the F1's: carcass 64 front, 67 rear, a few degrees under the 70-85 window (driven at the limit it gets there)
+    warmTyres: {
+      front: { surface: [60.5, 59, 56], bulk: [63.5, 61, 58], core: [66.5, 64, 61] },
+      rear: { surface: [63, 62.5, 61], bulk: [65.5, 64.5, 63], core: [68.5, 67.5, 65.5] },
+    },
     ...lcBody(AMG_GT3_CONFIG, 50),
     rho: 1.225,                               // sea level, as their adapter runs it
     ClA: 2.5,                                 // measured on the engine: 1.53 N per (m/s)^2 of downforce at 108-252 km/h

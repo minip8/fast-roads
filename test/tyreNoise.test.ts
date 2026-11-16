@@ -62,7 +62,7 @@ describe.each(CASES)('%s', (id, kmh, degPerS, maxDeg) => {
     expect(at(0.7)).toMatchObject({ squeal: 0, scrub: 0 });
     expect(at(0.9).squeal).toBe(0);
     expect(Math.max(...past.map((r) => r.squeal))).toBeGreaterThan(0.15);
-    expect(max.squeal + max.scrub).toBeGreaterThan(0.4);      // at the limit: the scrub at least, the squeal coming in
+    expect(max.squeal + max.scrub).toBeGreaterThan(0.35);     // at the limit: the scrub at least, the squeal coming in
   });
 
   it('under full ABS braking in a straight line squeals only if the tyres are past their peak', async () => {

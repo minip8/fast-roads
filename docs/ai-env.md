@@ -64,7 +64,7 @@ plan, exactly as in the game and the pinned lap tests) drive that step, at 120 H
 reports the equivalent absolute action (`autopilot_steer`, `autopilot_pedal`: its last tick's command), and the
 observation's command fields follow it, so a policy can take over smoothly. Useful for demonstrations and to fill a
 replay buffer; with only autopilot steps from the flying start, the lap time equals the pinned one (lcf1 Melbourne
-116.680 s).
+116.548 s).
 
 ### Observation
 
@@ -151,7 +151,8 @@ does are never used by the environment.
 ### Resets
 
 Each reset builds a **fresh car** on the chosen circuit: a new engine instance for the LibreCorsa cars (full
-battery and fuel, tyres and brakes at their start temperatures, no lap energy used), a new Rapier body for the drift
+battery and fuel, brake discs at their start temperature, tyres at the heat of a lap: `LcSpec.warmTyres`, carcass
+about 91 °C on the F1 and 64 / 67 °C front / rear on the GT3, pressures to match; no lap energy used), a new Rapier body for the drift
 car; lap timing cleared (no best times either: the worker keeps none); every controller state (targets, slew
 state, previous action, stuck timer, progress) zeroed. The physics world of a circuit (walls) is built once and kept
 for the next episode there (`cacheSessions` = 2 circuits per environment, ~10 MB each). Episodes are independent of
@@ -167,7 +168,7 @@ what ran before (checked: an episode is bit-identical whether or not other episo
   8–20 s), chosen with probability `flyingProb` (0.1), or always with `start: 'flying'`.
 - **Evaluation** (`eval: true`): the flying start, and the episode ends (truncated, `lap_done`) when the first timed
   lap is complete; `info` then has the game's lap time, validity and sector times. The baselines are the autopilot's
-  pinned laps (`test/laps.ts`, e.g. lcf1 Melbourne 116.680 s, lcgt3 133.918 s, drift 157.515 s; every circuit in its
+  pinned laps (`test/laps.ts`, e.g. lcf1 Melbourne 116.548 s, lcgt3 133.860 s, drift 157.515 s; every circuit in its
   `CALENDAR`).
 
 Random numbers come from a seeded generator per environment (sfc32); there is no `Math.random` in the environment
