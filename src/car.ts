@@ -115,13 +115,14 @@ export class Car implements Vehicle {
     return g;
   }
 
-  placeAt(s: number, lat = 0, speed = 0) {
+  placeAt(s: number, lat = 0, speed = 0, heading = 0) {
     const tr = this.track, p = pointAt(tr, s, lat), i = p.i;
-    const yaw = Math.atan2(tr.TX[i], tr.TZ[i]);
+    const yaw = Math.atan2(tr.TX[i], tr.TZ[i]) + heading;
     const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
     this.body.setTranslation({ x: p.x, y: this.spec.comHeight + 0.03, z: p.z }, true);
     this.body.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true);
-    this.body.setLinvel({ x: tr.TX[i] * speed, y: 0, z: tr.TZ[i] * speed }, true);
+    const vx = heading ? Math.sin(yaw) : tr.TX[i], vz = heading ? Math.cos(yaw) : tr.TZ[i];
+    this.body.setLinvel({ x: vx * speed, y: 0, z: vz * speed }, true);
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     this.gear = 1; this.steer = this.steerIn = this.rearSlip = this.slipRate = 0; this.looseAsk = this.spec.rearLoose[2]; this.shiftTimer = 0; this.tipped = 0;
     this.tcActive = this.absActive = false;

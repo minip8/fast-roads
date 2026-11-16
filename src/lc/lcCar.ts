@@ -135,20 +135,22 @@ export class LcCar implements Vehicle {
     this.mesh.dispose();
   }
 
-  // At (s, lat), facing the racing direction, at rest or rolling at `speed` (the engine's rolling start: settled
-  // with the aero load on the springs, in the gear for the speed, turbo spooled). Placing the car where it was first
-  // placed (the start spot: the session puts it there to start and on every restart) is a spawn, a fresh car as from
-  // the garage, whose settle the engine has usually done before (its settle memo). Anywhere else (the tests) the same
-  // car is put back, with its fuel, battery and lap energy, on fresh tyres and brakes. At rest that settle is new
+  // At (s, lat), facing the racing direction (or `heading` rad left of it), at rest or rolling at `speed` (the
+  // engine's rolling start: settled with the aero load on the springs, in the gear for the speed, turbo spooled). The
+  // first placement of a new car (wherever it is: the RL environment's random starts) is a spawn, and so is placing
+  // it where it was first placed (the start spot: the session puts it there to start and on every restart): a fresh
+  // car as from the garage, whose settle at the start spot the engine has usually done before (its settle memo).
+  // Anywhere else (the tests) the same car is put back, with its fuel, battery and lap energy, on fresh tyres and
+  // brakes. At rest that settle is new
   // every time, so it is the engine's rolling one at 1 mm/s: a third of the cost, because it skips the 1.2 s on the
   // brakes that winds the tyres up against a slope, and our ground is flat.
-  placeAt(s: number, lat = 0, speed = 0) {
+  placeAt(s: number, lat = 0, speed = 0, heading = 0) {
     const tr = this.track, p = pointAt(tr, s, lat);
     let spawn = this.spawnS === undefined;
     if (spawn) this.spawnS = s;
     else if (s === this.spawnS && lat === 0) { this.build(); spawn = true; }
     if (this.groundFor !== this.forceSurface) { this.vehicle.setGround(trackGround(tr, this.forceSurface)); this.groundFor = this.forceSurface; }
-    this.vehicle.reset(p.x, p.z, Math.atan2(tr.TX[p.i], tr.TZ[p.i]), speed > 0 ? speed : spawn ? 0 : 1e-3, false);
+    this.vehicle.reset(p.x, p.z, Math.atan2(tr.TX[p.i], tr.TZ[p.i]) + heading, speed > 0 ? speed : spawn ? 0 : 1e-3, false);
     this.driver.reset();
     this.revTimer = 0; this.shiftBusy = 0; this.neutral = false; this.flapAsked = false; this.tipped = 0; this.ticks = 0; this.progressI = -1;
     this.throttle = this.brake = 0; this.tcActive = this.absActive = false;
