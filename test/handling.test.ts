@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CarId } from '../src/cars';
 import { DT, S_ASPHALT } from '../src/config';
 import { Input } from '../src/input';
-import type { DriveInput, Vehicle } from '../src/vehicle';
+import { SHIFT_HOLD, type DriveInput, type Vehicle } from '../src/vehicle';
 import { ourCar, session } from './harness';
 
 // Accelerate down the start straight to v0 (m/s), then hold `input` for 1.2 s.
@@ -246,6 +246,58 @@ describe('drift car', () => {
   });
 });
 
+describe('manual gearbox', () => {
+  for (const id of ['f1', 'drift', 'gt3'] as const) {
+    it(`${id}: a downshift that would over-rev waits for the revs, then is refused; neutral is below first, reverse below neutral`, async () => {
+      const { car, drive } = await session(id, { walls: false });
+      car.forceSurface = S_ASPHALT;
+      car.manual = true;
+      const spec = ourCar(car).spec, limit = spec.gearTop[1] * spec.overRev / spec.redline;   // m/s: first gear's over-rev speed
+      const pedals = (throttle: number, brake: number): DriveInput => ({ throttle, brake, steer: 0, analog: true, steerAngle: 0, autoGears: false });
+      car.pendingShift = 1;
+      drive(15, () => pedals(1, 0), () => car.speedF > limit * 1.05);
+      expect(car.gear).toBe(2);
+      car.pendingShift = -1;
+      drive(DT, () => pedals(0.3, 0));
+      expect([car.gear, car.shiftDenied, car.pendingShift]).toEqual([2, false, -1]);   // held
+      drive(SHIFT_HOLD + 0.1, () => pedals(0.6, 0));
+      expect([car.gear, car.shiftDenied, car.pendingShift]).toEqual([2, true, 0]);     // refused
+      car.shiftDenied = false;
+      drive(5, () => pedals(0, 0.5), () => car.speedF < limit * 1.03);
+      car.pendingShift = -1;                                                           // a moment early under braking
+      drive(0.7, () => pedals(0, 0.5));
+      expect([car.gear, car.shiftDenied, car.pendingShift]).toEqual([1, false, 0]);
+
+      car.pendingShift = -1;
+      drive(DT, () => pedals(0, 0));
+      expect(car.gear).toBe(0);                      // neutral, on the move
+      const coasting = car.speedF;
+      drive(1, () => pedals(1, 0));
+      expect(car.speedF).toBeLessThan(coasting);     // no drive...
+      expect(car.rpm).toBeGreaterThan(spec.redline * 0.9);   // ...and the engine revs free
+      car.pendingShift = -1;
+      drive(DT, () => pedals(0, 0));
+      expect(car.gear).toBe(0);                      // no reverse on the move
+      drive(10, () => pedals(0, 0.6), () => Math.abs(car.speedF) < 0.1);
+      drive(1, () => pedals(0, 1));
+      expect(car.gear).toBe(0);                      // the brake held in neutral does not select reverse
+      car.pendingShift = -1;
+      drive(DT, () => pedals(0, 0));
+      expect(car.gear).toBe(-1);
+      car.pendingShift = 2;
+      drive(DT, () => pedals(0, 0));
+      expect(car.gear).toBe(0);
+      drive(DT, () => pedals(0, 0));
+      expect(car.gear).toBe(1);
+      car.pendingShift = -1;                         // the automatic box has no neutral
+      drive(DT, () => pedals(0, 0));
+      expect(car.gear).toBe(0);
+      drive(DT, () => ({ ...pedals(0, 0), autoGears: true }));
+      expect(car.gear).toBe(1);
+    });
+  }
+});
+
 describe('reverse', () => {
   for (const id of ['f1', 'drift', 'gt3'] as const) {
     it(`${id}: reverse tops out at reverseTop, and the throttle stops it`, async () => {
@@ -253,7 +305,7 @@ describe('reverse', () => {
       car.forceSurface = S_ASPHALT;
       const pedals = (throttle: number, brake: number): DriveInput => ({ throttle, brake, steer: 0, analog: true, steerAngle: 0, autoGears: true });
       drive(6, () => pedals(0, 1));                  // hold brake: stops, engages reverse, backs up
-      expect(car.gear).toBe(0);
+      expect(car.gear).toBe(-1);
       expect(-car.speedF).toBeGreaterThan(0.7 * ourCar(car).spec.reverseTop);
       expect(-car.speedF).toBeLessThan(ourCar(car).spec.reverseTop);
       const v0 = -car.speedF;

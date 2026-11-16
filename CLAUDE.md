@@ -160,7 +160,7 @@ Run `npm run typecheck` and `npm test` before committing.
     fixed 2 ms steps, has its own rigid body and wall response, and has no ABS, TC or input shaping.
   - `lc/lcCar.ts`: `LcCar implements Vehicle`. Each 120 Hz tick runs 4 or 5 engine steps (25 per 6 ticks, counted in
     integers so it never drifts), with the driver around each. It owns our gearbox conventions (reverse on the
-    brake at a standstill, one manual shift per tick, `shiftDenied`), the F1's flaps (open by themselves in
+    brake at a standstill, one manual shift per tick, held downshifts and `shiftDenied`, neutral), the F1's flaps (open by themselves in
     `straightWindows`: straights of 250 m+) and lap energy (`locateProgress`), and maps engine state to ours.
     `placeAt` on the first-placement spot (the start spot, which is the only place the session puts it) builds a
     fresh engine instance (full battery, fuel, tyres in blankets; cheap because the engine memoises that settle),
@@ -177,7 +177,8 @@ Run `npm run typecheck` and `npm test` before committing.
     Autopilot `steerAngle`: straight to the road wheels. ABS is always on; the TC setting switches TC between the
     car's "semi_pro" dial and off. Per-car numbers are `GT3_DRIVER` / `F1_DRIVER`.
   - The engine's axes are ours (x left, y up, z forward) but its steering input is + = right, and its reverse gear
-    is -1 (ours 0).
+    is -1, as ours. Its box has no neutral: ours (gear 0) holds its clutch open (`inp.clutch`), with its box kept in
+    a forward gear that fits the road speed.
 - **Car physics (`Car.step`)**: Rapier rigid body at a fixed 120 Hz (`DT`), with custom physics on top:
   - raycast suspension with anti-roll bars
   - Pacejka lateral curve with load sensitivity (or a brush tyre: `spec.brush`)
@@ -186,6 +187,9 @@ Run `npm run typecheck` and `npm test` before committing.
     Countersteer assist setting, off by default); the autopilot's `steerAngle` bypasses it, so assist tuning does
     not move the pinned lap times
   - traction control (`tcSlack`)
+  - gearbox: `gear` is -1 reverse, 0 neutral (manual only: below first at any speed; reverse is below it at a
+    standstill), 1.. forward. A manual downshift that would pass `overRev` waits up to `SHIFT_HOLD` (`vehicle.ts`)
+    for the revs to fall, then sets `shiftDenied`; `LcCar` does the same around the engine's own refusal
   - per-surface grip blending and grass/gravel ploughing
   - downforce and drag
 

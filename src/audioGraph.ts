@@ -213,7 +213,7 @@ export class SoundGraph {
     this.engBody.gain.setTargetAtTime(v.body[2] + (v.body[3] - v.body[2]) * thr, t, 0.05);
     this.engine.gain.setTargetAtTime(v.level * (v.coast + (1 - v.coast) * thr) * (0.7 + 0.3 * rpmN), t, 0.03);
     for (const p of this.players.values()) p.update(p === player ? car : null, active && !fresh, dt, t);
-    const onLimiter = car.gear > 0 && thr > 0.3 && car.rpm >= car.spec.redline * 0.99 ? 1 : 0;
+    const onLimiter = car.gear >= 0 && thr > 0.3 && car.rpm >= car.spec.redline * 0.99 ? 1 : 0;
     this.limDepth.gain.setTargetAtTime(-0.42 * onLimiter, t, 0.02);   // limiter gain swings 1 -> ~0.16
     this.limiter.gain.setTargetAtTime(1 - 0.42 * onLimiter, t, 0.02);
     this.limPitch.gain.setTargetAtTime(-30 * onLimiter, t, 0.02);      // cents

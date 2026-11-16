@@ -95,7 +95,7 @@ export class Hud {
     const [b0, b1, b2] = timing.store.bestSectors;
     setText(el.opt, b0 != null && b1 != null && b2 != null ? fmtTime(b0 + b1 + b2) : '—');
     setText(el.speed, String(Math.round(Math.abs(car.speedF) * 3.6)));
-    setText(el.gear, car.gear === 0 ? 'R' : !car.manual && Math.abs(car.speedF) < 0.5 && car.throttle < 0.05 ? 'N' : String(car.gear));
+    setText(el.gear, car.gear < 0 ? 'R' : car.gear === 0 || (!car.manual && Math.abs(car.speedF) < 0.5 && car.throttle < 0.05) ? 'N' : String(car.gear));
     this.updateDash(car);
     let surf = 0;
     for (const w of car.wheels) surf = Math.max(surf, w.surf);
@@ -109,7 +109,7 @@ export class Hud {
 
   // Shift lights fill from the car's shiftLightsFrom to its auto-upshift point, then all flash; pedal bars.
   private updateDash(car: Vehicle) {
-    const n = car.gear === 0 ? 0 : Math.round(clamp((car.rpm - car.spec.shiftLightsFrom) / (car.spec.shiftPoint - car.spec.shiftLightsFrom), 0, 1) * 15);
+    const n = car.gear < 0 ? 0 : Math.round(clamp((car.rpm - car.spec.shiftLightsFrom) / (car.spec.shiftPoint - car.spec.shiftLightsFrom), 0, 1) * 15);
     if (n !== this.litCount) { this.lights.forEach((d, k) => d.classList.toggle('on', k < n)); this.litCount = n; }
     const sl = this.el.shiftLights, flashing = n === 15;
     sl.classList.toggle('flash', flashing);

@@ -8,6 +8,10 @@ import type { TrackPos } from './track';
 // whichever physics engine drives it. Car (car.ts) is ours; createVehicle (sim.ts) picks the engine from the spec.
 // ============================================================================
 
+// s a manual downshift that would over-rev the engine waits for the revs to come down before it is refused: pressed
+// a moment early under braking, it goes in as soon as the gear fits.
+export const SHIFT_HOLD = 0.8;
+
 // What a driver (keyboard/mouse/gamepad, or the autopilot) asks of the car each physics tick.
 export interface DriveInput {
   throttle: number; brake: number;   // 0..1
@@ -38,12 +42,12 @@ export interface Vehicle {
   readonly prevPos: THREE.Vector3; readonly prevQuat: THREE.Quaternion;
   readonly speedF: number;           // forward speed (m/s), negative backwards
   // driver-facing state
-  readonly gear: number;             // 0 = reverse
+  readonly gear: number;             // -1 = reverse, 0 = neutral (manual box only), 1.. forward
   readonly rpm: number; readonly steer: number; readonly throttle: number; readonly brake: number;   // steer: front wheel angle (rad)
   tc: boolean; manual: boolean;      // traction control; manual gearbox
   assist: boolean;                   // countersteer assist (the setting; cars without one ignore it)
   pendingShift: number;              // manual shifts queued by the player (+ up, - down), taken one per tick
-  shiftDenied: boolean;              // set when a manual downshift was refused (it would over-rev); the game clears it
+  shiftDenied: boolean;              // set when a manual downshift was refused (still over-revving after SHIFT_HOLD); the game clears it
   forceSurface?: number;             // testing: pretend every wheel is on this surface
   readonly tipped: number;           // seconds spent on its side or roof at walking pace (needsReset puts it back)
 

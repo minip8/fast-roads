@@ -5,7 +5,7 @@ import { type CarMesh, poseCockpit } from './carMeshes';
 import type { BrushTyre, CarSpec } from './cars';
 import { pointAt, projectOnTrack, surfaceAt, trackLimitOut, type SurfaceRes, type Track, type TrackPos } from './track';
 import { clamp, lerp } from './util';
-import type { DriveInput, Vehicle } from './vehicle';
+import { SHIFT_HOLD, type DriveInput, type Vehicle } from './vehicle';
 
 // ============================================================================
 // Car
@@ -64,8 +64,9 @@ export class Car implements Vehicle {
   private lastVF = 0; private accF = 0;     // last tick's forward speed, and the smoothed forward acceleration (m/s2)
   tc = true; manual = false;                // gearbox is automatic unless manual
   assist = false;                           // countersteer assist (only cars whose spec has one); off unless the player turns it on
-  pendingShift = 0; shiftDenied = false;    // queued manual shifts; set when a downshift would over-rev
+  pendingShift = 0; shiftDenied = false;    // queued manual shifts; set when a downshift was refused (still over-revving after SHIFT_HOLD)
   shiftTimer = 0; private revTimer = 0;
+  private shiftHold = 0;                    // s a downshift has waited for the revs to come down
   forceSurface?: number;                    // testing: pretend every wheel is on this surface
   tipped = 0;                               // seconds spent on its side or roof at walking pace (see needsReset)
   // physics state, refreshed by readState()
@@ -115,6 +116,15 @@ export class Car implements Vehicle {
     this.mesh.dispose();
   }
 
+  // Whether forward gear g would turn the engine past its over-rev limit at this road speed.
+  private overRevs(g: number, vF: number) { return (this.spec.redline * Math.max(vF, 0)) / this.spec.gearTop[g] >= this.spec.overRev; }
+  // The lowest forward gear that would not (leaving neutral on the move).
+  private lowestGear(vF: number) {
+    let g = 1;
+    while (g < this.spec.gearTop.length - 1 && this.overRevs(g, vF)) g++;
+    return g;
+  }
+
   placeAt(s: number, lat = 0, speed = 0) {
     const tr = this.track, p = pointAt(tr, s, lat), i = p.i;
     const yaw = Math.atan2(tr.TX[i], tr.TZ[i]);
@@ -123,7 +133,7 @@ export class Car implements Vehicle {
     this.body.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true);
     this.body.setLinvel({ x: tr.TX[i] * speed, y: 0, z: tr.TZ[i] * speed }, true);
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
-    this.gear = 1; this.steer = this.steerIn = this.rearSlip = this.slipRate = 0; this.looseAsk = this.spec.rearLoose[2]; this.shiftTimer = 0; this.tipped = 0; this.accF = 0;
+    this.gear = 1; this.steer = this.steerIn = this.rearSlip = this.slipRate = 0; this.looseAsk = this.spec.rearLoose[2]; this.shiftTimer = this.shiftHold = 0; this.tipped = 0; this.accF = 0;
     this.lastVF = speed;
     // rolling: the gear the automatic box would be in (the lowest that is below its shift point)
     const top = this.spec.gearTop;
@@ -204,13 +214,14 @@ export class Car implements Vehicle {
 
     // --- gearbox
     let throttle = inp.throttle, brake = inp.brake;
-    if (this.gear === 0) {                         // reverse
+    if (this.gear === -1) {                        // reverse
       if (throttle > 0.1 && vF > -1) this.gear = 1;
-    } else if (Math.abs(vF) < 0.6 && brake > 0.5 && throttle < 0.05) {
+    } else if (this.gear > 0 && Math.abs(vF) < 0.6 && brake > 0.5 && throttle < 0.05) {   // not from neutral: it stays put
       this.revTimer += dt;
-      if (this.revTimer > 0.35) { this.gear = 0; this.revTimer = 0; }
+      if (this.revTimer > 0.35) { this.gear = -1; this.revTimer = 0; }
     } else this.revTimer = 0;
     const autoBox = !this.manual || inp.autoGears;
+    if (autoBox && this.gear === 0) this.gear = this.lowestGear(vF);   // the automatic box has no neutral
     if (autoBox && this.gear > 0) {
       const g = this.gear;
       const rpmHere = (this.spec.redline * Math.max(vF, 0)) / this.spec.gearTop[g];
@@ -219,22 +230,29 @@ export class Car implements Vehicle {
     }
     // manual: one queued shift per tick (E/Q or paddles)
     if (!autoBox && this.pendingShift !== 0) {
-      const dir = Math.sign(this.pendingShift); this.pendingShift -= dir;
-      const g = this.gear;
+      const dir = Math.sign(this.pendingShift), g = this.gear;
+      let held = false;
       if (dir > 0) {
-        if (g === 0) this.gear = 1;
+        if (g === -1) this.gear = 0;
+        else if (g === 0) this.gear = this.lowestGear(vF);
         else if (g < this.spec.gearTop.length - 1) { this.gear++; this.shiftTimer = 0.06; }
       } else if (g > 1) {
-        // block downshifts that would over-rev the engine
-        if ((this.spec.redline * Math.max(vF, 0)) / this.spec.gearTop[g - 1] < this.spec.overRev) { this.gear--; this.shiftTimer = 0.04; }
-        else this.shiftDenied = true;
-      } else if (g === 1 && Math.abs(vF) < 1) this.gear = 0;
+        // A downshift that would over-rev the engine waits for the revs to come down (SHIFT_HOLD), then is refused
+        if (!this.overRevs(g - 1, vF)) { this.gear--; this.shiftTimer = 0.04; }
+        else held = true;
+      } else if (g === 1) this.gear = 0;                         // neutral, at any speed
+      else if (g === 0 && Math.abs(vF) < 1) this.gear = -1;      // reverse, only at a standstill
+      if (!held) { this.pendingShift -= dir; this.shiftHold = 0; }
+      else if ((this.shiftHold += dt) > SHIFT_HOLD) { this.pendingShift = 0; this.shiftHold = 0; this.shiftDenied = true; }
     }
-    if (autoBox) this.pendingShift = 0;
+    if (autoBox) { this.pendingShift = 0; this.shiftHold = 0; }
     this.shiftTimer -= dt;
 
     let drive = 0;
     if (this.gear === 0) {
+      // neutral: the engine revs free of the wheels
+      this.rpm = lerp(this.rpm, this.spec.idle + throttle * (this.spec.redline - this.spec.idle), throttle > 0.02 ? 0.12 : 0.04);
+    } else if (this.gear === -1) {
       // reverse: the brake pedal drives backwards (fading out by reverseTop) and the throttle brakes
       const back = brake; brake = throttle; throttle = back;
       if (back > 0.02) drive = -back * this.spec.reverseForce * clamp(1 + vF / this.spec.reverseTop, 0, 1);

@@ -133,7 +133,7 @@ applied; then the gear and speed.
 | V | Mouse steering on/off (also in the menu) |
 | C | Cycle camera (onboard / driver / chase / far) |
 | G | Automatic / manual gears (also in the menu) |
-| E / Q | Shift up / down (manual) |
+| E / Q | Shift up / down (manual): reverse, neutral, first... A downshift that would over-rev waits up to 0.8 s for the revs to fall |
 | T | Traction control on/off |
 | Esc / P | Open the menu (pauses) |
 | M / H | Mute / hide help |
@@ -155,7 +155,7 @@ and override the mouse while held.
   intrude on another part of the circuit. Road, kerbs, gravel, and walls are ribbon meshes built from the samples.
 - **Physics**: Rapier rigid body (fixed 120 Hz step, interpolated rendering). Custom raycast suspension with
   anti-roll bars, simplified Pacejka lateral curve with load sensitivity, friction circle, downforce and drag ∝ v²,
-  torque curve + 8-speed gearbox (automatic, or manual with over-rev-protected downshifts), per-surface grip. Walls are static cuboid colliders.
+  torque curve + 8-speed gearbox (automatic, or manual with a neutral and over-rev-protected downshifts), per-surface grip. Walls are static cuboid colliders.
   The GT3 swaps in a brush tyre curve with power-law load sensitivity, steering that flexes under cornering force,
   and the inertia of its engine and wheels (which takes about a tenth of its push in first gear).
   Grass has about 64% of the asphalt's grip and gravel about half. Both add a ploughing deceleration (grass ~0.08 g,

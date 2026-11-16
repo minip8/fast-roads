@@ -4,7 +4,7 @@ import { S_ASPHALT } from '../config';
 import { type CarMesh, poseCockpit } from '../carMeshes';
 import type { LcSpec } from '../cars';
 import { pointAt, projectOnTrack, surfaceAt, trackLimitOut, type SurfaceRes, type Track, type TrackPos } from '../track';
-import type { DriveInput, Vehicle, VehicleWheel } from '../vehicle';
+import { SHIFT_HOLD, type DriveInput, type Vehicle, type VehicleWheel } from '../vehicle';
 import type { EngineDriver } from './engineDriver';
 import { trackGround, trackWalls } from './ground';
 import { VehiclePhysics, type VehicleInputs } from './vendor/sim/f12026-car/VehiclePhysics';
@@ -13,7 +13,7 @@ import { VehiclePhysics, type VehicleInputs } from './vendor/sim/f12026-car/Vehi
 // A car on LibreCorsa's engine (src/lc/vendor), as the game sees any car. The engine runs its own fixed 500 Hz
 // steps; each 120 Hz game tick runs four or five of them, with the spec's driver (pedals, steering, aids) around
 // each one. This class owns the gearbox in our conventions (reverse on the brake at a standstill, queued manual
-// shifts), the 2026 F1's flaps, and turning the engine's state into ours.
+// shifts, a neutral the engine's box does not have), the 2026 F1's flaps, and turning the engine's state into ours.
 // ============================================================================
 const H = VehiclePhysics.FIXED_DT;
 const SLIP_PEAK = 1.15;   // our tyre sound's slip at the grip peak; the engine's combinedSlip is 1 there
@@ -60,6 +60,8 @@ export class LcCar implements Vehicle {
   private barriers = true;                  // the engine meets the track's barriers (tests may take them away)
   private revTimer = 0;                     // s the brake has been held at a standstill (reverse after 0.35)
   private shiftBusy = 0;                    // s until the engine has finished the manual shift under way
+  private shiftHold = 0;                    // s a downshift has waited for the revs to come down (SHIFT_HOLD)
+  private neutral = false;                  // our neutral: the engine's box has none, so its clutch is held open
   private flapAsked = false;                // the last engine step asked for the flaps (the engine acts on the rising edge)
   private ticks = 0;                        // engine steps owed, in 1/(game tick rate) units of a second
   private groundFor?: number;               // the forceSurface the engine's ground was built for
@@ -136,7 +138,7 @@ export class LcCar implements Vehicle {
     if (this.groundFor !== this.forceSurface) { this.vehicle.setGround(trackGround(tr, this.forceSurface)); this.groundFor = this.forceSurface; }
     this.vehicle.reset(p.x, p.z, Math.atan2(tr.TX[p.i], tr.TZ[p.i]), speed > 0 ? speed : spawn ? 0 : 1e-3, false);
     this.driver.reset();
-    this.revTimer = 0; this.shiftBusy = 0; this.flapAsked = false; this.tipped = 0; this.ticks = 0; this.progressI = -1;
+    this.revTimer = 0; this.shiftBusy = this.shiftHold = 0; this.neutral = false; this.flapAsked = false; this.tipped = 0; this.ticks = 0; this.progressI = -1;
     this.throttle = this.brake = 0;
     this.readState();
     this.proj.i = -1;
@@ -169,8 +171,14 @@ export class LcCar implements Vehicle {
     // enters or leaves reverse (its -1), so that is done with the paddles in either mode.
     const autoBox = !this.manual || !!input.autoGears, g = v.gear, top = this.spec.config.gearbox.ratios.length;
     v.autoShift = autoBox;
+    if (autoBox) this.neutral = false;      // the automatic box has no neutral
     let shift = 0;
-    if (g === -1) {
+    if (this.neutral) {
+      // Neutral is the clutch held open (below) with the engine's box in a forward gear: first out of reverse, and
+      // up through the gears while the road speed would over-rev the one it is in, so that leaving neutral fits.
+      this.revTimer = 0;
+      if (g === -1 || (g < top && this.overRevs(g))) shift = 1;
+    } else if (g === -1) {
       if (input.throttle > 0.1 && vF > -1) shift = 1;
       this.revTimer = 0;
     } else if (Math.abs(vF) < 0.6 && input.brake > 0.5 && input.throttle < 0.05) {
@@ -181,19 +189,30 @@ export class LcCar implements Vehicle {
     // sent meanwhile would replace each other (three quick presses gave two gears).
     this.shiftBusy = Math.max(0, this.shiftBusy - dt);
     if (!autoBox && this.pendingShift !== 0 && shift === 0 && this.shiftBusy <= 0) {
-      const dir = Math.sign(this.pendingShift); this.pendingShift -= dir;
-      if (dir > 0) { if (g < top) shift = 1; }
-      else if (g > 1) { if (this.overRevs(g - 1)) this.shiftDenied = true; else shift = -1; }
-      else if (g === 1 && Math.abs(vF) < 1) shift = -1;
-      const gb = this.spec.config.gearbox;
-      if (shift !== 0) this.shiftBusy = shift < 0 ? gb.downshiftTimeS ?? gb.shiftTimeS : gb.shiftTimeS;
+      // One press: reverse, neutral, first... A press that cannot be taken yet is held (the box in neutral still
+      // finding its gear; a downshift that would over-rev, for up to SHIFT_HOLD before it is refused).
+      const dir = Math.sign(this.pendingShift);
+      let held = false;
+      if (this.neutral) {
+        if (dir > 0) { if (g >= 1 && !this.overRevs(g)) this.neutral = false; else held = true; }
+        else if (Math.abs(vF) < 1) { shift = -1; if (g === 1) this.neutral = false; else held = true; }   // reverse, only at a standstill
+      } else if (dir > 0) {
+        if (g === -1) { this.neutral = true; shift = 1; }
+        else if (g < top) shift = 1;
+      } else if (g > 1) {
+        if (!this.overRevs(g - 1)) shift = -1;
+        else if ((this.shiftHold += dt) > SHIFT_HOLD) { this.pendingShift = 0; this.shiftDenied = true; }
+        else held = true;
+      } else if (g === 1) this.neutral = true;   // at any speed
+      if (!held) { this.pendingShift -= Math.sign(this.pendingShift); this.shiftHold = 0; }
     }
-    if (autoBox) this.pendingShift = 0;
+    if (autoBox) { this.pendingShift = 0; this.shiftHold = 0; }
+    if (shift !== 0) { const gb = this.spec.config.gearbox; this.shiftBusy = shift < 0 ? gb.downshiftTimeS ?? gb.shiftTimeS : gb.shiftTimeS; }
     // In reverse the brake pedal drives backwards and the throttle brakes. The pedals swap only while the engine is
     // in reverse: on the way in (the downshift from first can take 0.1 s) the brake stays the brake, and on the way
     // out the throttle waits for first gear instead of driving backwards.
     let inp = input;
-    if (g === -1) {
+    if (g === -1 && !this.neutral) {
       inp = Object.assign(this.swapped, input);
       inp.throttle = shift > 0 ? 0 : input.brake; inp.brake = shift > 0 ? 0 : input.throttle;
     }
@@ -209,6 +228,7 @@ export class LcCar implements Vehicle {
       this.driver.inputs(H, out);
       out.shiftUp = k === 0 && shift > 0;
       out.shiftDown = k === 0 && shift < 0;
+      if (this.neutral) out.clutch = 1; else if (out.clutch !== undefined) out.clutch = undefined;
       // Their autopilot's flap rule, so the flaps work themselves: ask whenever they may open and the foot is down.
       // The engine acts on the request's rising edge and refuses it while the brake is touched, so the request is
       // dropped every other step and made again: held, one refusal kept the flaps shut for the rest of the straight.
@@ -222,7 +242,7 @@ export class LcCar implements Vehicle {
   }
 
   // Whether a downshift into gear `to` would be refused: the engine's own test (requestShift), road rpm over the
-  // redline plus the box's margin, so shiftDenied is set without waiting a tick to see the gear stay.
+  // redline plus the box's margin, so a press can wait for the gear to fit instead of being sent and lost.
   private overRevs(to: number) {
     const v = this.vehicle, gb = this.spec.config.gearbox, [dl, dr] = v.drivenWheels;
     const r = Math.max(0.2, 0.5 * (v.wheels[dl].rollingRadius + v.wheels[dr].rollingRadius) || 0.35);
@@ -233,7 +253,7 @@ export class LcCar implements Vehicle {
   // Our view of the engine's driver-facing and wheel state after a tick.
   private refresh() {
     const v = this.vehicle, tr = this.track, W = v.wheels;
-    this.gear = v.gear === -1 ? 0 : v.gear;
+    this.gear = this.neutral ? 0 : v.gear;   // the engine's numbers are ours: -1 reverse, 1.. forward
     this.rpm = v.rpm;
     this.steer = 0.5 * (W[0].steerRad + W[1].steerRad);
     for (let k = 0; k < 4; k++) {
