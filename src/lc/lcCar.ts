@@ -7,7 +7,8 @@ import { pointAt, projectOnTrack, surfaceAt, trackLimitOut, type SurfaceRes, typ
 import type { DriveInput, TyreState, Vehicle, VehicleTyres, VehicleWheel } from '../vehicle';
 import type { EngineDriver } from './engineDriver';
 import { trackGround, trackWalls } from './ground';
-import { VehiclePhysics, type VehicleInputs } from './vendor/sim/f12026-car/VehiclePhysics';
+import { compoundData } from './vendor/sim/f12026-car/F12026CarConfig';
+import { createTyreRuntime, VehiclePhysics, type VehicleInputs, type WheelState } from './vendor/sim/f12026-car/VehiclePhysics';
 
 // ============================================================================
 // A car on LibreCorsa's engine (src/lc/vendor), as the game sees any car. The engine runs its own fixed 500 Hz
@@ -17,8 +18,19 @@ import { VehiclePhysics, type VehicleInputs } from './vendor/sim/f12026-car/Vehi
 // engine's state into ours.
 // ============================================================================
 const H = VehiclePhysics.FIXED_DT;
-const SLIP_PEAK = 1.15;   // our tyre sound's slip at the grip peak; the engine's combinedSlip is 1 there
-const SLIP_MAX = 4;       // ...and runs to thousands on a locked wheel: kept to a few times the peak
+const SLIP_MAX = 4;       // VehicleWheel.slip (1 at the grip peak) runs to thousands on a locked wheel: kept to a few times the peak
+
+// VehicleWheel.slip from the engine's wheel: 1 at the tyre's grip peak whichever way it slips. The engine's
+// combinedSlip is the theoretical slip vector's length over the lateral peak slip, but a brush tyre's longitudinal
+// peak comes sooner, at 1 / longStiffnessMult of it (0.85 on the F1's fronts), so pure braking or wheelspin read low.
+// Rescaled along the slip's direction, on the ellipse through both peaks (the combined-slip exponent is 2 on both
+// cars): longMult is 1 for a tyre whose combinedSlip already measures each axis against its own peak.
+export function peakSlip(e: WheelState, longMult: number) {
+  const total = e.combinedSlip * Math.tan(e.peakSlipAngleRad);
+  if (!(total > 0) || longMult === 1) return e.combinedSlip;
+  const sx = e.slipRatio / Math.max(1e-3, 1 + e.slipRatio);   // as the engine's brush tyre takes it
+  return e.combinedSlip * Math.sqrt(1 + (longMult * longMult - 1) * Math.min(1, (sx / total) ** 2));
+}
 
 // 2026 Straight Mode windows (lap fractions): LibreCorsa's rule, every stretch of at least 250 m whose curvature
 // stays within 1/800 m (straight-mode-zones.ts), on our smoothed curvature.
@@ -78,6 +90,7 @@ export class LcCar implements Vehicle {
   private readonly progress: TrackPos = { i: -1, s: 0, lat: 0 };
   private readonly inp: VehicleInputs = { throttle: 0, brake: 0, steer: 0 };
   private readonly swapped: DriveInput = { throttle: 0, brake: 0, steer: 0, analog: false };
+  private readonly longMult: [front: number, rear: number];   // the tyres' lateral over longitudinal peak slip (peakSlip)
   // physics state, refreshed by readState()
   proj: TrackPos = { i: -1, lat: 0, s: 0 };
   pos = new THREE.Vector3(); quat = new THREE.Quaternion(); vel = new THREE.Vector3(); angv = new THREE.Vector3();
@@ -87,6 +100,8 @@ export class LcCar implements Vehicle {
 
   // The Rapier world is not used: the engine has its own body, and meets our walls through trackWalls.
   constructor(_world: RAPIER.World, readonly track: Track, readonly scene: THREE.Scene, readonly spec: LcSpec) {
+    const tyre = compoundData(spec.config, spec.config.compoundSlots.soft);
+    this.longMult = [createTyreRuntime(tyre).brush?.longStiffnessMult ?? 1, createTyreRuntime(tyre, true).brush?.longStiffnessMult ?? 1];
     this.build();
     this.mesh = spec.mesh(spec);
     scene.add(this.mesh.root);
@@ -287,7 +302,7 @@ export class LcCar implements Vehicle {
       surfaceAt(tr, w.proj.i, w.proj.lat, w.proj.s, w.sres);
       w.surf = this.forceSurface ?? w.sres.surf;
       w.out = trackLimitOut(tr, w.proj.i, w.proj.lat);
-      w.slip = e.grounded ? Math.min(SLIP_MAX, e.combinedSlip * SLIP_PEAK) : 0;
+      w.slip = e.grounded ? Math.min(SLIP_MAX, peakSlip(e, this.longMult[k < 2 ? 0 : 1])) : 0;
       const t = this.tyres.wheels[k];
       t.coreC = e.coreTempC; t.surfaceC = e.surfaceTempC; t.pressurePsi = e.pressurePsi; t.brakeC = e.brakeDisc.surfaceTempC;
       t.wear = v.realism.tyreWearScale > 0 ? e.wear : undefined;   // wear is off (build): no number that never moves

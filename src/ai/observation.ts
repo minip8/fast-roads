@@ -9,11 +9,10 @@ import type { ObsConfig } from './config';
 // passes in: no Node or DOM APIs, so the browser can build the same vector for inference. Every element is
 // raw value x scale (after the transform, if one is named), then clipped to +-OBS_CLIP; observationSpec lists them all.
 // ============================================================================
-export const OBS_VERSION = 1;
+export const OBS_VERSION = 2;   // 2: the wheel slips read 1 at the tyre's peak in any direction, on every car
 export const OBS_CLIP = 10;
 export const CAR_IDS: readonly CarId[] = ['lcf1', 'lcgt3', 'drift'];   // the one-hot's order
 export const CURV_REF_M = 50;   // look-ahead curvature: sign(k) sqrt(|k| x CURV_REF_M), so a 50 m radius reads 1
-const SLIP_PEAK = 1.15;         // VehicleWheel.slip at the tyre's grip peak
 const WALL_FAR_M = 50;          // a wall further than this (or none) reads as this far
 const WHEELS = ['fl', 'fr', 'rl', 'rr'] as const;
 const SURFS = ['asphalt', 'kerb', 'grass', 'gravel'] as const;
@@ -61,7 +60,7 @@ export function observationSpec(cfg: ObsConfig): ObsEntry[] {
   add('off_track', 1, '', 'all four wheels past the track limits (the game\'s definition: the lap is invalid)', 'flag');
   for (const w of WHEELS) for (const s of SURFS) add(`wheel_${w}_${s}`, 1, '', `wheel ${w.toUpperCase()} on ${s}`, 'one_hot');
   for (const w of WHEELS) add(`wheel_${w}_out`, 1, '', `wheel ${w.toUpperCase()} past the track limit`, 'flag');
-  for (const w of WHEELS) add(`wheel_${w}_slip`, 1 / SLIP_PEAK, '', `wheel ${w.toUpperCase()} combined slip (1 = at the grip peak)`);
+  for (const w of WHEELS) add(`wheel_${w}_slip`, 1, '', `wheel ${w.toUpperCase()} combined slip (1 = at the grip peak, whichever way the tyre slips)`);
   add('gear', 1 / 8, '', 'gear (-1 reverse, 1.. forward)');
   add('rpm', 1, 'share', 'engine rpm over the redline');
   add('throttle', 1, '', 'throttle the engine got in the last tick (after the aids), 0..1');
@@ -131,7 +130,7 @@ export function observe(out: Float32Array, car: Vehicle, tr: Track, p: TrackPos,
   put(W[0].out && W[1].out && W[2].out && W[3].out ? 1 : 0);
   for (let k = 0; k < 4; k++) for (let s = 0; s < 4; s++) put(W[k].surf === s ? 1 : 0);
   for (let k = 0; k < 4; k++) put(W[k].out ? 1 : 0);
-  for (let k = 0; k < 4; k++) put(Math.min(4, W[k].slip / SLIP_PEAK));
+  for (let k = 0; k < 4; k++) put(Math.min(4, W[k].slip));
   put(car.gear / 8);
   put(car.rpm / car.spec.redline);
   put(car.throttle);

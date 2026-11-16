@@ -22,7 +22,7 @@ export interface Wheel {
   Fz: number; grounded: boolean;
   muBlend: number; rrBlend: number; decelBlend: number;   // surface properties, eased between surfaces
   surf: number; out: boolean;        // surface index; past the track limits
-  slip: number;                      // slip amount (for sound)
+  slip: number;                      // slip against the tyre's grip peak (VehicleWheel.slip)
   spin: number; omega: number;       // visual rotation and angular speed
   proj: TrackPos; sres: SurfaceRes;
   contact: THREE.Vector3; normal: THREE.Vector3;
@@ -31,6 +31,13 @@ export interface Wheel {
 export function pacejka(spec: CarSpec, alpha: number, front: boolean) {
   const { B, C, E } = (front && spec.pacFront) || spec.pac, x = B * alpha;
   return Math.sin(C * Math.atan(x - E * (x - Math.atan(x))));
+}
+const SLIP_ON_CIRCLE = 0.9;   // VehicleWheel.slip of a tyre just on its friction circle
+// The slip angle (rad) at which an axle's lateral curve peaks: VehicleWheel.slip is 1 there.
+export function pacejkaPeak(spec: CarSpec, front: boolean) {
+  let best = 0, at = 0;
+  for (let a = 0.0005; a < 1.5; a += 0.0005) { const f = pacejka(spec, a, front); if (f > best) { best = f; at = a; } }
+  return at;
 }
 export function engineTorque(spec: CarSpec, rpm: number) {
   const T = spec.torque;
@@ -53,6 +60,7 @@ export class Car implements Vehicle {
   private steerIn = 0;                      // the driver's part of the wheel angle (steer adds the countersteer assist)
   private looseAsk = 0;                     // eased share of the rear looseness in play (see rearLoose)
   private rearSlip = 0; private slipRate = 0;   // rear slide angle (rad) and its smoothed rate, for the assist
+  private readonly slipPeak: [front: number, rear: number];   // peak slip angles of the tyre curves (rad)
   tc = true; manual = false;                // gearbox is automatic unless manual
   assist = false;                           // countersteer assist (only cars whose spec has one); off unless the player turns it on
   pendingShift = 0; shiftDenied = false;    // queued manual shifts; set when a downshift would over-rev
@@ -68,6 +76,7 @@ export class Car implements Vehicle {
 
   constructor(world: RAPIER.World, track: Track, scene: THREE.Scene, spec: CarSpec) {
     this.world = world; this.track = track; this.scene = scene; this.spec = spec;
+    this.slipPeak = [pacejkaPeak(spec, true), pacejkaPeak(spec, false)];
     const r = this.spec.wheelRadius;
     const staticComp = 0.025;
     this.mountY = (r - this.spec.comHeight) + (this.spec.suspLen - staticComp);
@@ -390,7 +399,11 @@ export class Car implements Vehicle {
       const lift = this.spec.forceHeight;
       b.applyImpulseAtPoint({ x: ax, y: ay, z: az }, { x: w.contact.x + up.x * lift, y: w.contact.y + up.y * lift, z: w.contact.z + up.z * lift }, true);
 
-      w.slip = Math.max(Math.abs(alpha) / 0.15, slide * 2);
+      // 1 at the lateral curve's peak slip angle. On the friction circle (slide > 0) the tyre is at its limit, where
+      // a real ABS holds it, a little under the peak (LibreCorsa's GT3: 0.9 of it); what is asked beyond that (slide:
+      // the share over) is a slide past it, unless the ABS is holding this wheel (then the excess is engine braking,
+      // which a real ABS would release with the brake).
+      w.slip = Math.max(Math.abs(alpha) / this.slipPeak[w.front ? 0 : 1], slide > 0 ? SLIP_ON_CIRCLE + (brakeF < brakeAsked ? 0 : slide) : 0);
       w.omega = vx / this.spec.wheelRadius * (1 + (!w.front && Fdrive > 0 ? slide * 0.8 : 0)) * (brake > 0.9 && slide > 0.3 ? 0.2 : 1);
     }
     this.tcActive = tcOn; this.absActive = absOn;

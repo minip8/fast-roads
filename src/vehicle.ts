@@ -22,7 +22,7 @@ export interface VehicleWheel {
   readonly grounded: boolean;
   readonly surf: number;             // surface index (SURF in config.ts)
   readonly out: boolean;             // past the track limits (all four out invalidates the lap)
-  readonly slip: number;             // slip amount, about 1.15 at the tyre's peak (tyre sound)
+  readonly slip: number;             // combined slip, 1 at the tyre's grip peak whichever way it slips (tyre sound, RL)
   readonly contact: { readonly x: number; readonly y: number; readonly z: number };   // contact point while grounded (dust)
 }
 

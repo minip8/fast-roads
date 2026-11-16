@@ -89,7 +89,7 @@ hard-coded indices. Everything is track-relative or car-relative except the car 
 | 15 | `off_track` | 1 | | all four wheels past the track limits (the game's rule: the lap is invalid) |
 | 16-31 | `wheel_{fl,fr,rl,rr}_{asphalt,kerb,grass,gravel}` | 1 | | surface under each wheel, one-hot per wheel |
 | 32-35 | `wheel_{fl,fr,rl,rr}_out` | 1 | | wheel past the track limit |
-| 36-39 | `wheel_{fl,fr,rl,rr}_slip` | 1/1.15 | | combined slip, 1 = at the grip peak (capped at 4) |
+| 36-39 | `wheel_{fl,fr,rl,rr}_slip` | 1 | | combined slip, 1 = at the tyre's grip peak whichever way it slips (cornering, braking, wheelspin; capped at 4) |
 | 40 | `gear` | 0.125 | | -1 reverse, 1.. forward |
 | 41 | `rpm` | 1 | share | rpm over the redline |
 | 42, 43 | `throttle`, `brake` | 1 | | what the engine got in the last tick, after the aids |
@@ -109,7 +109,10 @@ hard-coded indices. Everything is track-relative or car-relative except the car 
 
 The function is `observe()` in `src/ai/observation.ts`: it reads the car only through the game's `Vehicle`
 interface and the track's arrays, so the browser can build the same vector for a trained policy. `OBS_VERSION`
-(sent in HELLO and READY) changes whenever the layout or a scale changes.
+(sent in HELLO and READY) changes whenever the layout, a scale or what an element measures changes. Version 2: the
+wheel slips are 1 at the tyre's grip peak in braking and wheelspin too (on the LibreCorsa-engine cars they were measured
+against the lateral peak, which the longitudinal one comes before) and on the drift car (whose 1 was 0.15 rad of slip
+angle, about half its tyres' peak).
 
 ### Reward
 

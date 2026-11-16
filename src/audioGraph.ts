@@ -52,6 +52,27 @@ const IMPACT_ACCEL = 90;       // m/s^2: velocity changes sharper than this (no 
 
 type Src = AudioScheduledSourceNode;
 
+// Tyre noise from the wheels' slip (VehicleWheel.slip: 1 at the tyre's grip peak), 0..1 each, on asphalt and kerbs.
+// The squeal marks the limit: silent with grip in hand, it comes in at 90% of the peak slip (where a tyre already gives
+// 99% of its grip) and is full a little past the peak. Under that only a faint scrub, growing from half the peak slip,
+// so the limit can still be heard coming. The loudest wheel counts most; both fade out at walking pace.
+export const SQUEAL_SLIP: readonly [from: number, full: number] = [0.9, 1.15];
+export const SCRUB_SLIP: readonly [from: number, share: number] = [0.5, 0.5];   // from, and its share at SQUEAL_SLIP[0]
+export function tyreNoise(wheels: AudioCar['wheels'], speed: number, out = { squeal: 0, scrub: 0 }) {
+  const [from, full] = SQUEAL_SLIP, [scrubFrom, near] = SCRUB_SLIP;
+  let sq = 0, sqMax = 0, sc = 0, scMax = 0;
+  for (const w of wheels) {
+    if (!w.grounded || w.surf === S_GRASS || w.surf === S_GRAVEL) continue;
+    const q = clamp((w.slip - from) / (full - from), 0, 1);
+    const c = near * clamp((w.slip - scrubFrom) / (from - scrubFrom), 0, 1) + (1 - near) * q;
+    sq += q; sqMax = Math.max(sqMax, q); sc += c; scMax = Math.max(scMax, c);
+  }
+  const n = wheels.length || 1, fade = clamp(speed / 2, 0, 1);
+  out.squeal = clamp(0.65 * sqMax + 0.35 * sq / n, 0, 1) * fade;
+  out.scrub = clamp(0.65 * scMax + 0.35 * sc / n, 0, 1) * fade;
+  return out;
+}
+
 export class SoundGraph {
   readonly master: GainNode;
   private readonly bus: GainNode;
@@ -93,6 +114,7 @@ export class SoundGraph {
   private wasActive = false;
   private pv = { x: 0, y: 0, z: 0 }; private pp = { x: 0, y: 0, z: 0 };
   private thudReady = 0;
+  private readonly tn = { squeal: 0, scrub: 0 };
 
   constructor(private readonly ctx: BaseAudioContext, dest: AudioNode) {
     const gain = (v: number, to?: AudioNode | AudioParam) => { const g = ctx.createGain(); g.gain.value = v; if (to) g.connect(to as AudioNode); return g; };
@@ -230,21 +252,16 @@ export class SoundGraph {
     this.gear = car.gear;
 
     // ---- tyres and surfaces
-    let squeal = 0, squealMax = 0, onRoad = 0, onKerb = 0, onGrass = 0, onGravel = 0;
+    let onRoad = 0, onKerb = 0, onGrass = 0, onGravel = 0;
     for (const w of car.wheels) {
       if (!w.grounded) continue;
       if (w.surf === S_GRASS) onGrass++;
       else if (w.surf === S_GRAVEL) onGravel++;
-      else {
-        onRoad++; if (w.surf === S_KERB) onKerb++;
-        const x = clamp((w.slip - 0.6) / 1.2, 0, 1);   // ~0.6: a little under the peak slip angle
-        squeal += x; squealMax = Math.max(squealMax, x);
-      }
+      else { onRoad++; if (w.surf === S_KERB) onKerb++; }
     }
-    const n = car.wheels.length || 1;
-    const sq = clamp(0.65 * squealMax + 0.35 * squeal / n, 0, 1) * clamp(abs / 2, 0, 1);
+    const n = car.wheels.length || 1, tn = tyreNoise(car.wheels, abs, this.tn), sq = tn.squeal;
     this.squeal.gain.setTargetAtTime(MIX.squeal * sq ** 1.3, t, 0.04);
-    this.scrub.gain.setTargetAtTime(MIX.scrub * sq * sq, t, 0.05);
+    this.scrub.gain.setTargetAtTime(MIX.scrub * tn.scrub, t, 0.05);
     for (let k = 0; k < this.squealF.length; k++) this.squealF[k].frequency.setTargetAtTime(v.squealHz * (k ? 1.93 : 1) * (0.92 + 0.25 * sq), t, 0.08);
 
     const sp = clamp(abs / 30, 0, 1);

@@ -235,8 +235,9 @@ and override the mouse while held.
   combustion noise, saturation and a low body resonance, rendered into seamless loops at six rpm points on load and on the overrun, then
   crossfaded by rpm and throttle with their pitch following the rpm. It burbles off the throttle, barks on it, pops
   and crackles on the overrun, and has a straight-cut gear whine that follows road speed. The loops take about
-  0.1 s to make, one per frame, the first time a GT3 is driven. Tyres squeal as they near the limit of grip on asphalt and kerbs (cornering or wheelspin), which is
-  the cue to catch a slide; kerbs rumble at the strip rate, road and wind noise rise with speed, and hard impacts
+  0.1 s to make, one per frame, the first time a GT3 is driven. Tyres squeal at the limit of grip on asphalt and kerbs (cornering, braking or wheelspin): silent
+  with grip in hand, a faint scrub as the tyres near their peak slip, the squeal from 90% of it, full a little past
+  it, which is the cue to catch a slide (the F1 squeals under hard braking: its ABS runs the fronts past their peak); kerbs rumble at the strip rate, road and wind noise rise with speed, and hard impacts
   thud. Sound starts on the first click or key press (browser autoplay rules), fades out while paused, and stops
   while muted or in a background tab.
 - **Menu and HUD**: plain DOM and CSS, no framework. The menu (`src/menu.ts`) is built from the settings table

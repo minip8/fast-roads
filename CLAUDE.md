@@ -159,7 +159,10 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   `test/engineLoops.test.ts` checks the loops (seams, level, cross-plane spectrum, weight under the firing note and
   little buzz, brighter on load); `test/engineVoice.test.ts` checks the oscillator voices the same way, computing
   their spectrum from the wave (`cycleHarmonics`: one engine cycle, so `orders` can add crank orders under the
-  firing note) and the graph's biquads. Measure a sound change rather than guessing: render it offline
+  firing note) and the graph's biquads. Tyre noise is `tyreNoise` (squeal from `SQUEAL_SLIP`, faint scrub below)
+  on `VehicleWheel.slip`, which both engines report as 1 at the tyre's grip peak whichever way it slips (`peakSlip`
+  in `lcCar.ts` rescales the engine's lateral-peak combinedSlip; `car.ts` divides by `pacejkaPeak`);
+  `test/tyreNoise.test.ts` holds when it plays. Measure a sound change rather than guessing: render it offline
   (an `OfflineAudioContext` in headless Chromium plays the real graph) and compare spectra and levels.
 - `timing.ts`, `input.ts`, `dust.ts`, `autopilot.ts`
 - `ghost.ts`: ghost laps without rendering (`GhostRecorder`, which `Timing` runs; the packed format; `ghostPose`
