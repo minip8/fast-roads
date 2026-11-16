@@ -1,5 +1,6 @@
 import { DT, SURF } from './config';
 import { $ } from './dom';
+import { keyLabel, keysFor, MENU_KEY, type Action, type Bindings } from './keys';
 import { Minimap, type Bounds } from './minimap';
 import type { Timing } from './timing';
 import type { Track } from './track';
@@ -7,8 +8,11 @@ import { clamp, fmtDelta, fmtSec, fmtTime } from './util';
 import type { Vehicle } from './vehicle';
 
 // ============================================================================
-// In-game HUD: lap/sector timing, messages, dash (shift lights, pedals, gear, speed), minimap
+// In-game HUD: lap/sector timing, messages, dash (shift lights, pedals, gear, speed), minimap, key help, frame rate.
+// What shows, and how big, follows the HUD settings (the setters below, called from main.ts's applySetting).
 // ============================================================================
+const MPH = 2.236936;   // per m/s (km/h is 3.6)
+const HELP_SECS = 14;   // the key help's 'At start' setting: shown for this long of driving
 // The HUD updates every frame, but most of it changes a few times a second: only write what changed, so unchanged
 // text, classes and styles don't cost a DOM mutation (and style recalculation) each frame.
 // Those parts of the page are only ever written through these, so the caches always match it.
@@ -18,6 +22,8 @@ function setClass(el: Element, cls: string) { if (classes.get(el) !== cls) { cla
 function setStyle(el: HTMLElement, prop: 'left' | 'height', value: string) {
   if (styles.get(el) !== value) { styles.set(el, value); el.style[prop] = value; }
 }
+
+const esc = (t: string) => t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
 
 export interface HudFrame {
   car: Vehicle; timing: Timing;
@@ -31,12 +37,18 @@ export class Hud {
   private readonly el = { lap: $('lapTime'), state: $('lapState'), delta: $('delta'), last: $('lastLap'), best: $('bestLap'), opt: $('optLap'),
     list: $('lapList'), speed: $('speed'), gear: $('gear'), flags: $('flags'), msg: $('msg'), help: $('help'),
     shiftLights: $('shiftLights'), thr: $('thrFill'), brk: $('brkFill'), mouseKnob: $('mouseSteerKnob'),
+    timing: $('timing'), unit: $('speedUnit'), helpChip: $('helpChip'), fps: $('fps'), map: $('minimap'),
     sec: [0, 1, 2].map((k) => $('sec' + k)), secTime: [0, 1, 2].map((k) => $('sec' + k).querySelector('b')!) };
   private readonly lights: HTMLElement[] = [];
   private readonly minimap: Minimap;
   private litCount = -1;
   private msgTimer = 0;
-  private helpTimer = 14;
+  private helpTimer = 0;
+  private helpMode: 'auto' | 'always' | 'off' = 'auto';
+  private helpShown = true;
+  private perSpeed = 3.6;               // display units per m/s
+  private showDelta = true;
+  private fpsFrames = 0; private fpsTime = 0;
 
   constructor(track: Track, bounds: Bounds, timing: Timing) {
     $('trkLen').textContent = (track.L / 1000).toFixed(2) + ' km';
@@ -51,7 +63,40 @@ export class Hud {
   set hidden(v: boolean) { this.root.hidden = v; }
 
   showMsg(html: string, secs = 2.5) { this.el.msg.innerHTML = html; this.el.msg.classList.add('show'); this.msgTimer = secs; }
-  toggleHelp() { this.el.help.classList.toggle('hidden'); }
+
+  // ---- settings ----
+  setUnits(u: 'kmh' | 'mph') { this.perSpeed = u === 'mph' ? MPH : 3.6; this.el.unit.textContent = u === 'mph' ? 'MPH' : 'KM/H'; }
+  setTimingPanel(mode: 'full' | 'compact' | 'off') { this.el.timing.hidden = mode === 'off'; this.el.timing.classList.toggle('compact', mode === 'compact'); }
+  setDelta(on: boolean) { this.showDelta = on; this.el.delta.hidden = !on; }
+  setMinimap(size: 'off' | 'small' | 'medium' | 'large') { this.el.map.hidden = size === 'off'; this.el.map.className = 'panel ' + size; }
+  setFps(on: boolean) { this.el.fps.hidden = !on; this.fpsFrames = 0; this.fpsTime = 0; setText(this.el.fps, '— fps'); }
+  setScale(pct: number) { this.root.style.setProperty('--hud-scale', String(pct / 100)); }
+  setOpacity(pct: number) { this.root.style.setProperty('--panel-a', String(pct / 100)); this.root.classList.toggle('clear', pct < 40); }
+  // At start: shown for the first HELP_SECS of driving, then a small reminder chip; always; or off (the help key still shows it).
+  setHelpMode(mode: 'auto' | 'always' | 'off') {
+    this.helpMode = mode; this.helpShown = mode !== 'off'; this.helpTimer = mode === 'auto' ? HELP_SECS : 0;
+    this.syncHelp();
+  }
+  toggleHelp() { this.helpShown = !this.helpShown; this.helpTimer = 0; this.syncHelp(); }
+  private syncHelp() {
+    this.el.help.classList.toggle('hidden', !this.helpShown);
+    this.el.helpChip.classList.toggle('hidden', this.helpShown || this.helpMode === 'off');
+  }
+  // The key help and its reminder chip, from the current bindings.
+  setKeys(b: Readonly<Bindings>) {
+    const k = (a: Action) => keysFor(b, a).map((c) => `<kbd>${esc(keyLabel(c))}</kbd>`).join(' ') || '<kbd>—</kbd>';
+    this.el.help.innerHTML = [
+      `${k('throttle')} throttle · ${k('brake')} brake / reverse`,
+      `${k('left')} ${k('right')} steer`,
+      `${k('restart')} restart the lap (flying start)`,
+      `${k('gearbox')} auto / manual gears · ${k('shiftUp')} ${k('shiftDown')} shift up / down`,
+      `${k('steering')} mouse steering (L/R click throttle/brake, scroll shift)`,
+      `${k('camera')} camera · ${k('tc')} traction control · ${k('mute')} sound`,
+      `<kbd>${keyLabel(MENU_KEY)}</kbd> ${k('menu')} menu and settings · ${k('help')} hide this`,
+      '<span class="muted">Gamepad: RT throttle, LT brake, left stick steer, Start menu</span>',
+    ].map((r) => `<div>${r}</div>`).join('');
+    this.el.helpChip.innerHTML = `${k('help')} keys · <kbd>${keyLabel(MENU_KEY)}</kbd> menu`;
+  }
   clearLaps() { this.el.list.innerHTML = ''; }
 
   // Turn this frame's timing events into messages.
@@ -77,7 +122,7 @@ export class Hud {
     setText(el.lap, lapRunning ? fmtTime(simTime + f.alpha * DT - lapStart) : '-:--.---');
     el.lap.classList.toggle('invalid', lapRunning && !timing.valid);
     setText(el.state, !lapRunning ? 'OUT LAP' : timing.valid ? `LAP ${timing.laps.length + 1}` : `LAP ${timing.laps.length + 1} · INVALID (${timing.invalidReason})`);
-    const dl = timing.valid ? timing.liveDelta(simTime, car.proj.s) : null;
+    const dl = this.showDelta && timing.valid ? timing.liveDelta(simTime, car.proj.s) : null;
     setText(el.delta, dl != null ? fmtDelta(dl) : '');
     setClass(el.delta, 'num ' + (dl == null ? '' : dl <= 0 ? 'ahead' : 'behind'));
     for (let k = 0; k < 3; k++) {
@@ -94,7 +139,7 @@ export class Hud {
     setText(el.best, fmtTime(timing.store.bestLap));
     const [b0, b1, b2] = timing.store.bestSectors;
     setText(el.opt, b0 != null && b1 != null && b2 != null ? fmtTime(b0 + b1 + b2) : '—');
-    setText(el.speed, String(Math.round(Math.abs(car.speedF) * 3.6)));
+    setText(el.speed, String(Math.round(Math.abs(car.speedF) * this.perSpeed)));
     setText(el.gear, car.gear < 0 ? 'R' : car.gear === 0 || (!car.manual && Math.abs(car.speedF) < 0.5 && car.throttle < 0.05) ? 'N' : String(car.gear));
     this.updateDash(car);
     let surf = 0;
@@ -103,8 +148,12 @@ export class Hud {
     setText(el.flags, `${car.manual ? 'MANUAL' : 'AUTO'} · TC ${car.tc ? 'ON' : 'OFF'}${f.autoOn ? ' · AUTOPILOT' : ''}${f.paused ? ' · PAUSED' : ''}${surfName !== 'asphalt' ? ' · ' + surfName.toUpperCase() : ''}`);
     if (this.msgTimer > 0 && (this.msgTimer -= dt) <= 0) el.msg.classList.remove('show');
     if (f.mouseSteer != null) setStyle(el.mouseKnob, 'left', (50 - f.mouseSteer * 50) + '%');
-    if (this.helpTimer > 0 && (this.helpTimer -= dt) <= 0) el.help.classList.add('hidden');
-    this.minimap.draw(car);
+    if (this.helpTimer > 0 && (this.helpTimer -= dt) <= 0) { this.helpShown = false; this.syncHelp(); }
+    if (!el.fps.hidden) {
+      this.fpsFrames++; this.fpsTime += f.dt;
+      if (this.fpsTime >= 0.5) { setText(el.fps, Math.round(this.fpsFrames / this.fpsTime) + ' fps'); this.fpsFrames = 0; this.fpsTime = 0; }
+    }
+    if (!el.map.hidden) this.minimap.draw(car);
   }
 
   // Shift lights fill from the car's shiftLightsFrom to its auto-upshift point, then all flash; pedal bars.

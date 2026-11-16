@@ -22,10 +22,30 @@ The autopilot isn't part of the game itself.
 
 ## Main menu
 
-The game opens on a menu: **Drive**, plus settings for circuit, car, gears (automatic/manual),
-steering (keyboard/mouse), camera, driver camera hands, traction control, countersteer assist (drift car), and sound. Settings are remembered. Choosing another circuit reloads the game onto it. Your best lap for the chosen car and circuit is shown, with a
-**Reset best times** option (click twice to confirm). While driving, **Esc** or **P** opens it as a pause menu
-(Resume / Restart lap). Mouse or keyboard (↑ ↓ ← → Enter) both work in the menu.
+The game opens on a menu with **Drive** at the top right and three tabs:
+
+- **Race**: a card for each car (what it is, power, weight, your best lap at this circuit) and each circuit (its
+  outline with the start/finish line, place, length, your best lap there in the chosen car). With seven or more
+  circuits a search box filters them. Choosing another circuit reloads the game onto it. **Reset best times**
+  clears the chosen car's at this circuit (click twice to confirm).
+- **Settings**, in five sections:
+  - *Driving*: gears (automatic / manual), traction control, countersteer assist (drift car).
+  - *Camera*: camera, field of view (−15° to +20° on every camera), widen the view with speed, camera shake on kerbs
+    and off track, driver camera hands.
+  - *HUD*: speed units (km/h / mph), timing panel (full / compact / hidden), live delta, track map (hidden / small /
+    medium / large), mouse steering bar, key help (at start / always / hidden), frame rate counter, HUD size (70–150%)
+    and panel background (0–100%).
+  - *Graphics*: render resolution (50–100% of the screen's pixels), shadows (off / low / high), brightness.
+  - *Audio*: sound on/off and volume.
+
+  **Reset all settings** puts them all back (not the car or circuit).
+- **Controls**: steering device (keyboard / mouse), mouse sensitivity and deadzone, gamepad stick deadzone; every
+  keyboard action with two keys each, which you can change (click a key, press the new one; Backspace clears it, Esc
+  cancels; a key moves from whatever action had it); **Reset keys to defaults**; and the mouse and gamepad controls.
+
+Settings and keys are remembered in the browser. While driving, **Esc** (or **P**, or Start on a gamepad) opens it as a
+pause menu, with **Resume** and **Restart lap** at the top. Mouse, keyboard (↑ ↓ move, ← → change, Enter select, Esc
+resume) and gamepad (d-pad, A select, B / Start resume, LB / RB change tab) all work in the menu.
 
 Cameras: **Onboard** (above the F1's airbox, on the other cars' bonnets), **Driver** (from the driver's eyes, with
 the cockpit, steering wheel and the driver's arms; the wheel turns with the road wheels at each car's steering
@@ -99,9 +119,14 @@ every attempt begins the same way.
 
 Bottom right: F1-style shift lights (5 green, 5 red, 5 blue) fill towards the shift point and all flash there
 (where the automatic box shifts up: 12,200 rpm in the F1 2026, 7,500 in the GT3, 7,200 in the drift car); throttle (green) and brake (red) bars show how hard each pedal is
-applied; then the gear and speed.
+applied; then the gear and speed. Top left: the lap time, live delta to your best lap, sectors (purple: your best ever, green: best
+this session, yellow: slower), last / best / optimal laps and the laps driven. Top right: the track map. Bottom left
+for the first seconds of driving: the keys, as currently bound (then a small reminder of the help and menu keys).
+What shows, and how big, is set in the menu's HUD settings.
 
 ## Controls
+
+The default keys (all but Esc can be changed in the menu's Controls tab):
 
 | Key | Action |
 | --- | --- |
@@ -115,9 +140,9 @@ applied; then the gear and speed.
 | E / Q | Shift up / down (manual): reverse, neutral, first... A downshift that would over-rev is refused |
 | T | Traction control on/off |
 | Esc / P | Open the menu (pauses) |
-| M / H | Mute / hide help |
+| M / H | Mute / show or hide the key help |
 
-Gamepad: RT throttle, LT brake, left stick steer, RB/LB shift up/down, Y camera, X reset.
+Gamepad: RT throttle, LT brake, left stick steer, RB/LB shift up/down, Y camera, X or Back restart, Start menu.
 
 Mouse steering: the cursor stays visible, and how far it is left or right of the screen centre sets the wheel
 (in direct proportion, reaching full lock towards the edge). Mouse sensitivity (Low / Medium / High) in the menu sets how far
@@ -167,6 +192,9 @@ and override the mouse while held.
   the cue to catch a slide; kerbs rumble at the strip rate, road and wind noise rise with speed, and hard impacts
   thud. Sound starts on the first click or key press (browser autoplay rules), fades out while paused, and stops
   while muted or in a background tab.
+- **Menu and HUD**: plain DOM and CSS, no framework. The menu (`src/menu.ts`) is built from the settings table
+  (`src/settings.ts`), the cars and the circuit list, so a new setting, car or circuit appears in it by itself; the
+  circuit outlines are drawn from the same centreline data as the track. Key bindings live in `src/keys.ts`.
 - **Timing**: start/finish + two sector lines as segments; crossings are detected per tick and interpolated within
   the tick. A lap is deleted if all four wheels pass the kerb (or white line where there's no kerb) or when
   crossing a line backwards; a restart drops the lap under way. Best lap, best sectors, and the best-lap trace (for the live delta) persist in localStorage.

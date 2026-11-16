@@ -54,7 +54,10 @@ Run `npm run typecheck` and `npm test` before committing.
 - In the browser, `window.__game` exposes `simulate(seconds, driver, probeSecs)`, `car` (a getter: the car object is
   replaced when you switch cars), `simTime`, `session`, `timing`, `track`, `input`, `setSetting(key, value)` and
   `setAutopilot` and `stage` (renderer, scene, camera; the `GameHook` type in `main.ts`). Use it for checks that need the page (menu, HUD, settings), e.g.
-  from headless Chromium.
+  from headless Chromium; `input.bindings` holds the current keys. Judge menu and HUD changes by screenshots, at a
+  desktop and a phone width.
+- `test/storage.test.ts` covers loading settings and key bindings (corrupt, old or invalid data loads as defaults)
+  and `nextOption`; `test/tracks.test.ts` checks each circuit's menu card (length, outline).
 
 ## Architecture (`src/`)
 
@@ -117,10 +120,22 @@ Run `npm run typecheck` and `npm test` before committing.
 - `timing.ts`, `input.ts`, `dust.ts`, `autopilot.ts`
 - `stage.ts`: renderer, scene, lights, sky, shadow-following sun, static track visuals (`buildStage`)
 - `camera.ts`: `CameraRig` (camera modes)
-- `settings.ts`: setting types, menu rows, defaults, load/save
-- `menu.ts`: `Menu`, which talks to `main.ts` only through the `MenuHost` callbacks
+- `settings.ts`: setting types, menu rows (`SETTING_DEFS`: label, section, optional hint, options, `slider`),
+  defaults, load/save
+- `keys.ts`: keyboard actions and their two rebindable keys each (`Bindings`, saved in `localStorage`
+  `fastroads.keys`, apart from the settings), `bindKey` (a key moves from whatever action had it), `keyLabel`.
+  Esc (`MENU_KEY`) is fixed: it opens and closes the menu and cancels a rebind
+- `catalog.ts`: what the menu shows about each circuit (`circuitInfo`: place, length and an SVG outline from the
+  centreline CSV), from `TRACKS` alone; optional `country` / `lengthKm` on a `TrackDef` are used if present
+- `menu.ts`: `Menu`, which talks to `main.ts` only through the `MenuHost` callbacks. A header with the main action
+  (Drive, or Resume and Restart lap) and three tabs: Race (car and circuit cards, a circuit search from seven
+  circuits), Settings (one section at a time) and Controls (the `controls` section's rows, key bindings, mouse and
+  gamepad reference). `build()` makes the current tab's elements; a settings change only runs each item's
+  `update()`, so a slider being dragged is not replaced. Keyboard: ↑ ↓ move through the items, ← → change the one
+  focused (`cycle`), Enter selects; gamepad buttons arrive through `Menu.press` (`Input.pollMenuPad`)
 - `hud.ts`, `minimap.ts`: in-game HUD (`Hud.update` runs every frame but writes only text/classes/styles that
-  changed); `dom.ts`: `$` element lookup
+  changed; its setters apply the HUD settings, `setKeys` writes the key help from the bindings); `dom.ts`: `$`
+  element lookup
 - `main.ts`: wires it together and owns game state (the `Session`, `started`/`paused`/autopilot, the
   `applySetting` table, hotkeys, the `window.__game` hook (typed `GameHook`), the frame loop)
 
@@ -136,8 +151,8 @@ Run `npm run typecheck` and `npm test` before committing.
 - **Car specs (`CARS`)**: the cars are `lcf1` (the default; menu name "F1 2026"), `lcgt3` ("GT3") and `drift`. The ids
   of removed cars are not reused: `loadSettings` maps the saved ids of the removed Rapier cars (`f1`, `gt3`) to their
   LibreCorsa twins. Each spec holds every physics, engine, gearbox, steering, collider, camera, sound and autopilot
-  number for its car, plus its mesh builder, its engine voice (`sound`, an `EngineVoice` from `audioGraph.ts`)
-  and its lap-time `storeKey`. The `Car` class reads only `this.spec`, so a new Rapier car is a new spec entry
+  number for its car, plus its mesh builder, its engine voice (`sound`, an `EngineVoice` from `audioGraph.ts`),
+  its lap-time `storeKey`, and its menu card (`blurb`, `powerKw`). The `Car` class reads only `this.spec`, so a new Rapier car is a new spec entry
   (`test/cars.test.ts` checks each spec fits the menu, gearbox, mesh and autopilot). The drift car is the only car on
   our physics; each of its handling features has a neutral value that turns it off for another car (`brakeKick: 0`,
   `brakeGrip: 1`, `driveGrip: 1`, `rearLoose` share 0, `rearCatch` extra 0, `counterLock: [0, 1]`, `spinLat: 0`,
@@ -214,15 +229,23 @@ Run `npm run typecheck` and `npm test` before committing.
 - **Switching cars**: `applySetting.car` in `main()` calls `Session.setCar`, which destroys the old `Car` (body +
   mesh), builds a new one, swaps the timing store and restarts at the start spot; then it re-applies the gearbox/TC settings.
   `session.car` is replaced, so closures must read it at call time, never keep it.
-- **Settings and menu**: `settings.ts` has the `Settings` type, `SETTING_DEFS` (menu rows and their order) and
+- **Settings and menu**: `settings.ts` has the `Settings` type, `SETTING_DEFS` (menu rows, their section and order) and
   `DEFAULT_SETTINGS`; `main()` has the `applySetting` table (what each setting does). `setSetting` saves to
   `localStorage` `fastroads.settings` and calls `applySetting`; in-game hotkeys go through `cycleSetting` so the menu
-  stays in sync. Adding a setting means adding it to all four; the compiler flags any you miss.
+  stays in sync. Adding a setting means adding it to all four; the compiler flags any you miss. Saved settings from
+  older versions load with the newer keys at their defaults; a value not among a setting's options (sliders
+  included: their options are the listed numbers) falls back to the default. `nextOption` wraps buttons round and
+  stops sliders at their ends. What the settings reach: `CameraRig` (`fovOffset`, `speedFov`, `shake`), `Hud`
+  setters, the stage's `setResolution` / `setShadows` / `setBrightness`, and `EngineAudio.setVolume` (a gain node of
+  its own between the sound graph and the speakers; there are no per-sound volumes).
 - **Timing**: start/finish and two sector lines as segments, with crossings interpolated within a tick; track-limit
   invalidation; best lap/sectors/trace stored per circuit and car under `TrackDef.storeKey + spec.storeKey`
   (`useStore` switches).
 - **Input**: keyboard, gamepad and visible-cursor mouse steering (cursor x relative to screen centre, with
   sensitivity/deadzone settings) merge in `Input.poll` into one input object. `input.mouse.active` is set each frame
-  by the game loop (driving, not paused or in the menu).
+  by the game loop (driving, not paused or in the menu). Driving keys come from `input.bindings`; one-shot actions
+  are read with `input.takeAction(action)`, which also sees the gamepad buttons (`PAD_BUTTONS`) and the mouse wheel
+  (they add `act:<action>` to `pressed`). The key help in the HUD and the Controls tab are made from the bindings,
+  so they always match them.
 - **Autopilot**: pure pursuit on the centreline plus a speed profile from `buildSpeedProfile(track, spec)`, cached
   per car on `track.speedProfiles`. Brake-marker boards are scenery and are always placed from the `lcf1` profile.

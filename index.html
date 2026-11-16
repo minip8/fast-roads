@@ -39,35 +39,31 @@
         <div class="pedal"><div id="brkFill"></div></div>
       </div>
       <div id="gear" class="num">N</div>
-      <div class="spd"><div id="speed" class="num">0</div><div class="unit">KM/H</div></div>
+      <div class="spd"><div id="speed" class="num">0</div><div class="unit" id="speedUnit">KM/H</div></div>
     </div>
     <div id="flags"></div>
   </div>
   <div id="msg" class="panel"></div>
   <div id="mouseSteer" hidden><div id="mouseSteerKnob"></div></div>
-  <div id="help" class="panel">
-    <div><kbd>W</kbd> <kbd>↑</kbd> throttle · <kbd>S</kbd> <kbd>↓</kbd> brake / reverse</div>
-    <div><kbd>A</kbd> <kbd>D</kbd> <kbd>←</kbd> <kbd>→</kbd> steer</div>
-    <div><kbd>R</kbd> / <kbd>Enter</kbd> restart the lap (flying start)</div>
-    <div><kbd>G</kbd> auto / manual gears · <kbd>E</kbd> <kbd>Q</kbd> shift up / down</div>
-    <div><kbd>V</kbd> mouse steering (L/R click throttle/brake, scroll shift)</div>
-    <div><kbd>C</kbd> camera · <kbd>T</kbd> traction control · <kbd>M</kbd> mute</div>
-    <div><kbd>Esc</kbd> <kbd>P</kbd> menu · <kbd>H</kbd> hide help</div>
-    <div style="color:var(--muted)">Gamepad: RT throttle, LT brake, left stick steer</div>
-  </div>
+  <div id="help" class="panel"></div>
+  <div id="helpChip" class="panel"></div>
+  <div id="fps" class="panel num" hidden></div>
 </div>
 
 <div id="overlay">
-  <div id="menu">
-    <p id="menuPaused" hidden>Paused</p>
-    <h1>FAST ROADS</h1>
-    <p class="sub" id="menuSub">Time trial</p>
+  <div id="menu" role="dialog" aria-label="Menu">
+    <header class="mhead">
+      <div class="brand">
+        <h1>FAST ROADS <span id="menuPaused" hidden>Paused</span></h1>
+        <p class="sub" id="menuSub">Time trial</p>
+      </div>
+      <div class="menu-actions" id="menuActions"></div>
+    </header>
     <p id="loadState">Loading physics…</p>
     <div id="menuBody" hidden>
-      <div class="menu-actions" id="menuActions"></div>
-      <div class="menu-settings" id="menuSettings"></div>
-      <div class="menu-foot"><span id="menuBest"></span><button class="link" id="resetBest" type="button">Reset best times</button></div>
-      <p class="menu-hint">↑ ↓ move · ← → change · Enter select · Esc / P opens this menu while driving</p>
+      <nav id="menuTabs" class="seg tabs" role="tablist"></nav>
+      <div id="menuContent"></div>
+      <p class="menu-hint"><kbd>↑</kbd><kbd>↓</kbd> move · <kbd>←</kbd><kbd>→</kbd> change · <kbd>Enter</kbd> select · <kbd>Esc</kbd> resume · gamepad: d-pad, A, B, LB / RB</p>
     </div>
   </div>
 </div>

@@ -10,11 +10,16 @@ import { buildTrackMeshes } from './trackMeshes';
 // ============================================================================
 // Renderer, scene, lights and everything static around the circuit
 // ============================================================================
-const SHADOW_HALF = 60, SHADOW_AHEAD = 28, SHADOW_MAP = 2048, SUN_DIST = 250;
+const SHADOW_HALF = 60, SHADOW_AHEAD = 28, SUN_DIST = 250;
+// Shadow map size for each Shadows setting (0: the sun casts none).
+export const SHADOW_MAPS = { off: 0, low: 1024, high: 2048 };
+export type ShadowQuality = keyof typeof SHADOW_MAPS;
 
 export function buildStage(canvas: HTMLCanvasElement, track: Track, def: TrackDef) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  let resolution = 1;   // the Render resolution setting: a share of the screen's pixels (up to 2 per CSS pixel)
+  const pixelRatio = () => Math.min(devicePixelRatio, 2) * resolution;
+  renderer.setPixelRatio(pixelRatio());
   renderer.setSize(innerWidth, innerHeight);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
@@ -43,7 +48,7 @@ export function buildStage(canvas: HTMLCanvasElement, track: Track, def: TrackDe
   scene.add(new THREE.HemisphereLight(0xcfe3ff, 0x5a6a40, 1.1));
   const sun = new THREE.DirectionalLight(0xfff1dc, 3.0);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(SHADOW_MAP, SHADOW_MAP);
+  sun.shadow.mapSize.set(SHADOW_MAPS.high, SHADOW_MAPS.high);
   Object.assign(sun.shadow.camera, { left: -SHADOW_HALF, right: SHADOW_HALF, top: SHADOW_HALF, bottom: -SHADOW_HALF, near: SUN_DIST - 120, far: SUN_DIST + 120 });
   sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03;
   scene.add(sun, sun.target);
@@ -52,7 +57,8 @@ export function buildStage(canvas: HTMLCanvasElement, track: Track, def: TrackDe
   // as the car moves.
   const lx = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), sunDir).normalize();
   const ly = new THREE.Vector3().crossVectors(sunDir, lx).normalize();
-  const texel = (2 * SHADOW_HALF) / SHADOW_MAP, centre = new THREE.Vector3();
+  let texel = (2 * SHADOW_HALF) / SHADOW_MAPS.high;
+  const centre = new THREE.Vector3();
   // Centre the shadow map a little ahead of the view (where shadows are seen), snapped to texels.
   const followSun = (p: THREE.Vector3, viewDir: THREE.Vector3) => {
     const h = Math.hypot(viewDir.x, viewDir.z) || 1;
@@ -67,13 +73,27 @@ export function buildStage(canvas: HTMLCanvasElement, track: Track, def: TrackDe
   const bounds = buildScenery(track, scene, def);
   const brakeMarkers = buildBrakeMarkers(track, scene);
 
-  // Also catches devicePixelRatio changes (browser zoom, moving the window to another monitor).
-  addEventListener('resize', () => {
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  const fit = () => {
+    renderer.setPixelRatio(pixelRatio());
     renderer.setSize(innerWidth, innerHeight);
     camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
-  });
+  };
+  // Also catches devicePixelRatio changes (browser zoom, moving the window to another monitor).
+  addEventListener('resize', fit);
 
-  return { renderer, scene, camera, sky, sun, sunDir, followSun, bounds, brakeMarkers };
+  // Graphics settings
+  const setResolution = (share: number) => { if (share !== resolution) { resolution = share; fit(); } };
+  const setShadows = (q: ShadowQuality) => {
+    const size = SHADOW_MAPS[q];
+    sun.castShadow = size > 0;   // changes the lights' state, so materials pick up the change by themselves
+    if (size && sun.shadow.mapSize.x !== size) {
+      sun.shadow.mapSize.set(size, size);
+      sun.shadow.map?.dispose(); sun.shadow.map = null;   // rebuilt at the new size on the next render
+      texel = (2 * SHADOW_HALF) / size;
+    }
+  };
+  const setBrightness = (exposure: number) => { renderer.toneMappingExposure = exposure; };
+
+  return { renderer, scene, camera, sky, sun, sunDir, followSun, bounds, brakeMarkers, setResolution, setShadows, setBrightness };
 }
 export type Stage = ReturnType<typeof buildStage>;

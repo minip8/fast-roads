@@ -18,6 +18,8 @@ export type PhysicsId = 'rapier' | 'lc';
 export interface CarInfo {
   id: CarId; name: string;
   hint?: string;                            // how to drive it, shown under the name when the player switches to it
+  blurb: string;                            // what it is, in a few words (the menu's car card)
+  powerKw: number;                          // peak power (the menu's car card)
   storeKey: string;                         // this car's suffix on the circuit's localStorage key for best times
   physics: PhysicsId;                       // which engine drives it
   mesh: (spec: CarInfo) => CarMesh;
@@ -149,6 +151,7 @@ export const CARS: Record<CarId, AnyCarSpec> = {
   // (RAC mode), and flaps that open on every straight.
   lcf1: {
     id: 'lcf1', name: 'F1 2026', storeKey: '.lcf1', physics: 'lc', mesh: (spec) => buildCarMesh(spec, LC_F1_PAINT),
+    blurb: 'Hybrid single-seater with active aero', powerKw: 771,   // 421 kW engine (Lc26Tune) + 350 kW MGU-K
     hint: 'LibreCorsa physics: hybrid and flaps work themselves · ABS always on · keep TC on unless you like spinning',
     config: LC26_TUNED_CONFIG, driver: f1Driver, fuelKg: 35, turbo: true, straightMode: true,
     ...lcBody(LC26_TUNED_CONFIG, 35),
@@ -165,6 +168,7 @@ export const CARS: Record<CarId, AnyCarSpec> = {
   // LibreCorsa's Mercedes-AMG GT3 on their engine (src/lc/vendor).
   lcgt3: {
     id: 'lcgt3', name: 'GT3', storeKey: '.lcgt3', physics: 'lc', mesh: (spec) => buildGt3Mesh(spec, LC_GT3_PAINT, LC_GT3_MODEL),
+    blurb: 'Front-engined V8 GT racer', powerKw: 406,   // AmgGt3Config's crank power
     hint: 'LibreCorsa physics: tyres warm up over the first corners · ABS always on · with TC off the throttle steers it',
     config: AMG_GT3_CONFIG, driver: gt3Driver, fuelKg: 50, turbo: false, straightMode: false,
     ...lcBody(AMG_GT3_CONFIG, 50),
@@ -183,6 +187,7 @@ export const CARS: Record<CarId, AnyCarSpec> = {
   // in before it comes all the way round; opposite lock brings it back. Best with TC off.
   drift: {
     id: 'drift', name: 'Drift car', storeKey: '.drift', physics: 'rapier', mesh: buildDriftMesh,
+    blurb: 'Rear-drive V8 coupe built to slide', powerKw: 361,   // the torque curve's peak: 460 Nm at 7,500 rpm
     hint: 'The throttle slides it: turn in on the power and the tail swings out and holds · lift off to straighten',
     mass: 1000,
     inertia: { x: 1360, y: 1700, z: 384 },   // enough yaw inertia that the tail swings rather than snaps

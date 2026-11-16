@@ -2,21 +2,22 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import { EngineAudio } from './audio';
 import { autopilot } from './autopilot';
 import { CameraRig } from './camera';
-import { CARS } from './cars';
+import { CARS, type CarId } from './cars';
 import { CockpitDisplay } from './cockpitDisplay';
 import { DT, MAX_STEPS_PER_FRAME } from './config';
 import { $ } from './dom';
 import { Dust } from './dust';
 import { Hud } from './hud';
-import { Input, MOUSE_DEADZONE, MOUSE_RANGE } from './input';
+import { Input, MOUSE_DEADZONE, MOUSE_RANGE, PAD_DEADZONE } from './input';
+import { bindKey, copyBindings, DEFAULT_BINDINGS, keyLabel, keysFor, loadBindings, MENU_KEY, saveBindings, type Action } from './keys';
 import { Menu } from './menu';
-import { loadSettings, nextOption, saveSettings, SETTING_KEYS, type SettingKey, type Settings } from './settings';
+import { DEFAULT_SETTINGS, loadSettings, nextOption, saveSettings, SETTING_KEYS, type SettingKey, type Settings } from './settings';
 import { Session } from './sim';
 import { buildStage } from './stage';
 import { StartupError } from './startup';
-import type { Timing } from './timing';
+import { loadStore, type Timing } from './timing';
 import { buildTrack, parseCSV, type Track } from './track';
-import { TRACKS } from './tracks';
+import { TRACKS, type TrackId } from './tracks';
 import { clamp } from './util';
 import type { DriveInput, Vehicle } from './vehicle';
 
@@ -57,11 +58,14 @@ export async function main() {
   // Physics. session.car is replaced when the Car setting changes: read it at call time.
   const session = new Session(track, scene, CARS[settings.car], def), { timing } = session;
   const input = new Input();
+  let bindings = loadBindings();
+  input.bindings = bindings;
   const audio = new EngineAudio();
   const dust = new Dust(scene);
   const hud = new Hud(track, stage.bounds, timing);
   const cam = new CameraRig(stage);
-  const cockpitDisplay = new CockpitDisplay();   // its speed unit: cockpitDisplay.unit
+  const cockpitDisplay = new CockpitDisplay();
+  hud.setKeys(bindings);
 
   // Game state
   // The autopilot is a development/testing tool: only ?autopilot in the URL (or the __game test hook) turns it on.
@@ -86,14 +90,31 @@ export async function main() {
       if (hint) hud.showMsg(`${name}<small>${hint}</small>`, 3);
     },
     gearbox: (v) => { session.car.manual = v === 'manual'; },
-    steering: (v) => { input.setMouse(v === 'mouse'); $('mouseSteer').hidden = v !== 'mouse'; },
-    mouseSens: (v) => { input.mouse.range = MOUSE_RANGE[v]; },
-    mouseDeadzone: (v) => { input.mouse.deadzone = MOUSE_DEADZONE[v]; },
-    camera: (v) => { cam.mode = v; },
-    hands: (v) => { cam.hands = v === 'on'; },
     tc: (v) => { session.car.tc = v === 'on'; },
     assist: (v) => { session.car.assist = v === 'on'; },
+    steering: (v) => { input.setMouse(v === 'mouse'); applySetting.mouseBar(settings.mouseBar); },
+    mouseSens: (v) => { input.mouse.range = MOUSE_RANGE[v]; },
+    mouseDeadzone: (v) => { input.mouse.deadzone = MOUSE_DEADZONE[v]; },
+    padDeadzone: (v) => { input.padDeadzone = PAD_DEADZONE[v]; },
+    camera: (v) => { cam.mode = v; },
+    fov: (v) => { cam.fovOffset = v; },
+    speedFov: (v) => { cam.speedFov = v === 'on'; },
+    shake: (v) => { cam.shake = v === 'on'; },
+    hands: (v) => { cam.hands = v === 'on'; },
+    units: (v) => { hud.setUnits(v); cockpitDisplay.unit = v; },
+    timingPanel: (v) => hud.setTimingPanel(v),
+    delta: (v) => hud.setDelta(v === 'on'),
+    minimap: (v) => hud.setMinimap(v),
+    mouseBar: (v) => { $('mouseSteer').hidden = settings.steering !== 'mouse' || v === 'off'; },
+    help: (v) => hud.setHelpMode(v),
+    fps: (v) => hud.setFps(v === 'on'),
+    hudScale: (v) => hud.setScale(v),
+    hudOpacity: (v) => hud.setOpacity(v),
+    resolution: (v) => stage.setResolution(v / 100),
+    shadows: (v) => stage.setShadows(v),
+    brightness: (v) => stage.setBrightness(v / 100),
     sound: (v) => { audio.setMuted(v === 'off'); },
+    volume: (v) => audio.setVolume(v / 100),
   };
   const setSetting = <K extends SettingKey>(key: K, value: Settings[K]) => {
     settings[key] = value;
@@ -102,18 +123,37 @@ export async function main() {
     menu.refresh();
   };
   const cycleSetting = (key: SettingKey, dir = 1) => setSetting(key, nextOption(key, settings[key], dir));
+  const setBindings = (b: typeof bindings) => {
+    bindings = b; input.bindings = b; saveBindings(b); hud.setKeys(b);
+  };
+  const keyText = (a: Action) => keysFor(bindings, a).map(keyLabel).join(' / ') || 'unbound';
+
+  // Best laps for the menu's cards: the live store for this car here, saved ones (read once per menu opening) elsewhere.
+  const bestCache = new Map<string, number | null>();
+  const bestLap = (trackId: TrackId, carId: CarId) => {
+    if (trackId === def.id && carId === session.car.spec.id) return timing.store.bestLap;
+    const key = TRACKS[trackId].storeKey + CARS[carId].storeKey;
+    if (!bestCache.has(key)) bestCache.set(key, loadStore(key).bestLap);
+    return bestCache.get(key)!;
+  };
 
   // ---------------- Menu ----------------
   const menu = new Menu({
-    settings, setSetting, cycleSetting, restart,
+    settings, setSetting, cycleSetting, restart, bestLap,
+    loadedTrack: def.id,
     started: () => started,
-    bestLap: () => timing.store.bestLap,
+    resetSettings: () => {
+      for (const k of SETTING_KEYS) if (k !== 'car' && k !== 'track' && settings[k] !== DEFAULT_SETTINGS[k]) setSetting(k, DEFAULT_SETTINGS[k]);
+    },
+    bindings: () => bindings,
+    rebind: (action, slot, code) => { setBindings(bindKey(bindings, action, slot, code)); menu.rebuild(); },
+    resetBindings: () => { setBindings(copyBindings(DEFAULT_BINDINGS)); menu.rebuild(); },
     resetBestTimes: () => {
       try { localStorage.removeItem(timing.storeKey); } catch { /* storage unavailable */ }
       timing.useStore(timing.storeKey);
       hud.clearLaps();
     },
-    onOpen: () => { paused = true; },
+    onOpen: () => { paused = true; bestCache.clear(); },
     onClose: () => {
       started = true; paused = false; hud.hidden = false; audio.start();
       input.pressed.clear();                       // the key that closed the menu shouldn't also act in-game
@@ -148,24 +188,23 @@ export async function main() {
   const handleHotkeys = () => {
     const car = session.car;
     if (menu.isOpen) input.pressed.clear();
-    if (input.takePressed('KeyP') || input.takePressed('Escape')) menu.open();
-    if (input.takePressed('KeyC')) cycleSetting('camera');
-    if (input.takePressed('KeyG')) {
+    if (input.takeAction('menu') || input.takePressed(MENU_KEY)) menu.open();
+    if (input.takeAction('camera')) cycleSetting('camera');
+    if (input.takeAction('gearbox')) {
       cycleSetting('gearbox');
-      hud.showMsg(`${car.manual ? 'Manual' : 'Automatic'} gears<small>${car.manual ? 'E / Q (or RB / LB) to shift' : 'Shifts for you'}</small>`, 1.8);
+      hud.showMsg(`${car.manual ? 'Manual' : 'Automatic'} gears<small>${car.manual ? `${keyText('shiftUp')} up, ${keyText('shiftDown')} down (or RB / LB)` : 'Shifts for you'}</small>`, 1.8);
     }
-    if (input.takePressed('KeyE')) car.pendingShift = Math.min(car.pendingShift + 1, 2);
-    if (input.takePressed('KeyQ')) car.pendingShift = Math.max(car.pendingShift - 1, -2);
+    if (input.takeAction('shiftUp')) car.pendingShift = Math.min(car.pendingShift + 1, 2);
+    if (input.takeAction('shiftDown')) car.pendingShift = Math.max(car.pendingShift - 1, -2);
     if (car.shiftDenied) { car.shiftDenied = false; hud.showMsg('Downshift blocked<small>Engine would over-rev</small>', 1); }
-    if (input.takePressed('KeyT')) { cycleSetting('tc'); hud.showMsg(`Traction control ${car.tc ? 'ON' : 'OFF'}`, 1.2); }
-    if (input.takePressed('KeyM')) { cycleSetting('sound'); hud.showMsg(audio.muted ? 'Sound off' : 'Sound on', 1); }
-    if (input.takePressed('KeyV')) {
+    if (input.takeAction('tc')) { cycleSetting('tc'); hud.showMsg(`Traction control ${car.tc ? 'ON' : 'OFF'}`, 1.2); }
+    if (input.takeAction('mute')) { cycleSetting('sound'); hud.showMsg(audio.muted ? 'Sound off' : 'Sound on', 1); }
+    if (input.takeAction('steering')) {
       cycleSetting('steering');
       hud.showMsg(input.mouse.enabled ? 'Mouse steering<small>Cursor left/right of centre steers · left click throttle · right click brake · scroll to shift</small>' : 'Keyboard steering', 2.2);
     }
-    if (input.takePressed('KeyH')) hud.toggleHelp();
-    const reset = input.takePressed('KeyR'), enter = input.takePressed('Enter');   // both: back to the start of the lap
-    if (reset || enter) restart();
+    if (input.takeAction('help')) hud.toggleHelp();
+    if (input.takeAction('restart')) restart();   // back to the start of the lap
     input.pressed.clear();
   };
 
@@ -173,6 +212,8 @@ export async function main() {
     requestAnimationFrame(frame);
     const fdt = Math.min((now - last) / 1000, 0.1); last = now;
 
+    const padMenu = input.pollMenuPad();   // every frame, so a button held when the menu opens doesn't count
+    if (menu.isOpen) for (const code of padMenu) menu.press(code);
     handleHotkeys();
     input.mouse.active = started && !paused && !menu.isOpen && !autoOn;
 

@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest';
+import { circuitInfo } from '../src/catalog';
 import { buildTrack, parseCSV } from '../src/track';
 import { TRACKS } from '../src/tracks';
 import { wrapI } from '../src/util';
@@ -14,5 +15,15 @@ for (const def of Object.values(TRACKS)) {
     for (let k = 0; k <= Math.round(def.startBack / ds); k++) expect(Math.abs(tr.KS[wrapI(-k, tr.N)])).toBeLessThan(1 / 500);
     // walls all the way round on both sides
     expect(tr.barLValid.every((v) => v === 1) && tr.barRValid.every((v) => v === 1)).toBe(true);
+  });
+}
+
+for (const def of Object.values(TRACKS)) {
+  it(`${def.id}: a menu card with its length and an outline that fits its box`, () => {
+    const info = circuitInfo(def), tr = buildTrack(parseCSV(def.csv));
+    expect(info.lengthKm).toBeCloseTo(tr.L / 1000, 1);
+    const nums = info.outline.match(/-?[\d.]+/g)!.map(Number);
+    expect(nums.length).toBeGreaterThan(100);
+    expect(nums.every((v) => v >= 0 && v <= 100)).toBe(true);
   });
 }

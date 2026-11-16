@@ -11,6 +11,8 @@ describe.each(Object.entries(CARS))('%s', (key, spec) => {
     expect(spec.id).toBe(key);
     expect(Object.values(CARS).filter((c) => c.storeKey === spec.storeKey)).toHaveLength(1);
     expect(SETTING_DEFS.car.options).toContainEqual([spec.id, spec.name]);
+    expect(spec.blurb.length).toBeGreaterThan(0);
+    expect(spec.powerKw).toBeGreaterThan(0);
   });
 
   it('has consistent shift lights and an engine voice', () => {

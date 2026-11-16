@@ -15,6 +15,9 @@ const _shake = new THREE.Vector3(), _v1 = new THREE.Vector3(), _v2 = new THREE.V
 export class CameraRig {
   mode: CamMode = 'onboard';
   hands = false;                                  // show the driver's arms and gloves in the driver camera
+  fovOffset = 0;                                  // degrees added to every mode's field of view (setting)
+  speedFov = true;                                // widen the view with speed (setting)
+  shake = true;                                   // surface rumble shake (setting)
   private readonly off = new THREE.Vector3();    // chase: smoothed camera offset from the car (world axes)
   private readonly look = new THREE.Vector3();
   private readonly fwd = new THREE.Vector3(0, 0, 1);
@@ -41,10 +44,11 @@ export class CameraRig {
     let rough = 0;
     for (const w of car.wheels) if (w.grounded && w.surf !== S_ASPHALT) rough += w.surf === S_GRAVEL ? 1 : 0.6;
     this.rumble += (clamp(rough / 4, 0, 1) * clamp(speed / 30, 0, 1) - this.rumble) * (1 - Math.exp(-dt * 10));
-    const t = this.t, amp = this.rumble * 0.018;
+    const t = this.t, amp = this.shake ? this.rumble * 0.018 : 0;
     _shake.set(Math.sin(t * 71) + Math.sin(t * 113) * 0.5, Math.sin(t * 89 + 1) + Math.sin(t * 131 + 2) * 0.5, 0).multiplyScalar(amp);
 
     let fov: number;
+    const sp = this.speedFov ? clamp(speed, 0, 90) : 0;   // the speed that widens the view
     const c = car.mesh.cockpit, inside = this.mode === 'driver';
     c.head.visible = !inside;   // the camera is inside the helmet
     for (const arm of c.arms) arm.mesh.visible = arm.glove.visible = !inside || this.hands;
@@ -53,14 +57,14 @@ export class CameraRig {
       camera.position.copy(c.eye).applyQuaternion(root.quaternion).add(p);
       camera.lookAt(_v3.copy(camera.position).addScaledVector(fwd, 10).addScaledVector(upv, -c.look));
       camera.position.add(_shake);
-      fov = 70 + clamp(speed, 0, 90) * 0.04;
+      fov = 70 + sp * 0.04;
     } else if (this.mode === 'onboard') {
       const upv = _v2.set(0, 1, 0).applyQuaternion(root.quaternion);
       const cam = car.spec.cam;
       camera.position.copy(p).addScaledVector(upv, cam.up).addScaledVector(fwd, -cam.back);
       camera.lookAt(_v3.copy(camera.position).addScaledVector(fwd, 10).addScaledVector(upv, -cam.down));
       camera.position.add(_shake);
-      fov = 76 + clamp(speed, 0, 90) * 0.05;
+      fov = 76 + sp * 0.05;
     } else {
       // Heading is smoothed (the car visibly yaws and slides in front of the camera), but the camera is attached to
       // the car's position rather than chasing it, so it stays the same distance behind at any speed. Moving
@@ -80,8 +84,9 @@ export class CameraRig {
       camera.position.set(p.x + this.off.x, this.y + this.off.y, p.z + this.off.z).add(_shake);
       this.look.copy(p).addScaledVector(this.fwd, 4); this.look.y = this.y + 0.6;
       camera.lookAt(this.look);
-      fov = 64 + clamp(speed, 0, 90) * 0.1;
+      fov = 64 + sp * 0.1;
     }
+    fov += this.fovOffset;
     // ease FOV changes (mode switches, sudden stops)
     this.fov += (fov - this.fov) * (1 - Math.exp(-dt * 6));
     if (Math.abs(camera.fov - this.fov) > 1e-3) { camera.fov = this.fov; camera.updateProjectionMatrix(); }

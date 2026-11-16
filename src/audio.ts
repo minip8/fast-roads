@@ -12,6 +12,8 @@ export class EngineAudio {
   muted = false;
   private ctx: AudioContext | null = null;
   private graph: SoundGraph | null = null;
+  private out: GainNode | null = null;   // the Volume setting, between the sound graph and the speakers
+  private volume = 1;
   private suspendTimer = 0;
 
   constructor() {
@@ -26,14 +28,22 @@ export class EngineAudio {
       if (ua && !ua.isActive) return;   // e.g. Escape doesn't count as a gesture; wait for one that does
       try {
         const ctx = new AudioContext({ latencyHint: 'interactive' });
-        this.graph = new SoundGraph(ctx, ctx.destination);
-        this.ctx = ctx;
-      } catch { this.ctx = null; this.graph = null; return; }
+        const out = ctx.createGain(); out.gain.value = this.gain(); out.connect(ctx.destination);
+        this.graph = new SoundGraph(ctx, out);
+        this.ctx = ctx; this.out = out;
+      } catch { this.ctx = null; this.graph = null; this.out = null; return; }
       this.sync();
     } else if (this.ctx.state !== 'running' && this.wanted()) this.sync();   // e.g. interrupted by the system
   };
 
   setMuted(m: boolean) { this.muted = m; this.sync(); }
+
+  // Volume 0..1 (the setting's share), heard roughly in proportion: the gain is its square.
+  setVolume(v: number) {
+    this.volume = v;
+    if (this.ctx && this.out) this.out.gain.setTargetAtTime(this.gain(), this.ctx.currentTime, 0.03);
+  }
+  private gain() { return this.volume * this.volume; }
 
   // Once per frame. active: driving (not paused or in the menu); the game sounds fade out otherwise.
   update(car: AudioCar, dt: number, active: boolean) {
