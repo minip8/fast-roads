@@ -13,6 +13,7 @@ Needs Node.js. Install once, then start the dev server and open the URL it print
     npm test           # headless physics tests (lap times at Melbourne and Silverstone, handling, every circuit's data)
     npm run test:laps  # the pinned autopilot laps at every other circuit (a few minutes)
     npm run build      # type-check + static build in dist/ (host anywhere; `npm run preview` serves it locally)
+    npm run build:env  # the reinforcement-learning environment worker, build/env/worker.mjs (docs/ai-env.md)
 
 The built game works from any sub-path of any static host, and keeps working offline after the first visit: a small
 service worker (`src/sw.js`, production builds only) caches the build; the page itself is always fetched fresh when
@@ -234,6 +235,14 @@ and override the mouse while held.
   lap's recording is packed (1 cm deltas and small angle steps, 11 bytes a sample: about 13 kB, 17 k characters of
   base64, for a two-minute lap) and saved next to the best times, which are saved first so a full storage only loses
   the ghost. Playback interpolates the samples smoothly (cubic for position) at the frame rate.
+- **RL environment** (`src/ai/`, `ai/`): for training a driver by reinforcement learning, in the game's own
+  headless simulation. Reset/step over the same session the game and tests run (20 actions a second by default:
+  steering as a share of the car's lock and one throttle/brake axis, automatic gears), a track-relative observation
+  vector built by a pure function the browser can reuse, a reward for centreline progress that pays nothing for
+  cutting, penalties for walls and leaving the track, random starts anywhere on the lap, and an evaluation mode that
+  times one flying lap with the game's own timing. `npm run build:env` bundles a worker process that runs a batch of
+  environments for a trainer over a binary stdin/stdout protocol; `docs/ai-env.md` documents all of it. Not part of
+  the game's bundle.
 - **Brake markers**: 300/200/100 m boards before every braking zone where the speed drops by more than ~50 km/h,
   counting down to the turn-in point. Zones are found from the autopilot's speed plan; boards are skipped when they'd
   fall inside the previous corner.

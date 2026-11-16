@@ -17,11 +17,12 @@ dev and the tests use the inline copy.
 
     npm install
     npm run dev         # dev server; ?autopilot in the URL skips the menu and lets the built-in driver lap
-    npm run typecheck   # tsc for src/, then for test/ (only test/ gets Node types)
+    npm run typecheck   # tsc for src/, then test/ and ai/ (only those get Node types)
     npm test            # Vitest project `unit`: headless physics (~35 s: the test files run in parallel)
     npm run test:laps   # Vitest project `laps`: the pinned laps at the 22 other circuits (2-4 min)
     npx vitest run test/handling.test.ts -t 'reverse'   # one file / one test by name
     npm run build       # typecheck + static build in dist/ (base './'); npm run preview serves it
+    npm run build:env   # RL environment worker -> build/env/worker.mjs (git-ignored); node ai/client.mjs drives it
     node scripts/cars/convert.mjs lcgt3 <source.glb>   # remake a car model (sources: see its header)
     node scripts/tracks/convert.mjs <racetrack-database> <f1-circuits> [id ...]   # remake circuit CSVs (see its header)
 
@@ -67,6 +68,11 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   game's `Session`: start spot, walls, surfaces, placement and restarts, shifts and reverse, rendering, the F1's flaps and lap energy, tyre telemetry over a lap).
   Tests that reach into our own physics use `ourCar(car)` / `ourSpec(spec)` from the harness, which fail for a car
   on another engine.
+- `test/ai-env.test.ts` checks the RL environment (`src/ai/`): the observation against its spec, bit-identical
+  determinism, the autopilot's pinned lcf1 Melbourne lap through evaluation mode (so a physics change that moves the
+  pinned laps moves it too: update both), random starts, every episode end, automatic resets.
+  `test/ai-worker.test.ts` builds the worker into a temporary folder and drives it over the protocol with
+  `ai/client.mjs`, comparing every reply bit for bit with the same environments run in-process.
 - In the browser, `window.__game` exposes `simulate(seconds, driver, probeSecs)`, `car` (a getter: the car object is
   replaced when you switch cars), `simTime`, `session`, `timing`, `track`, `input`, `setSetting(key, value)` and
   `setAutopilot` and `stage` (renderer, scene, camera; the `GameHook` type in `main.ts`). Use it for checks that need the page (menu, HUD, settings), e.g.
@@ -97,7 +103,8 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   (world, walls, car at the start spot, timing; `tick`, `restart`, `setCar`), shared by the game and tests.
   `restart` is the only reset (R / Enter, the menu, a stuck autopilot, a car on its roof): the car goes to
   `TrackDef.startBack` metres before the line, rolling at its `TrackDef.flying` speed (`Vehicle.placeAt(s, lat,
-  speed)`), and the lap under way is dropped
+  speed, heading)`; heading, an angle off the racing direction, is for the RL environment's random starts), and the
+  lap under way is dropped
 - `carMeshes.ts`: car bodies, static parts merged per material, each with a seated driver and steering wheel
   (`Cockpit`: the Driver camera's eye, the helmet it hides, and `poseCockpit`, which both cars' `render` call to turn
   the wheel and arms, and `screen`, the live instruments). Paint and metal reflect the environment map that
@@ -165,6 +172,21 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
 - `main.ts`: wires it together and owns game state (the `Session`, `started`/`paused`/autopilot, the
   `applySetting` table, hotkeys, the `window.__game` hook (typed `GameHook`), the frame loop)
 
+- **RL environment** (`src/ai/`, `ai/`, `docs/ai-env.md`, which the trainer is written from: keep it exact):
+  - `src/ai/env.ts` `RaceEnv`: reset/step over a `Session` per circuit (the last `cacheSessions` kept). A step holds
+    the action for `120 / actionHz` ticks of `stepPhysics`, without `Session.tick`'s restarts (a stuck or flipped
+    car ends the episode: terminated). Each reset builds a fresh car (`createVehicle`; a LibreCorsa car's first
+    placement is a spawn wherever it is) and clears timing (`useStore` + `reset`, events drained every tick).
+    Steering goes in as `steerAngle` (share of the car's lock, `steerLockOf`), slew-limited by the env. NaN actions:
+    the autopilot drives that step. `vec.ts` `VecEnv`: N of them in flat buffers, automatic resets with final obs.
+  - `observation.ts`: `observe()` reads only `Vehicle` and the `Track` arrays (no Node or DOM: the browser will
+    reuse it); `observationSpec()` names every element. Change both together and bump `OBS_VERSION`.
+  - `walls.ts`: wall contact per tick, read from each engine (Rapier contact pairs; the LibreCorsa engine's
+    telemetry over its steps, by wrapping the engine instance's `step`). `rng.ts`: seeded sfc32; no `Math.random`.
+  - `protocol.ts` (pure byte layout) and `ai/worker.ts` (Node I/O; stdout carries protocol frames only).
+    `vite.env.config.ts` bundles the worker with everything inline (SSR build, `noExternal`), embedding the git
+    commit and dirty flag. `ai/client.mjs` / `ai/client.py`: reference clients; `ai/bench.mjs`: throughput.
+  - Nothing in `src/` outside `src/ai/` imports it, so the site's bundle does not contain it.
 - **Track data**: `tracks/<id>.csv` (centreline + widths, x east / y north in metres, first row at the start/finish
   line, in racing direction, ~5 m apart), loaded by `loadTrackCsv` as raw text; `parseCSV` skips `#` comment lines,
   where each file names its source. Thirteen are TUM racetrack-database files as they are; eleven (street and new
@@ -207,7 +229,8 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
     integers so it never drifts), with the driver around each. It owns our gearbox conventions (reverse as in the
     gearbox under **Car physics**, one manual shift per tick, `shiftDenied`, neutral), the F1's flaps (open by themselves in
     `straightWindows`: straights of 250 m+) and lap energy (`locateProgress`), and maps engine state to ours.
-    `placeAt` on the first-placement spot (the start spot, which is the only place the session puts it) builds a
+    A new car's first placement (wherever: the RL environment places fresh cars anywhere), and `placeAt` on that
+    first-placement spot again (the start spot, which is the only place the session puts it), builds a
     fresh engine instance (full battery, fuel, tyres in blankets; cheap because the engine memoises that settle),
     rolling at the given speed through the engine's own rolling start; anywhere else (tests) it is a teleport that
     keeps battery and lap energy (20–40 ms: the engine settles the car by simulating). Either way the tyres and
