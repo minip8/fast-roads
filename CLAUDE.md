@@ -33,27 +33,41 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
 
 - Tests run the real simulation in Node: `test/harness.ts` `session(carId, { tc, walls })` builds the track and the game's
   own `Session` (`src/sim.ts`: Rapier world, walls, car at the start spot, timing) with no rendering. The car starts
-  at rest there; `session(carId, { flying: true })` starts it as the game does, at flying-lap speed. `drive(seconds,
+  at rest on the start straight (`REST_BACK` m before the line: Melbourne and Silverstone, the circuits tests start
+  at rest on); `session(carId, { flying: true })` starts it as the game does, at the circuit's start spot before
+  the last corners, at flying-lap speed. `drive(seconds,
   driver?, until?)` calls `Session.tick` with the autopilot or a `(car, simTime) => DriveInput` function, exactly as
   the game loop does, including the automatic resets; `until` stops early once the test has what it measures.
 - The simulation is deterministic, and Node and the browser agree to the millisecond. `test/laps.ts` pins
   autopilot lap times from the game's flying start at every circuit, so any physics or tuning change shows up
-  there. Melbourne and Silverstone run in `npm test`: Melbourne `lcf1` 116.317 s, `lcgt3` 133.917 s, drift car 157.514 s with TC on and 157.491 s off;
-  Silverstone `lcf1` 123.798 s, `lcgt3` 144.234 s, drift car 169.794 s. When a change is intended, check the
+  there. Melbourne and Silverstone run in `npm test`: Melbourne `lcf1` 116.680 s, `lcgt3` 133.918 s, drift car 157.515 s with TC on and 157.492 s off;
+  Silverstone `lcf1` 124.082 s, `lcgt3` 144.224 s, drift car 169.789 s. When a change is intended, check the
   handling still makes sense, then update the expected times. Each lap test also checks that the car passes the start
   spot at the end of the lap within 2 km/h of its `TrackDef.flying` speed; `test/start.test.ts` checks the flying
-  start and restart themselves. Each lap is run by its own `laps-*.test.ts` file so the seven (about
+  start (the run-up through Albert Park's last corners), the restart, and track limits in the run-up. Each lap is run by its own `laps-*.test.ts` file so the seven (about
   10–20 s each) run in parallel. The other 22 circuits' laps (TC on, all three cars: `CALENDAR` in `test/laps.ts`)
   are 66 more, too many for every commit: they are the Vitest project `laps` (`test/calendar/<circuit>.test.ts`,
   three laps a file; `npm run test:laps`, 2-4 minutes on 12 cores), and `npm test` is the project `unit`
   (`test/*.test.ts`), set up in `vite.config.ts`. Every lap test also checks there were no resets and that the car's
   centre never came within 2 m of a wall, except the one lap pinned as not clean (`NOT_CLEAN`: the drift car slides
-  wide at Spa's Blanchimont and Bus Stop and has its lap deleted). `session(carId, { track })` picks the circuit (Melbourne by default);
+  wide at Spa's Blanchimont and Bus Stop and has its lap deleted; the F1 spins in Monza's Parabolica on the run-up, on
+  tyres fresh from the blankets, so its lap is deleted for the run-up's track limits). `session(carId, { track })` picks the circuit (Melbourne by default);
   `trackFor(id)` builds a circuit once per test file.
 - `test/tracks.test.ts` checks every circuit's data cheaply (in `npm test`): lap length within 1.5% of the official
-  `lengthKm`, a unique best-times key, the start spot on a straight, a flying speed for every car, walls all round
+  `lengthKm`, a unique best-times key, the start spot (a corner of radius 250 m or less between it and the line, at
+  most 1200 m back, on a straight or nearly: radius 250 m+ for 5 m either side, on asphalt between walls), a
+  flying speed for every car, walls all round
   except where another part of the lap passes (Suzuka's crossover, inside tight hairpins), the pit building and
   grandstands placed without reaching another part of the circuit, and the calendar order.
+- `test/flying.test.ts` is a tool, skipped unless `FLYING` is set: `FLYING=monza npm run tracks:flying` (circuits
+  separated by spaces or commas, or `all`; three autopilot laps a circuit, about 40 s, one circuit after another, so
+  run several shells for many) prints each circuit's `startBack` and `flying` line for `src/tracks.ts`, the run-up
+  time per car and the lap times from the current start. The start spot rule (`ruleStart`): walking back from the
+  line past the last corner of radius 150 m or less to the first straight (radius 300 m+) at least 40 m long, 1 s
+  of the GT3's travel before it brakes there, at least 15 m inside the straight. `TrackDef.startManual` (with a
+  comment on what the rule picked) marks the four set by hand (Miami, Monaco, Mexico City, Baku: the rule's spot was
+  a 21–28 s run-up). The speeds are measured from laps started at the current spot, so after moving a start run the
+  lap tests, which check the speed there within 2 km/h.
 - `test/handling.test.ts` holds loose-bound checks of tuning intent: the drift car's brake-and-turn kick, slides,
   stopping distance, gearbox and reverse. `car.forceSurface = S_ASPHALT` keeps manoeuvres off grass. Keep them short (about 1–2 s after the manoeuvre):
   the start straight is walled (`walls: false` removes the barriers for manoeuvres that need the room).
@@ -102,7 +116,8 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
 - `sim.ts`: `stepPhysics` (one physics tick; replaces non-finite input, which would abort Rapier) and `Session`
   (world, walls, car at the start spot, timing; `tick`, `restart`, `setCar`), shared by the game and tests.
   `restart` is the only reset (R / Enter, the menu, a stuck autopilot, a car on its roof): the car goes to
-  `TrackDef.startBack` metres before the line, rolling at its `TrackDef.flying` speed (`Vehicle.placeAt(s, lat,
+  `TrackDef.startBack` metres before the line (on the straight before the last corner or corners, so a restart
+  costs the run-up, 8–20 s), rolling at its `TrackDef.flying` speed (`Vehicle.placeAt(s, lat,
   speed, heading)`; heading, an angle off the racing direction, is for the RL environment's random starts), and the
   lap under way is dropped
 - `carMeshes.ts`: car bodies, static parts merged per material, each with a seated driver and steering wheel
@@ -195,9 +210,10 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   stretches the source draws closer together than the real roads). Check a converted circuit's direction and start
   line against a real map: the source does not always start at the line or run in the racing direction.
   The menu's circuit outlines are in the generated `src/trackOutlines.ts` (`catalog.ts` reads it; only the driven circuit's CSV is loaded): run `npm run tracks:outlines` after adding or changing a CSV, or `test/tracks.test.ts` fails. A new circuit is a CSV plus a `TRACKS` entry: the Circuit menu row, labels, best-times keys (`TrackDef.storeKey` +
-  the car's `storeKey` suffix) and scenery follow from it. Check the start straight (start spot `startBack`, pit
-  building and stands ranges must sit on it), that the autopilot laps it cleanly, and how it looks. A new circuit or car also needs its `flying` speeds (km/h at
-  the start spot): run the lap with a guess, and take the speed the lap test reports there at the end of the lap. Everything is
+  the car's `storeKey` suffix) and scenery follow from it. Check the start straight (pit building and stands ranges
+  must sit on it), that the autopilot laps it cleanly, and how it looks. A new circuit needs its start spot
+  (`startBack`) and every circuit a new car its `flying` speeds (km/h at the start spot): `npm run tracks:flying`
+  prints both (see `test/flying.test.ts` under **Testing**), then the lap tests check them. Everything is
   built once at startup for `settings.track`, so changing the Circuit setting saves it and reloads the page.
   `buildTrack` turns it into a closed spline sampled every ~2 m (arrays `X, Z, TX, TZ, NX, NZ, K, S, WL, WR`, kerb/
   gravel/barrier offsets; `{ street: true }`, from `TrackDef.street`, means no gravel and walls `STREET_RUNOFF` from
@@ -233,7 +249,10 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
     first-placement spot again (the start spot, which is the only place the session puts it), builds a
     fresh engine instance (full battery, fuel, tyres in blankets; cheap because the engine memoises that settle),
     rolling at the given speed through the engine's own rolling start; anywhere else (tests) it is a teleport that
-    keeps battery and lap energy (20–40 ms: the engine settles the car by simulating). Either way the tyres and
+    keeps battery and lap energy (20–40 ms: the engine settles the car by simulating). The start spot is before
+    the last corners, so the F1 crosses the line with what the run-up left in the battery (48% at Albert Park; a
+    lap leaves it at its 20% floor, so a restart's lap still starts better off than a second lap); the per-lap
+    energy allowances reset at the line, where the progress wraps. Either way the tyres and
     brakes go back to their start temperatures. Of the engine's tyre model, heat (surface, carcass, I/M/O bands),
     pressure and brake-disc heat are live and change grip; wear, graining, blistering and flat spots are off
     (`realism.tyreWearScale: 0` in `build`), and fuel is not burnt (that is LibreCorsa's game adapter's job, not
@@ -303,7 +322,8 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   setters, the stage's `setResolution` / `setShadows` / `setBrightness`, and `EngineAudio.setVolume` (a gain node of
   its own between the sound graph and the speakers; there are no per-sound volumes).
 - **Timing**: start/finish and two sector lines as segments, with crossings interpolated within a tick; track-limit
-  invalidation; best lap/sectors/trace stored per circuit and car under `TrackDef.storeKey + spec.storeKey`
+  invalidation, which in the run-up (the last `startBack` m before the line: from the start spot, or at the end of
+  a lap) deletes the next lap too (`nextInvalid`, the `invalid` event's `laps`; a restart forgives it); best lap/sectors/trace stored per circuit and car under `TrackDef.storeKey + spec.storeKey`
   (`useStore` switches). Every lap is recorded (`GhostRecorder`, 10 Hz, from the pose just before the line to the
   end of the tick the lap ended in); a new valid best lap's recording becomes `timing.ghost` and is saved under the
   same key + `.ghost` (base64, after the best times, so a full storage loses only the ghost), and is loaded only if

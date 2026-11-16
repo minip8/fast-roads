@@ -123,12 +123,16 @@ It has no collision and casts no shadow, fades out when it is close to the camer
 cameras it never blocks the view), and shows on the track map as a light blue dot. Only a valid lap that beats your
 best becomes the ghost; it is saved with your best times, so it is there after a reload. Turn it off under Driving.
 
-**Every lap is a flying lap.** You start on the straight before the start/finish line (160 m back at Albert Park,
-60 m at Silverstone; each circuit has its own spot), already at the speed the car reaches there on a lap and in the gear for it, so keep the
-throttle down: the lap starts as you cross the line. **R** (or Enter, or Restart lap in the menu) puts you back
-there at any time and drops the lap you were on; so does the game when the car ends up on its roof. The start
-speed is fixed per car and circuit (232 km/h for the F1 2026 at Albert Park, 151 km/h out of Club at Silverstone), so
-every attempt begins the same way.
+**Every lap is a flying lap.** You start before the last corner or corners of the lap, on the straight leading
+to them (at Albert Park before turns 13 and 14, at Silverstone before Vale and Club, at Monza before the Parabolica,
+at Monaco out of the Swimming Pool before La Rascasse), already at the speed the car has there on a lap and in the
+gear for it. Drive those corners onto the start straight: the lap starts as you cross the line, at whatever speed
+you carried through them. The run-up takes 8–20 s depending on the circuit and car (about 12 s in the GT3 at Albert
+Park). **R** (or Enter, or Restart lap in the menu) puts you back there at any time and drops the lap you were on;
+so does the game when the car ends up on its roof. The start speed is fixed per car and circuit (131 km/h for the
+F1 2026 at Albert Park, accelerating out of turn 12; 216 km/h before Vale at Silverstone), so every attempt begins
+the same way. Track limits count in the run-up too: put all four wheels off the road there (cutting the last
+chicane, say) and the lap that follows is deleted, as is the one you were on if you were finishing a lap.
 
 ## HUD
 
@@ -151,7 +155,7 @@ The default keys (all but Esc can be changed in the menu's Controls tab):
 | W / ↑ | Throttle |
 | S / ↓ | Brake (automatic gears: hold when stopped to reverse, up to ~40 km/h; W then brakes, and selects first once stopped) |
 | A D / ← → | Steer |
-| R / Enter | Restart the lap: back before the line at flying-lap speed |
+| R / Enter | Restart the lap: back before the last corners at flying-lap speed |
 | V | Mouse steering on/off (also in the menu) |
 | C | Cycle camera (onboard / driver / chase / far) |
 | G | Automatic / manual gears (also in the menu) |
@@ -230,7 +234,8 @@ and override the mouse while held.
   circuit outlines are drawn from the same centreline data as the track. Key bindings live in `src/keys.ts`.
 - **Timing**: start/finish + two sector lines as segments; crossings are detected per tick and interpolated within
   the tick. A lap is deleted if all four wheels pass the kerb (or white line where there's no kerb) or when
-  crossing a line backwards; a restart drops the lap under way. Best lap, best sectors, and the best-lap trace (for the live delta) persist in localStorage.
+  crossing a line backwards; the same off-track in the run-up to the line (the stretch from the start spot, at the
+  end of every lap) deletes the next lap as well. A restart drops the lap under way and forgives the run-up. Best lap, best sectors, and the best-lap trace (for the live delta) persist in localStorage.
 - **Ghost**: every lap is recorded at 10 Hz (position, heading, pitch, roll, steering) as it is driven; a new best
   lap's recording is packed (1 cm deltas and small angle steps, 11 bytes a sample: about 13 kB, 17 k characters of
   base64, for a two-minute lap) and saved next to the best times, which are saved first so a full storage only loses

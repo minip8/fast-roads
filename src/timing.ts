@@ -19,7 +19,7 @@ export interface BestStore {
 export interface Lap { time: number; sectors: SectorTimes; classes: string[]; valid: boolean; pb: boolean; reason: string }
 
 export type TimingEvent =
-  | { type: 'invalid'; reason: string }
+  | { type: 'invalid'; reason: string; laps: 'this' | 'next' | 'both' }   // which laps it deletes
   | { type: 'sector'; k: number; t: number }
   | { type: 'lap'; lap: Lap; deltaToBest: number | null };
 
@@ -35,13 +35,17 @@ export class Timing {
   lapStart!: number | null; valid!: boolean; invalidReason!: string;
   cur!: SectorTimes; trace!: number[];
   next!: number; sectorStart!: number;           // next line expected (-1 after wrong-way); current sector start
+  nextInvalid!: string;                          // why the next lap is deleted before it starts ('' if it is not)
   // The best lap's recording (ghost.ts), replayed by the ghost car; saved next to the best times. Null if there is
   // no best lap, or its recording was lost (storage full) or is from before ghosts were recorded.
   ghost!: GhostLap | null;
   ghostSaved = true;                             // whether the last new best lap's recording fitted in storage
   private readonly rec = new GhostRecorder();    // the lap under way
 
-  constructor(private readonly track: Track, storeKey: string) {
+  // runup: how far before the line the car starts (TrackDef.startBack). That stretch is the run-up to every lap, the
+  // first one from the start spot and each later one at the end of the lap before: going off the track there (all
+  // four wheels out) gains speed for the lap that follows, so that lap is deleted too, as well as the lap under way.
+  constructor(private readonly track: Track, storeKey: string, private readonly runup = 0) {
     const N = track.N;
     this.lines = [0, Math.round(N / 3), Math.round((2 * N) / 3)].map((i) => {
       const l = Math.max(track.barL[i], track.WL[i] + 30) + 2, r = Math.max(track.barR[i], track.WR[i] + 30) + 2;
@@ -61,11 +65,15 @@ export class Timing {
   }
   reset() {
     this.lapStart = null; this.next = 0; this.valid = true; this.sectorStart = 0;
-    this.cur = [null, null, null]; this.trace = []; this.invalidReason = '';
+    this.cur = [null, null, null]; this.trace = []; this.invalidReason = ''; this.nextInvalid = '';
     this.rec.stop();
   }
-  invalidate(reason: string) {
-    if (this.lapStart != null && this.valid) { this.valid = false; this.invalidReason = reason; this.events.push({ type: 'invalid', reason }); }
+  // Deletes the lap under way, and with `next` the one after it too.
+  invalidate(reason: string, next = false) {
+    const now = this.lapStart != null && this.valid, later = next && !this.nextInvalid;
+    if (now) { this.valid = false; this.invalidReason = reason; }
+    if (later) this.nextInvalid = reason;
+    if (now || later) this.events.push({ type: 'invalid', reason, laps: now && later ? 'both' : now ? 'this' : 'next' });
   }
   // Called once per physics tick. t0 = sim time at start of tick.
   tick(prev: { x: number; z: number }, curr: { x: number; z: number }, t0: number, dt: number, car: Vehicle) {
@@ -84,7 +92,11 @@ export class Timing {
       this.cross(k, tc, t0, t0 + dt, car);
     }
     // track limits
-    if (this.lapStart != null && this.valid && car.wheels.every((w) => w.out)) this.invalidate('TRACK LIMITS');
+    if (car.wheels.every((w) => w.out)) {
+      // in the run-up: on the out lap, or in the last sector at most `runup` m before the line
+      const runup = (this.lapStart == null || this.next === 0) && car.proj.s > this.track.L - this.runup;
+      this.invalidate('TRACK LIMITS', runup);
+    }
     // delta trace (10 m buckets)
     if (this.lapStart != null) {
       const el = t0 + dt - this.lapStart, d = car.proj.s;
@@ -103,8 +115,9 @@ export class Timing {
         this.completeLap(tc - this.lapStart);
       }
       this.rec.begin(car, tStart - tc);
-      this.lapStart = tc; this.sectorStart = tc; this.next = 1; this.valid = true;
-      this.cur = [null, null, null]; this.trace = [0]; this.invalidReason = '';
+      this.lapStart = tc; this.sectorStart = tc; this.next = 1;
+      this.valid = !this.nextInvalid; this.invalidReason = this.nextInvalid; this.nextInvalid = '';
+      this.cur = [null, null, null]; this.trace = [0];
       return;
     }
     if (this.lapStart != null && this.next === k) {

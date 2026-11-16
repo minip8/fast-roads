@@ -65,8 +65,9 @@ export class Session {
   private readonly startS: number;
   private stuck = 0;
 
-  // def: the circuit's start spot, each car's flying-lap speed there, and its localStorage key for best times (each
-  // car adds its own suffix). Without `flying` the car starts at rest (tests of manoeuvres from a standstill).
+  // def: the circuit's start spot (which is also the run-up timing watches for track limits), each car's flying-lap
+  // speed there, and its localStorage key for best times (each car adds its own suffix). Without `flying` the car
+  // starts at rest (tests of manoeuvres from a standstill, which put the start spot on the start straight).
   constructor(readonly track: Track, private readonly scene: THREE.Scene, spec: AnyCarSpec,
     private readonly def: Pick<TrackDef, 'storeKey' | 'startBack'> & Partial<Pick<TrackDef, 'flying'>>) {
     this.world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
@@ -75,7 +76,7 @@ export class Session {
     this.startS = track.L - def.startBack;
     this.car = createVehicle(this.world, track, scene, spec);
     this.place();
-    this.timing = new Timing(track, def.storeKey + spec.storeKey);
+    this.timing = new Timing(track, def.storeKey + spec.storeKey, def.startBack);
   }
 
   // One physics tick. autopilot: the autopilot is driving (so it is put back on track if it gets stuck).
@@ -87,8 +88,8 @@ export class Session {
   }
 
   // Back to the start of the lap, which is every reset there is (the player's, a stuck autopilot, a car on its roof):
-  // on the straight before the line, already at the speed of a flying lap. The lap under way is dropped and the next
-  // starts at the line.
+  // on the straight before the last corner or corners, already at the speed of a flying lap. The lap under way is
+  // dropped and the next starts at the line, after the run-up through those corners.
   restart() {
     this.place();
     this.timing.reset();

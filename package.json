@@ -10,7 +10,8 @@
     "typecheck": "tsc && tsc -p test && tsc -p ai",
     "test": "vitest run --project unit",
     "test:laps": "vitest run --project laps",
-    "tracks:outlines": "UPDATE_OUTLINES=1 vitest run --project unit test/tracks.test.ts -t outline"
+    "tracks:outlines": "UPDATE_OUTLINES=1 vitest run --project unit test/tracks.test.ts -t outline",
+    "tracks:flying": "vitest run --project unit test/flying.test.ts"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "0.19.3",

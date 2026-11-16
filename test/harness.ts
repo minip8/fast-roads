@@ -18,12 +18,18 @@ export async function trackFor(id: TrackId): Promise<Track> {
   return tracks[id] ??= buildTrack(parseCSV(await loadTrackCsv(id)), { street: TRACKS[id].street });
 }
 
+// Where a car starting at rest is put: on the start straight, this far before the line (m). The game's start spot is
+// before the last corner, with no room for manoeuvres from a standstill.
+export const REST_BACK: Partial<Record<TrackId, number>> = { melbourne: 160, silverstone: 60 };
+
 // `walls: false` removes the barriers, for manoeuvres that need more room than the walled start straight has.
-// The car starts at rest at the start spot; `flying: true` starts it as the game does, already at flying-lap speed.
+// The car starts at rest on the start straight (REST_BACK); `flying: true` starts it as the game does, at the
+// circuit's start spot at flying-lap speed.
 export async function session(carId: CarId, { tc = true, walls = true, track = 'melbourne' as TrackId, flying = false } = {}) {
   await RAPIER.init();
-  const def = TRACKS[track], tr = await trackFor(track);
-  const s = new Session(tr, new THREE.Scene(), CARS[carId], flying ? def : { storeKey: def.storeKey, startBack: def.startBack });
+  const def = TRACKS[track], tr = await trackFor(track), rest = REST_BACK[track];
+  if (!flying && rest == null) throw new Error(`no REST_BACK for ${track}`);
+  const s = new Session(tr, new THREE.Scene(), CARS[carId], flying ? def : { storeKey: def.storeKey, startBack: rest! });
   const { car, timing, world } = s;
   car.tc = tc;
   if (!walls) {

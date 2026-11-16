@@ -64,7 +64,7 @@ plan, exactly as in the game and the pinned lap tests) drive that step, at 120 H
 reports the equivalent absolute action (`autopilot_steer`, `autopilot_pedal`: its last tick's command), and the
 observation's command fields follow it, so a policy can take over smoothly. Useful for demonstrations and to fill a
 replay buffer; with only autopilot steps from the flying start, the lap time equals the pinned one (lcf1 Melbourne
-116.317 s).
+116.680 s).
 
 ### Observation
 
@@ -159,11 +159,12 @@ what ran before (checked: an episode is bit-identical whether or not other episo
   latMarginM)] (defaults 0.6, 1.5 m); heading error uniform in +-`headingMax` (0.1 rad), rolling along the car's
   nose; speed = uniform(`speedFrac` = [0.3, 1]) x the autopilot's planned speed at that point (`buildSpeedProfile`).
   For the LibreCorsa cars the engine settles the car at that speed first (its rolling start): a few ms.
-- **Flying start**: the game's own start (the start spot `TrackDef.startBack` metres before the line, rolling at the
-  car's `TrackDef.flying` speed), chosen with probability `flyingProb` (0.1), or always with `start: 'flying'`.
+- **Flying start**: the game's own start (the start spot `TrackDef.startBack` metres before the line, on the
+  straight before the last corners, rolling at the car's `TrackDef.flying` speed; the run-up to the line takes
+  8–20 s), chosen with probability `flyingProb` (0.1), or always with `start: 'flying'`.
 - **Evaluation** (`eval: true`): the flying start, and the episode ends (truncated, `lap_done`) when the first timed
   lap is complete; `info` then has the game's lap time, validity and sector times. The baselines are the autopilot's
-  pinned laps (`test/laps.ts`, e.g. lcf1 Melbourne 116.317 s, lcgt3 133.917 s, drift 157.514 s; every circuit in its
+  pinned laps (`test/laps.ts`, e.g. lcf1 Melbourne 116.680 s, lcgt3 133.918 s, drift 157.515 s; every circuit in its
   `CALENDAR`).
 
 Random numbers come from a seeded generator per environment (sfc32); there is no `Math.random` in the environment

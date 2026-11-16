@@ -107,7 +107,10 @@ export class Hud {
   handleEvents(timing: Timing) {
     if (!timing.events.length) return;
     for (const ev of timing.events.splice(0)) {
-      if (ev.type === 'invalid') this.showMsg(`<span style="color:var(--red)">${ev.reason}</span><small>Lap time deleted</small>`, 2);
+      if (ev.type === 'invalid') {
+        const what = ev.laps === 'this' ? 'Lap time deleted' : ev.laps === 'next' ? 'Next lap time deleted' : 'This lap and the next deleted';
+        this.showMsg(`<span style="color:var(--red)">${ev.reason}</span><small>${what}</small>`, 2);
+      }
       if (ev.type === 'lap') {
         const l = ev.lap;
         const d = ev.deltaToBest != null ? ` <span style="color:${ev.deltaToBest <= 0 ? 'var(--green)' : 'var(--red)'}">${fmtDelta(ev.deltaToBest)}</span>` : '';
@@ -125,7 +128,7 @@ export class Hud {
     const lapStart = timing.lapStart, lapRunning = lapStart != null;
     setText(el.lap, lapRunning ? fmtTime(simTime + f.alpha * DT - lapStart) : '-:--.---');
     el.lap.classList.toggle('invalid', lapRunning && !timing.valid);
-    setText(el.state, !lapRunning ? 'OUT LAP' : timing.valid ? `LAP ${timing.laps.length + 1}` : `LAP ${timing.laps.length + 1} · INVALID (${timing.invalidReason})`);
+    setText(el.state, !lapRunning ? (timing.nextInvalid ? `OUT LAP · NEXT LAP INVALID (${timing.nextInvalid})` : 'OUT LAP') : timing.valid ? `LAP ${timing.laps.length + 1}` : `LAP ${timing.laps.length + 1} · INVALID (${timing.invalidReason})`);
     const dl = this.showDelta && timing.valid ? timing.liveDelta(simTime, car.proj.s) : null;
     setText(el.delta, dl != null ? fmtDelta(dl) : '');
     setClass(el.delta, 'num ' + (dl == null ? '' : dl <= 0 ? 'ahead' : 'behind'));

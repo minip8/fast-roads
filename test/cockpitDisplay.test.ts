@@ -39,8 +39,10 @@ describe('dash values', () => {
     car.tc = false;
     dashValues(car, timing, s.session.simTime, 0, 'kmh', leds, 0, v);
     expect(v.tc).toBe(0);
-    // the lap clock runs once the line is crossed
-    s.drive(3, null, () => timing.lapStart != null);
+    car.tc = true;
+    // the lap clock runs once the line is crossed, after the run-up through the last corners
+    s.drive(30, null, () => timing.lapStart != null);
+    expect(timing.lapStart).not.toBeNull();
     s.drive(1);
     dashValues(car, timing, s.session.simTime, 0, 'kmh', leds, 0, v);
     expect(v.lap).toBe(Math.floor((s.session.simTime - timing.lapStart!) * 10));

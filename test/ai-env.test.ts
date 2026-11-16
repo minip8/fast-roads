@@ -121,7 +121,7 @@ describe('autopilot through the environment', () => {
     }
     const i = e.info;
     expect(i[INFO.end_reason]).toBe(END.lapDone);
-    expect(i[INFO.lap_time].toFixed(3)).toBe('116.317');   // as test/laps.ts pins it
+    expect(i[INFO.lap_time].toFixed(3)).toBe('116.680');   // as test/laps.ts pins it
     expect(i[INFO.lap_valid]).toBe(1);
     expect(i[INFO.sector1] + i[INFO.sector2] + i[INFO.sector3]).toBeCloseTo(i[INFO.lap_time], 6);
     // the progress reward sums to the distance from the start spot round to the line (to within the last step)

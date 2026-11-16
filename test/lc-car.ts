@@ -8,9 +8,8 @@ import { LcCar } from '../src/lc/lcCar';
 import { VehiclePhysics } from '../src/lc/vendor/sim/f12026-car/VehiclePhysics';
 import { needsReset } from '../src/sim';
 import { pointAt } from '../src/track';
-import { TRACKS } from '../src/tracks';
 import type { DriveInput, Vehicle } from '../src/vehicle';
-import { session } from './harness';
+import { REST_BACK, session } from './harness';
 
 export const lc = (car: Vehicle) => { if (!(car instanceof LcCar)) throw new Error(`${car.spec.id} is not on LibreCorsa's engine`); return car; };
 export const inp = (o: Partial<DriveInput> = {}): DriveInput => ({ throttle: 0, brake: 0, steer: 0, analog: true, steerAngle: 0, ...o });
@@ -24,7 +23,7 @@ export function lcCarSuite(id: 'lcgt3' | 'lcf1') {
   describe(id, () => {
     it.each(['melbourne', 'silverstone'] as const)('starts on the grid at %s: at rest, settled, on its wheels on the asphalt', async (track) => {
       const { car, track: tr, drive } = await session(id, { track });
-      const grid = pointAt(tr, tr.L - TRACKS[track].startBack, 0);
+      const grid = pointAt(tr, tr.L - REST_BACK[track]!, 0);
       expect(Math.hypot(car.pos.x - grid.x, car.pos.z - grid.z)).toBeLessThan(0.05);
       expect(car.fwd.x * tr.TX[grid.i] + car.fwd.z * tr.TZ[grid.i]).toBeGreaterThan(0.9999);
       expect(car.up.y).toBeGreaterThan(0.999);
@@ -124,7 +123,7 @@ export function lcCarSuite(id: 'lcgt3' | 'lcf1') {
       expect(fresh).not.toBe(first);
       expect(fresh.ersEnergyJ).toBe(fresh.config.ers.ERS_MAX_CHARGE);
       expect(fresh.fuelMassKg).toBe(lc(car).spec.fuelKg);
-      const grid = pointAt(track, track.L - TRACKS.melbourne.startBack, 0);
+      const grid = pointAt(track, track.L - REST_BACK.melbourne!, 0);
       expect(Math.hypot(car.pos.x - grid.x, car.pos.z - grid.z)).toBeLessThan(0.05);
       expect(car.vel.length()).toBeLessThan(0.05);
       // An engine state gone non-finite in the middle of a tick is put back at the start within that tick (a fresh
