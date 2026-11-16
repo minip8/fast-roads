@@ -95,9 +95,9 @@ export class Hud {
       `${k('restart')} restart the lap (flying start)`,
       `${k('gearbox')} auto / manual gears · ${k('shiftUp')} ${k('shiftDown')} shift up / down`,
       `${k('steering')} mouse steering (L/R click throttle/brake, scroll shift)`,
-      `${k('camera')} camera · ${k('tc')} traction control · ${k('mute')} sound`,
+      `${k('camera')} camera · ${k('lookBack')} look behind (hold) · ${k('tc')} traction control · ${k('mute')} sound`,
       `<kbd>${keyLabel(MENU_KEY)}</kbd> ${k('menu')} menu and settings · ${k('help')} hide this`,
-      '<span class="muted">Gamepad: RT throttle, LT brake, left stick steer, Start menu</span>',
+      '<span class="muted">Gamepad: RT throttle, LT brake, left stick steer, right stick click look behind, Start menu</span>',
     ].map((r) => `<div>${r}</div>`).join('');
     this.el.helpChip.innerHTML = `${k('help')} keys · <kbd>${keyLabel(MENU_KEY)}</kbd> menu`;
   }

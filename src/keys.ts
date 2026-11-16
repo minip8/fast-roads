@@ -12,6 +12,7 @@ export const ACTIONS = {
   shiftDown: 'Shift down',
   restart: 'Restart lap',
   camera: 'Change camera',
+  lookBack: 'Look behind (hold)',
   gearbox: 'Automatic / manual gears',
   tc: 'Traction control on / off',
   steering: 'Mouse steering on / off',
@@ -30,6 +31,7 @@ export const MENU_KEY = 'Escape';   // fixed: opens the menu, closes it, cancels
 export const DEFAULT_BINDINGS: Readonly<Bindings> = {
   throttle: ['KeyW', 'ArrowUp'], brake: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'],
   shiftUp: ['KeyE', null], shiftDown: ['KeyQ', null], restart: ['KeyR', 'Enter'], camera: ['KeyC', null],
+  lookBack: ['KeyB', null],
   gearbox: ['KeyG', null], tc: ['KeyT', null], steering: ['KeyV', null], mute: ['KeyM', null], help: ['KeyH', null],
   menu: ['KeyP', null],
 };
@@ -44,17 +46,20 @@ const validCode = (c: unknown): c is string => typeof c === 'string' && c.length
 // Saved bindings, with anything missing or invalid replaced by its default (and no key bound twice).
 export function loadBindings(): Bindings {
   const b = copyBindings(DEFAULT_BINDINGS);
+  const fromSave = new Set<Action>();
   try {
     const saved: unknown = JSON.parse(localStorage.getItem(STORE_KEY) || '{}');
     if (!saved || typeof saved !== 'object') return b;
     for (const a of ACTION_KEYS) {
       const v = (saved as Record<string, unknown>)[a];
-      if (Array.isArray(v) && v.length === 2 && v.every((c) => c === null || validCode(c))) b[a] = [v[0], v[1]];
+      if (Array.isArray(v) && v.length === 2 && v.every((c) => c === null || validCode(c))) { b[a] = [v[0], v[1]]; fromSave.add(a); }
     }
   } catch { return copyBindings(DEFAULT_BINDINGS); }
-  // a key on two actions (hand-edited storage): keep the first
+  // a key on two actions (hand-edited storage, or the default of an action added since the save): keep the saved
+  // one, then the first
   const seen = new Set<string>();
-  for (const a of ACTION_KEYS) for (const s of [0, 1] as const) {
+  const order = [...ACTION_KEYS.filter((a) => fromSave.has(a)), ...ACTION_KEYS.filter((a) => !fromSave.has(a))];
+  for (const a of order) for (const s of [0, 1] as const) {
     const c = b[a][s];
     if (c && seen.has(c)) b[a][s] = null; else if (c) seen.add(c);
   }

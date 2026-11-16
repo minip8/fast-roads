@@ -11,6 +11,21 @@ export const CAM_MODES = ['onboard', 'driver', 'chase', 'far'] as const;   // C 
 export type CamMode = (typeof CAM_MODES)[number];
 
 const _shake = new THREE.Vector3(), _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
+const _m = new THREE.Matrix4(), _box = new THREE.Box3();
+
+// The car body's bounding box in its own frame (x left, y up, z forward), wheels included.
+export function bodyBox(root: THREE.Object3D, out: THREE.Box3) {
+  root.updateMatrixWorld(true);
+  const inv = _m.copy(root.matrixWorld).invert(), m = new THREE.Matrix4();
+  out.makeEmpty();
+  root.traverse((o) => {
+    if (!(o instanceof THREE.Mesh)) return;
+    const g = o.geometry as THREE.BufferGeometry;
+    if (!g.boundingBox) g.computeBoundingBox();
+    out.union(_box.copy(g.boundingBox!).applyMatrix4(m.multiplyMatrices(inv, o.matrixWorld)));
+  });
+  return out;
+}
 
 export class CameraRig {
   mode: CamMode = 'onboard';
@@ -18,6 +33,7 @@ export class CameraRig {
   fovOffset = 0;                                  // degrees added to every mode's field of view (setting)
   speedFov = true;                                // widen the view with speed (setting)
   shake = true;                                   // surface rumble shake (setting)
+  lookBack = false;                               // held: look behind the car (set every frame from the input)
   private readonly off = new THREE.Vector3();    // chase: smoothed camera offset from the car (world axes)
   private readonly look = new THREE.Vector3();
   private readonly fwd = new THREE.Vector3(0, 0, 1);
@@ -27,6 +43,8 @@ export class CameraRig {
   private t = 0;                                  // shake phase: advances with distance driven, so a paused car is still
   private readonly lastP = new THREE.Vector3();
   private init = false;
+  private readonly box = new THREE.Box3();        // the car body's bounds (for looking back over it)
+  private boxOf: object | null = null;            // the cockpit it was measured with: a car model swap replaces it
 
   constructor(private readonly stage: Stage) {}
 
@@ -49,10 +67,18 @@ export class CameraRig {
 
     let fov: number;
     const sp = this.speedFov ? clamp(speed, 0, 90) : 0;   // the speed that widens the view
-    const c = car.mesh.cockpit, inside = this.mode === 'driver';
+    const c = car.mesh.cockpit, back = this.lookBack, inside = this.mode === 'driver' && !back;
     c.head.visible = !inside;   // the camera is inside the helmet
     for (const arm of c.arms) arm.mesh.visible = arm.glove.visible = !inside || this.hands;
-    if (this.mode === 'driver') {
+    if (back && (this.mode === 'driver' || this.mode === 'onboard')) {
+      // From the cockpit: over the back of the car, looking back past the tail (which shows at the bottom).
+      if (this.boxOf !== c) { bodyBox(car.mesh.root, this.box); this.boxOf = c; }
+      const b = this.box, upv = _v2.set(0, 1, 0).applyQuaternion(root.quaternion);
+      camera.position.set(0, b.max.y + 0.6, b.min.z + 0.5 * (b.max.z - b.min.z)).applyQuaternion(root.quaternion).add(p);
+      camera.lookAt(_v3.copy(camera.position).addScaledVector(fwd, -10).addScaledVector(upv, -0.9));
+      camera.position.add(_shake);
+      fov = 70 + sp * 0.04;
+    } else if (this.mode === 'driver') {
       const upv = _v2.set(0, 1, 0).applyQuaternion(root.quaternion);
       camera.position.copy(c.eye).applyQuaternion(root.quaternion).add(p);
       camera.lookAt(_v3.copy(camera.position).addScaledVector(fwd, 10).addScaledVector(upv, -c.look));
@@ -81,8 +107,14 @@ export class CameraRig {
       const target = _v3.copy(this.fwd).multiplyScalar(-dist); target.y = h;
       if (!this.off.lengthSq()) this.off.copy(target);
       this.off.lerp(target, 1 - Math.exp(-dt * 10));
-      camera.position.set(p.x + this.off.x, this.y + this.off.y, p.z + this.off.z).add(_shake);
-      this.look.copy(p).addScaledVector(this.fwd, 4); this.look.y = this.y + 0.6;
+      if (back) {
+        // the same distance in front, looking back at the car and past it
+        camera.position.set(p.x - this.off.x, this.y + this.off.y, p.z - this.off.z).add(_shake);
+        this.look.copy(p).addScaledVector(this.fwd, -4); this.look.y = this.y + 0.6;
+      } else {
+        camera.position.set(p.x + this.off.x, this.y + this.off.y, p.z + this.off.z).add(_shake);
+        this.look.copy(p).addScaledVector(this.fwd, 4); this.look.y = this.y + 0.6;
+      }
       camera.lookAt(this.look);
       fov = 64 + sp * 0.1;
     }

@@ -56,7 +56,13 @@ export class GhostCar {
     }
     poseCockpit(m.cockpit, p.steer);
     this.mapPos.x = p.x; this.mapPos.z = p.z;
+    this.fade(camera);
+  }
 
+  // Fade it for the camera it is about to be seen from (also the rear-view mirror's, for its pass).
+  fade(camera: THREE.Camera) {
+    const m = this.mesh;
+    if (!this.shown || !m) return;
     const d = camera.position.distanceTo(m.root.position);
     const a = OPACITY * Math.min(1, Math.max(0, (d - FADE_NEAR) / (FADE_FAR - FADE_NEAR)));
     m.root.visible = a > 0.01;

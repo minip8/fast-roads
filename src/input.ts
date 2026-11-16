@@ -18,6 +18,8 @@ const PAD_CURVE = 1.4;
 
 // Gamepad buttons (standard mapping) that act like a key press: Y camera, X and Back restart, Start menu, RB/LB shift.
 export const PAD_BUTTONS: readonly [button: number, action: Action][] = [[3, 'camera'], [2, 'restart'], [8, 'restart'], [9, 'menu'], [5, 'shiftUp'], [4, 'shiftDown']];
+// Gamepad button held to look behind: right stick click.
+export const PAD_LOOK_BACK = 11;
 // Gamepad buttons in the menu, as the keys they stand for: d-pad, A select, B / Start back, LB / RB change tab.
 const PAD_MENU: readonly [button: number, code: string][] = [[12, 'ArrowUp'], [13, 'ArrowDown'], [14, 'ArrowLeft'], [15, 'ArrowRight'],
   [0, 'Enter'], [1, 'Escape'], [9, 'Escape'], [4, 'TabPrev'], [5, 'TabNext']];
@@ -79,8 +81,15 @@ export class Input {
     for (const c of this.bindings[a]) if (c && this.takePressed(c)) hit = true;
     return hit;
   }
-  private held(a: Action) { const [c0, c1] = this.bindings[a]; return (c0 != null && this.keys.has(c0)) || (c1 != null && this.keys.has(c1)); }
+  // Held actions: one of the action's keys is down now.
+  held(a: Action) { const [c0, c1] = this.bindings[a]; return (c0 != null && this.keys.has(c0)) || (c1 != null && this.keys.has(c1)); }
   private isBound(code: string) { for (const k in this.bindings) if (this.bindings[k as Action].includes(code)) return true; return false; }
+  // Look behind: its key or gamepad button is held.
+  lookingBack() {
+    if (this.held('lookBack')) return true;
+    const p = (navigator.getGamepads ? navigator.getGamepads() : []).find((g) => g);
+    return !!p?.buttons[PAD_LOOK_BACK]?.pressed;
+  }
   setMouse(on: boolean) { this.mouse.enabled = on; this.mouse.steer = 0; this.mouse.lmb = this.mouse.rmb = false; }
   mouseSteer() {
     const m = this.mouse;

@@ -385,7 +385,7 @@ export class Menu {
     this.heading('Gamepad');
     c.append(this.refList([
       ['Left stick', 'Steer'], ['RT / LT', 'Throttle / brake'], ['RB / LB', 'Shift up / down'], ['Y', 'Change camera'],
-      ['X / Back', 'Restart lap'], ['Start', 'Pause menu'], ['In menus', 'D-pad moves · A selects · B back · LB / RB tabs'],
+      ['Right stick click', 'Look behind (hold)'], ['X / Back', 'Restart lap'], ['Start', 'Pause menu'], ['In menus', 'D-pad moves · A selects · B back · LB / RB tabs'],
     ]));
   }
 

@@ -12,6 +12,7 @@ import { Hud } from './hud';
 import { Input, MOUSE_DEADZONE, MOUSE_RANGE, PAD_DEADZONE } from './input';
 import { bindKey, copyBindings, DEFAULT_BINDINGS, keyLabel, keysFor, loadBindings, MENU_KEY, saveBindings, type Action } from './keys';
 import { Menu } from './menu';
+import { RearMirror } from './mirror';
 import { DEFAULT_SETTINGS, loadSettings, nextOption, saveSettings, SETTING_KEYS, type SettingKey, type Settings } from './settings';
 import { Session } from './sim';
 import { buildStage } from './stage';
@@ -38,6 +39,7 @@ export interface GameHook {
   readonly autopilot: typeof autopilot;
   readonly brakeMarkers: ReturnType<typeof buildStage>['brakeMarkers'];
   readonly stage: ReturnType<typeof buildStage>;   // renderer, scene, camera (screenshots, renderer.info)
+  readonly mirror: RearMirror;                      // the rear-view mirror (its pass's draw calls: mirror.stats)
 }
 declare global { interface Window { __game?: GameHook } }
 
@@ -68,6 +70,7 @@ export async function main() {
   const cam = new CameraRig(stage);
   const cockpitDisplay = new CockpitDisplay();
   const ghost = new GhostCar(scene);
+  const mirror = new RearMirror($('mirror'));
   hud.setKeys(bindings);
 
   // Game state
@@ -110,6 +113,7 @@ export async function main() {
     delta: (v) => hud.setDelta(v === 'on'),
     minimap: (v) => hud.setMinimap(v),
     tyres: (v) => hud.setTyres(v === 'on'),
+    mirror: (v) => { mirror.mode = v; },
     mouseBar: (v) => { $('mouseSteer').hidden = settings.steering !== 'mouse' || v === 'off'; },
     help: (v) => hud.setHelpMode(v),
     fps: (v) => hud.setFps(v === 'on'),
@@ -186,7 +190,7 @@ export async function main() {
   window.__game = {
     simulate, setSetting, setAutopilot: (on) => { autoOn = on; },
     get car() { return session.car; }, get simTime() { return session.simTime; },
-    session, timing, track, input, autopilot, brakeMarkers: stage.brakeMarkers, stage,
+    session, timing, track, input, autopilot, brakeMarkers: stage.brakeMarkers, stage, mirror,
   };
 
   // In-game hotkeys (ignored while the menu is open; it handles its own keys).
@@ -234,15 +238,18 @@ export async function main() {
     const alpha = clamp(acc / DT, 0, 1), car = session.car;
     car.render(alpha, paused ? 0 : fdt);
     dust.update(paused ? 0 : fdt, car, camera, renderer);
+    cam.lookBack = !menu.isOpen && input.lookingBack();
     cam.update(fdt, car);
     ghost.update(car, timing, session.simTime, alpha, camera);
-    cockpitDisplay.update(car, timing, session.simTime, alpha, cam.mode === 'driver');
+    cockpitDisplay.update(car, timing, session.simTime, alpha, cam.mode === 'driver' && !cam.lookBack);
     audio.update(car, fdt, started && !paused);
 
     hud.handleEvents(timing);
     hud.update({ car, timing, simTime: session.simTime, alpha, dt: fdt, autoOn, paused, mouseSteer: input.mouse.enabled ? input.mouse.steer : null, ghost: ghost.shown ? ghost.mapPos : null });
 
     renderer.render(scene, camera);
+    const cockpitView = cam.mode === 'onboard' || cam.mode === 'driver';
+    mirror.render(renderer, scene, stage.sun, car, mirror.wanted(cockpitView) && !hud.hidden && !menu.isOpen && !cam.lookBack, ghost, camera);
   };
   requestAnimationFrame(frame);
 }

@@ -1,6 +1,7 @@
 import { CAM_MODES, type CamMode } from './camera';
 import { CARS, type CarId } from './cars';
 import type { MouseDeadzone, MouseSensitivity, PadDeadzone } from './input';
+import type { MirrorMode } from './mirror';
 import { TRACKS, type TrackId } from './tracks';
 import { clamp, wrapI } from './util';
 
@@ -20,7 +21,7 @@ export interface Settings {
   camera: CamMode; fov: number; speedFov: OnOff; shake: OnOff; hands: OnOff;
   // HUD
   units: 'kmh' | 'mph'; timingPanel: 'full' | 'compact' | 'off'; delta: OnOff; minimap: 'off' | 'small' | 'medium' | 'large';
-  tyres: OnOff; mouseBar: OnOff; help:'auto' | 'always' | 'off'; fps: OnOff; hudScale: number; hudOpacity: number;
+  tyres: OnOff; mirror: MirrorMode; mouseBar: OnOff; help:'auto' | 'always' | 'off'; fps: OnOff; hudScale: number; hudOpacity: number;
   // graphics
   resolution: number; shadows: 'off' | 'low' | 'high'; brightness: number;
   // audio
@@ -77,6 +78,7 @@ export const SETTING_DEFS: { [K in SettingKey]: SettingDef<K> } = {
   delta: { label: 'Live delta to best lap', section: 'hud', options: onOff('Shown', 'Hidden') },
   minimap: { label: 'Track map', section: 'hud', options: [['off', 'Hidden'], ['small', 'Small'], ['medium', 'Medium'], ['large', 'Large']] },
   tyres: { label: 'Tyre temperatures', section: 'hud', hint: 'F1 and GT3: blue cold, green in the working window, red hot', options: onOff('Shown', 'Hidden') },
+  mirror: { label: 'Rear-view mirror', section: 'hud', hint: 'Hold {lookBack} to look behind', options: [['off', 'Hidden'], ['cockpit', 'Onboard & driver'], ['on', 'All cameras']] },
   mouseBar: { label: 'Mouse steering bar', section: 'hud', hint: 'Shows where the mouse holds the wheel', options: onOff('Shown', 'Hidden') },
   help: { label: 'Key help', section: 'hud', hint: 'At start: for the first seconds of driving; {help} shows it again', options: [['auto', 'At start'], ['always', 'Always'], ['off', 'Hidden']] },
   fps: { label: 'Frame rate counter', section: 'hud', options: onOff('Shown', 'Hidden') },
@@ -96,7 +98,7 @@ export const DEFAULT_SETTINGS: Settings = {
   gearbox: 'auto', tc: 'on', assist: 'off', ghost: 'on',
   steering: 'keyboard', mouseSens: 'medium', mouseDeadzone: 'small', padDeadzone: 'medium',
   camera: 'onboard', fov: 0, speedFov: 'on', shake: 'on', hands: 'off',
-  units: 'kmh', timingPanel: 'full', delta: 'on', minimap: 'medium', tyres: 'on', mouseBar: 'on', help: 'auto', fps: 'off', hudScale: 100, hudOpacity: 70,
+  units: 'kmh', timingPanel: 'full', delta: 'on', minimap: 'medium', tyres: 'on', mirror: 'on', mouseBar: 'on', help: 'auto', fps: 'off', hudScale: 100, hudOpacity: 70,
   resolution: 100, shadows: 'high', brightness: 100,
   sound: 'on', volume: 100,
 };

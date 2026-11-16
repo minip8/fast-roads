@@ -68,6 +68,8 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   comment on what the rule picked) marks the four set by hand (Miami, Monaco, Mexico City, Baku: the rule's spot was
   a 21–28 s run-up). The speeds are measured from laps started at the current spot, so after moving a start run the
   lap tests, which check the speed there within 2 km/h.
+- `test/rearview.test.ts` checks the look-behind camera in every mode and the mirror's camera and flip (geometry
+  only; the mirror pass itself needs a browser: `__game.mirror.stats` has its draw calls and triangles).
 - `test/handling.test.ts` holds loose-bound checks of tuning intent: the drift car's brake-and-turn kick, slides,
   stopping distance, gearbox and reverse. `car.forceSurface = S_ASPHALT` keeps manoeuvres off grass. Keep them short (about 1–2 s after the manoeuvre):
   the start straight is walled (`walls: false` removes the barriers for manoeuvres that need the room).
@@ -163,9 +165,16 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
 - `ghost.ts`: ghost laps without rendering (`GhostRecorder`, which `Timing` runs; the packed format; `ghostPose`
   interpolation; load/save); `ghostCar.ts`: `GhostCar`, which draws `timing.ghost` as a translucent copy of the
   current car's body (cloned materials, never the shared model ones; rebuilt on car switch, re-ghosted when a model
-  is swapped in) and fades it near the camera
+  is swapped in) and fades it near the camera (`fade(camera)`, also called for the mirror's camera)
 - `stage.ts`: renderer, scene, lights, sky, shadow-following sun, static track visuals (`buildStage`)
-- `camera.ts`: `CameraRig` (camera modes)
+- `camera.ts`: `CameraRig` (camera modes; `lookBack`, set each frame from `Input.lookingBack()` (the held
+  `lookBack` action or `PAD_LOOK_BACK`), turns every mode round at once: cockpit modes look back from above the body
+  (`bodyBox`, measured once per cockpit, so again after a model swap), chase modes from the same distance in front)
+- `mirror.ts`: `RearMirror`, the rear-view mirror (the Rear-view mirror setting). After the main render it draws the
+  scene again into `#mirror`'s rectangle (viewport + scissor) from `cockpit.eye` looking back, own body hidden. The
+  flip is `scene.scale.x = -1` plus `mirrorCameraPose` (three.js flips mesh winding for negative determinants, so
+  culling stays right); the shadow map is not updated in the pass, the sun's `shadow.matrix` is mirrored instead.
+  Nothing runs while it is hidden (setting, camera, HUD, menu, looking back, or `display: none` on narrow screens)
 - `settings.ts`: setting types, menu rows (`SETTING_DEFS`: label, section, optional hint, options, `slider`),
   defaults, load/save
 - `keys.ts`: keyboard actions and their two rebindable keys each (`Bindings`, saved in `localStorage`

@@ -79,6 +79,17 @@ describe('key bindings', () => {
     expect(loadBindings()).toEqual(b);
     expect(DEFAULT_BINDINGS.throttle).toEqual(['KeyW', 'ArrowUp']);   // the defaults are never changed in place
   });
+  it('give an action added since the save its default key, unless the save already uses that key', () => {
+    expect(DEFAULT_BINDINGS.lookBack).toEqual(['KeyB', null]);
+    const old = Object.fromEntries(Object.entries(DEFAULT_BINDINGS).filter(([a]) => a !== 'lookBack'));
+    localStorage.setItem('fastroads.keys', JSON.stringify(old));
+    expect(loadBindings()).toEqual(DEFAULT_BINDINGS);
+    localStorage.setItem('fastroads.keys', JSON.stringify({ ...old, help: ['KeyB', null] }));
+    const b = loadBindings();
+    expect(b.help).toEqual(['KeyB', null]);
+    expect(b.lookBack).toEqual([null, null]);
+    expect(bindKey(b, 'lookBack', 1, 'ShiftLeft').lookBack).toEqual([null, 'ShiftLeft']);   // rebindable as any other
+  });
   it('label keys briefly', () => {
     expect(['KeyW', 'Digit3', 'ArrowLeft', 'Numpad8', 'ShiftLeft', 'Space', 'F5'].map(keyLabel)).toEqual(['W', '3', '←', 'Num 8', 'L Shift', 'Space', 'F5']);
   });

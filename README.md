@@ -36,7 +36,7 @@ The game opens on a menu with **Drive** at the top right and three tabs:
   - *Camera*: camera, field of view (−15° to +20° on every camera), widen the view with speed, camera shake on kerbs
     and off track, driver camera hands.
   - *HUD*: speed units (km/h / mph), timing panel (full / compact / hidden), live delta, track map (hidden / small /
-    medium / large), tyre temperatures (shown / hidden), mouse steering bar, key help (at start / always / hidden), frame rate counter, HUD size (70–150%)
+    medium / large), tyre temperatures (shown / hidden), rear-view mirror (hidden / onboard & driver cameras / all cameras), mouse steering bar, key help (at start / always / hidden), frame rate counter, HUD size (70–150%)
     and panel background (0–100%).
   - *Graphics*: render resolution (50–100% of the screen's pixels), shadows (off / low / high), brightness.
   - *Audio*: sound on/off and volume.
@@ -59,6 +59,14 @@ lap, battery charge, straight-mode flaps, TC) under 15 shift lights; the GT3's d
 lap time, delta, last lap, ABS and TC lights, pedals) under its 10 LEDs; the drift car's cluster (tachometer, gear,
 speed, lap time, TC and ABS lights) with a shift light on top. The shift lights fill as the HUD's do and flash at
 the upshift point.
+
+**Looking behind.** Hold **B** (or click the right stick on a gamepad) to look back; let go and the view is
+straight back to where it was. From the Onboard and Driver cameras you look back over the top of the car with its
+tail at the bottom of the view; from Chase and Far the camera swings round to the same distance in front of the car,
+looking back at it and the road behind. You keep driving while you look. The **rear-view mirror** at the top of
+the screen shows the road behind all the time, mirrored left to right as a real mirror is: from the driver's eyes,
+without your own car in the way. It is on in every camera by default; the HUD settings can limit it to the Onboard
+and Driver cameras or hide it. It hides while you look back, in the menu, and on narrow screens (phones held upright).
 
 ## Cars
 
@@ -142,7 +150,7 @@ applied; then the gear and speed. Left of it, in the F1 2026 and GT3 (the drift 
 the four tyres as on the car, each with its carcass temperature (°C), hot pressure (psi) and brake disc temperature
 (B), coloured against the compound's working window: blue more than 10 °C short of it, light blue nearly there,
 green in it, orange up to 10 °C over, red beyond (on a phone: temperatures and pressures only, bottom left). Top left: the lap time, live delta to your best lap, sectors (purple: your best ever, green: best
-this session, yellow: slower), last / best / optimal laps and the laps driven. Top right: the track map. Bottom left
+this session, yellow: slower), last / best / optimal laps and the laps driven. Top right: the track map. Top centre: the rear-view mirror. Bottom left
 for the first seconds of driving: the keys, as currently bound (then a small reminder of the help and menu keys).
 What shows, and how big, is set in the menu's HUD settings.
 
@@ -158,13 +166,15 @@ The default keys (all but Esc can be changed in the menu's Controls tab):
 | R / Enter | Restart the lap: back before the last corners at flying-lap speed |
 | V | Mouse steering on/off (also in the menu) |
 | C | Cycle camera (onboard / driver / chase / far) |
+| B | Look behind (hold) |
 | G | Automatic / manual gears (also in the menu) |
 | E / Q | Shift up / down (manual): reverse, neutral, first... A downshift that would over-rev is refused, and reverse is selected only at a standstill. In R the throttle drives backwards and the brake brakes |
 | T | Traction control on/off |
 | Esc / P | Open the menu (pauses) |
 | M / H | Mute / show or hide the key help |
 
-Gamepad: RT throttle, LT brake, left stick steer, RB/LB shift up/down, Y camera, X or Back restart, Start menu.
+Gamepad: RT throttle, LT brake, left stick steer, RB/LB shift up/down, Y camera, right stick click (hold) look behind,
+X or Back restart, Start menu.
 
 Mouse steering: the cursor stays visible, and how far it is left or right of the screen centre sets the wheel
 (in direct proportion, reaching full lock towards the edge). Mouse sensitivity (Low / Medium / High) in the menu sets how far
@@ -232,6 +242,12 @@ and override the mouse while held.
 - **Menu and HUD**: plain DOM and CSS, no framework. The menu (`src/menu.ts`) is built from the settings table
   (`src/settings.ts`), the cars and the circuit list, so a new setting, car or circuit appears in it by itself; the
   circuit outlines are drawn from the same centreline data as the track. Key bindings live in `src/keys.ts`.
+- **Rear-view mirror** (`src/mirror.ts`): after the main view, the scene is drawn again into the mirror's rectangle
+  of the screen (viewport and scissor, no extra render target) from the driver's eyes looking back, with the car's
+  own body hidden. The image is flipped by mirroring the whole scene for that pass and turning the camera to match,
+  so three.js reverses the faces' winding itself and everything renders as usual. The shadow map isn't redrawn
+  (its matrix is mirrored for the pass) and the far plane is 1.2 km. It costs about 28 draw calls and 180k
+  triangles a frame on top of the main view's 70–80 calls and 300k triangles; with the mirror off nothing of it runs.
 - **Timing**: start/finish + two sector lines as segments; crossings are detected per tick and interpolated within
   the tick. A lap is deleted if all four wheels pass the kerb (or white line where there's no kerb) or when
   crossing a line backwards; the same off-track in the run-up to the line (the stretch from the start spot, at the
