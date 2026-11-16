@@ -278,11 +278,22 @@ describe('manual gearbox', () => {
       car.pendingShift = -1;
       drive(DT, () => pedals(0, 0));
       expect(car.gear).toBe(-1);
+      // In reverse the throttle drives backwards and the brake brakes, as in a real car; neither leaves reverse
+      drive(5, () => pedals(1, 0));
+      expect([car.gear, car.throttle, car.brake]).toEqual([-1, 1, 0]);
+      expect(-car.speedF).toBeGreaterThan(0.7 * spec.reverseTop);
+      expect(-car.speedF).toBeLessThan(spec.reverseTop);
+      drive(5, () => pedals(0, 1), () => Math.abs(car.speedF) < 0.1);
+      expect([car.gear, car.throttle, car.brake]).toEqual([-1, 0, 1]);
+      drive(1, () => pedals(0, 1));
+      expect(car.gear).toBe(-1);
       car.pendingShift = 2;
       drive(DT, () => pedals(0, 0));
       expect(car.gear).toBe(0);
       drive(DT, () => pedals(0, 0));
       expect(car.gear).toBe(1);
+      drive(1, () => pedals(0, 1));
+      expect(car.gear).toBe(1);                      // the brake held at a standstill does not select reverse either
       car.pendingShift = -1;                         // the automatic box has no neutral
       drive(DT, () => pedals(0, 0));
       expect(car.gear).toBe(0);
@@ -294,18 +305,20 @@ describe('manual gearbox', () => {
 
 describe('reverse', () => {
   for (const id of ['drift'] as const) {
-    it(`${id}: reverse tops out at reverseTop, and the throttle stops it`, async () => {
+    it(`${id}: automatic: holding the brake backs up, topping out at reverseTop, and the throttle stops it`, async () => {
       const { car, drive } = await session(id);
       car.forceSurface = S_ASPHALT;
       const pedals = (throttle: number, brake: number): DriveInput => ({ throttle, brake, steer: 0, analog: true, steerAngle: 0, autoGears: true });
       drive(6, () => pedals(0, 1));                  // hold brake: stops, engages reverse, backs up
-      expect(car.gear).toBe(-1);
+      expect([car.gear, car.throttle, car.brake]).toEqual([-1, 1, 0]);   // as applied: the brake pedal drives
       expect(-car.speedF).toBeGreaterThan(0.7 * ourCar(car).spec.reverseTop);
       expect(-car.speedF).toBeLessThan(ourCar(car).spec.reverseTop);
       const v0 = -car.speedF;
       drive(1, () => pedals(0, 0));                  // coasting backwards: engine braking slows it
       expect(-car.speedF).toBeLessThan(v0 - 0.2);
-      drive(1.5, () => pedals(1, 0));                // throttle brakes, then drives forwards
+      let slowed = false;                            // throttle brakes, then drives forwards
+      drive(1.5, () => pedals(1, 0), () => { slowed ||= car.gear === -1 && car.brake === 1 && car.throttle === 0; return false; });
+      expect(slowed).toBe(true);
       expect(car.gear).toBeGreaterThan(0);
       expect(car.speedF).toBeGreaterThan(0);
     });

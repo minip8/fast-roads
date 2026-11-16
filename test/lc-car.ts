@@ -145,7 +145,7 @@ export function lcCarSuite(id: 'lcgt3' | 'lcf1') {
       expect(Math.hypot(car.pos.x - grid.x, car.pos.z - grid.z)).toBeLessThan(0.05);
     });
 
-    it('shifts by hand (every queued press in turn), refuses a downshift that would over-rev, has a neutral, and reverses on the brake', async () => {
+    it('shifts by hand (every queued press in turn), refuses a downshift that would over-rev, has a neutral, and reverses: on the throttle in R by hand, on the brake in the automatic box', async () => {
       const { car, drive } = await session(id, { walls: false });
       car.forceSurface = S_ASPHALT;
       car.manual = true;
@@ -178,7 +178,8 @@ export function lcCarSuite(id: 'lcgt3' | 'lcf1') {
       expect([car.gear, car.shiftDenied]).toEqual([1, false]);
 
       // Neutral is below first, at any speed: the car coasts and the engine revs free. Reverse is below neutral, only
-      // at a standstill, and the brake held in neutral does not select it. Up from reverse: neutral, then first.
+      // at a standstill, and the brake held in neutral does not select it. In reverse the throttle drives backwards and
+      // the brake brakes, and neither leaves it. Up from reverse: neutral, then first.
       car.pendingShift = -1;
       drive(0.3, () => manual({}));
       expect(car.gear).toBe(0);
@@ -193,7 +194,17 @@ export function lcCarSuite(id: 'lcgt3' | 'lcf1') {
       drive(1, () => manual({ brake: 1 }));
       expect(car.gear).toBe(0);
       car.pendingShift = -1;
-      drive(0.3, () => manual({}));
+      let forwards = false;                                // the throttle already down: no creeping forwards on the way in
+      drive(0.3, () => manual({ throttle: 0.3 }), () => { forwards ||= car.speedF > 0.05; return false; });
+      expect([car.gear, forwards]).toEqual([-1, false]);
+      const back = car.pos.clone();
+      drive(2, () => manual({ throttle: 0.3 }));
+      expect(car.speedF).toBeLessThan(-3);
+      expect(car.pos.distanceTo(back)).toBeGreaterThan(3);
+      expect([car.gear, car.throttle, car.brake]).toEqual([-1, 0.3, 0]);
+      drive(5, () => manual({ brake: 0.5 }), () => Math.abs(car.speedF) < 0.1);
+      expect([car.gear, car.throttle, car.brake]).toEqual([-1, 0, 0.5]);
+      drive(1, () => manual({ brake: 1 }));
       expect(car.gear).toBe(-1);
       car.pendingShift = 1;
       drive(0.3, () => manual({}));
@@ -201,9 +212,11 @@ export function lcCarSuite(id: 'lcgt3' | 'lcf1') {
       car.pendingShift = 1;
       drive(0.3, () => manual({}));
       expect(car.gear).toBe(1);
+      drive(1, () => manual({ brake: 1 }));
+      expect(car.gear).toBe(1);                            // the brake held at a standstill does not select reverse either
 
-      // Reverse: hold the brake at a standstill, then the brake drives backwards and the throttle brakes; the throttle
-      // near a standstill selects first again
+      // The automatic box's reverse: hold the brake at a standstill, then the brake drives backwards and the throttle
+      // brakes; the throttle near a standstill selects first again
       car.manual = false;
       drive(10, () => inp({ brake: 0.4 }), () => car.speedF < 0.1);
       drive(0.3, () => inp({ brake: 1 }));

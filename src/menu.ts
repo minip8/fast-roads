@@ -379,7 +379,7 @@ export class Menu {
 
     this.heading('Mouse steering');
     c.append(this.refList([
-      ['Cursor left / right of centre', 'Steer'], ['Left button', 'Throttle'], ['Right button', 'Brake / reverse'],
+      ['Cursor left / right of centre', 'Steer'], ['Left button', 'Throttle'], ['Right button', 'Brake (auto: reverse)'],
       ['Scroll wheel', 'Shift up / down'],
     ]));
     this.heading('Gamepad');

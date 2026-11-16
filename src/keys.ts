@@ -5,7 +5,7 @@
 // ============================================================================
 export const ACTIONS = {
   throttle: 'Throttle',
-  brake: 'Brake / reverse',
+  brake: 'Brake (auto: reverse)',
   left: 'Steer left',
   right: 'Steer right',
   shiftUp: 'Shift up',

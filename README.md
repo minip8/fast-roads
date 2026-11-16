@@ -133,13 +133,13 @@ The default keys (all but Esc can be changed in the menu's Controls tab):
 | Key | Action |
 | --- | --- |
 | W / ↑ | Throttle |
-| S / ↓ | Brake (hold when stopped to reverse, up to ~40 km/h; W then brakes) |
+| S / ↓ | Brake (automatic gears: hold when stopped to reverse, up to ~40 km/h; W then brakes, and selects first once stopped) |
 | A D / ← → | Steer |
 | R / Enter | Restart the lap: back before the line at flying-lap speed |
 | V | Mouse steering on/off (also in the menu) |
 | C | Cycle camera (onboard / driver / chase / far) |
 | G | Automatic / manual gears (also in the menu) |
-| E / Q | Shift up / down (manual): reverse, neutral, first... A downshift that would over-rev is refused |
+| E / Q | Shift up / down (manual): reverse, neutral, first... A downshift that would over-rev is refused, and reverse is selected only at a standstill. In R the throttle drives backwards and the brake brakes |
 | T | Traction control on/off |
 | Esc / P | Open the menu (pauses) |
 | M / H | Mute / show or hide the key help |

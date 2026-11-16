@@ -86,7 +86,7 @@ export class Hud {
   setKeys(b: Readonly<Bindings>) {
     const k = (a: Action) => keysFor(b, a).map((c) => `<kbd>${esc(keyLabel(c))}</kbd>`).join(' ') || '<kbd>—</kbd>';
     this.el.help.innerHTML = [
-      `${k('throttle')} throttle · ${k('brake')} brake / reverse`,
+      `${k('throttle')} throttle · ${k('brake')} brake (auto gears: hold to reverse)`,
       `${k('left')} ${k('right')} steer`,
       `${k('restart')} restart the lap (flying start)`,
       `${k('gearbox')} auto / manual gears · ${k('shiftUp')} ${k('shiftDown')} shift up / down`,

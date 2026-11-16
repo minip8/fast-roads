@@ -194,8 +194,8 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
     files and the four edits (one removes third-party CC BY-NC-SA rain-tyre data; keep it out). The engine runs
     fixed 2 ms steps, has its own rigid body and wall response, and has no ABS, TC or input shaping.
   - `lc/lcCar.ts`: `LcCar implements Vehicle`. Each 120 Hz tick runs 4 or 5 engine steps (25 per 6 ticks, counted in
-    integers so it never drifts), with the driver around each. It owns our gearbox conventions (reverse on the
-    brake at a standstill, one manual shift per tick, `shiftDenied`, neutral), the F1's flaps (open by themselves in
+    integers so it never drifts), with the driver around each. It owns our gearbox conventions (reverse as in the
+    gearbox under **Car physics**, one manual shift per tick, `shiftDenied`, neutral), the F1's flaps (open by themselves in
     `straightWindows`: straights of 250 m+) and lap energy (`locateProgress`), and maps engine state to ours.
     `placeAt` on the first-placement spot (the start spot, which is the only place the session puts it) builds a
     fresh engine instance (full battery, fuel, tyres in blankets; cheap because the engine memoises that settle),
@@ -224,7 +224,12 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   - traction control (`tcSlack`)
   - gearbox: `gear` is -1 reverse, 0 neutral (manual only: below first at any speed; reverse is below it at a
     standstill), 1.. forward. A manual downshift that would pass `overRev` is refused at once and sets
-    `shiftDenied`; `LcCar` applies the engine's own test
+    `shiftDenied`; `LcCar` applies the engine's own test. Reverse, on both engines: in the manual box it is selected
+    and left only by the shifts, and in R the throttle drives backwards and the brake brakes. The automatic box
+    (also the autopilot's, `autoGears`) selects R when the brake is held at a standstill (0.35 s); in that R the
+    pedals swap (the brake drives backwards, the throttle brakes), and the throttle below 1 m/s backwards selects
+    first. `car.throttle` / `car.brake` are the pedals as applied (after the swap), which the HUD bars, brake light,
+    sound and cockpit display show
   - per-surface grip blending and grass/gravel ploughing
   - downforce and drag
 

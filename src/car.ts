@@ -202,14 +202,17 @@ export class Car implements Vehicle {
     this.steer = clamp(both + unwind, -this.spec.steerLock, this.spec.steerLock);
 
     // --- gearbox
+    // The automatic box backs up on the brake: held at a standstill it selects reverse, and the throttle near a
+    // standstill selects first again. The manual box goes in and out of reverse only by the shifts.
     let throttle = inp.throttle, brake = inp.brake;
-    if (this.gear === -1) {                        // reverse
+    const autoBox = !this.manual || inp.autoGears;
+    if (!autoBox) this.revTimer = 0;
+    else if (this.gear === -1) {
       if (throttle > 0.1 && vF > -1) this.gear = 1;
-    } else if (this.gear > 0 && Math.abs(vF) < 0.6 && brake > 0.5 && throttle < 0.05) {   // not from neutral: it stays put
+    } else if (this.gear > 0 && Math.abs(vF) < 0.6 && brake > 0.5 && throttle < 0.05) {
       this.revTimer += dt;
       if (this.revTimer > 0.35) { this.gear = -1; this.revTimer = 0; }
     } else this.revTimer = 0;
-    const autoBox = !this.manual || inp.autoGears;
     if (autoBox && this.gear === 0) this.gear = this.lowestGear(vF);   // the automatic box has no neutral
     if (autoBox && this.gear > 0) {
       const g = this.gear;
@@ -240,11 +243,13 @@ export class Car implements Vehicle {
       // neutral: the engine revs free of the wheels
       this.rpm = lerp(this.rpm, this.spec.idle + throttle * (this.spec.redline - this.spec.idle), throttle > 0.02 ? 0.12 : 0.04);
     } else if (this.gear === -1) {
-      // reverse: the brake pedal drives backwards (fading out by reverseTop) and the throttle brakes
-      const back = brake; brake = throttle; throttle = back;
-      if (back > 0.02) drive = -back * this.spec.reverseForce * clamp(1 + vF / this.spec.reverseTop, 0, 1);
+      // reverse: the throttle drives backwards (fading out by reverseTop) and the brake brakes, except in the
+      // automatic box's reverse, which the brake selected: there the brake drives backwards and the throttle brakes
+      // (until first is selected, just above)
+      if (autoBox) { const back = brake; brake = throttle; throttle = back; }
+      if (throttle > 0.02) drive = -throttle * this.spec.reverseForce * clamp(1 + vF / this.spec.reverseTop, 0, 1);
       else if (vF < -2) drive = this.spec.engineBrake * (this.rpm / this.spec.redline);    // engine braking
-      this.rpm = lerp(this.rpm, this.spec.idle + 3000 * inp.brake, 0.1);
+      this.rpm = lerp(this.rpm, this.spec.idle + 3000 * throttle, 0.1);
     } else {
       const top = this.spec.gearTop[this.gear];
       let rpm = (this.spec.redline * Math.max(vF, 0)) / top;

@@ -12,8 +12,9 @@ import { VehiclePhysics, type VehicleInputs } from './vendor/sim/f12026-car/Vehi
 // ============================================================================
 // A car on LibreCorsa's engine (src/lc/vendor), as the game sees any car. The engine runs its own fixed 500 Hz
 // steps; each 120 Hz game tick runs four or five of them, with the spec's driver (pedals, steering, aids) around
-// each one. This class owns the gearbox in our conventions (reverse on the brake at a standstill, queued manual
-// shifts, a neutral the engine's box does not have), the 2026 F1's flaps, and turning the engine's state into ours.
+// each one. This class owns the gearbox in our conventions (the automatic box's reverse on the brake at a
+// standstill, queued manual shifts, a neutral the engine's box does not have), the 2026 F1's flaps, and turning the
+// engine's state into ours.
 // ============================================================================
 const H = VehiclePhysics.FIXED_DT;
 const SLIP_PEAK = 1.15;   // our tyre sound's slip at the grip peak; the engine's combinedSlip is 1 there
@@ -168,7 +169,9 @@ export class LcCar implements Vehicle {
     if (this.groundFor !== this.forceSurface) { v.setGround(trackGround(tr, this.forceSurface)); this.groundFor = this.forceSurface; }
 
     // --- gearbox, as Car's: one engine paddle (+1 up, -1 down) at most this tick. The engine's automatic box never
-    // enters or leaves reverse (its -1), so that is done with the paddles in either mode.
+    // enters or leaves reverse (its -1), so that is done with the paddles in either mode. Ours backs up on the brake:
+    // held at a standstill it selects reverse, and the throttle near a standstill selects first again. The manual
+    // box goes in and out of reverse only by the shifts.
     const autoBox = !this.manual || !!input.autoGears, g = v.gear, top = this.spec.config.gearbox.ratios.length;
     v.autoShift = autoBox;
     if (autoBox) this.neutral = false;      // the automatic box has no neutral
@@ -178,7 +181,8 @@ export class LcCar implements Vehicle {
       // up through the gears while the road speed would over-rev the one it is in, so that leaving neutral fits.
       this.revTimer = 0;
       if (g === -1 || (g < top && this.overRevs(g))) shift = 1;
-    } else if (g === -1) {
+    } else if (!autoBox) this.revTimer = 0;
+    else if (g === -1) {
       if (input.throttle > 0.1 && vF > -1) shift = 1;
       this.revTimer = 0;
     } else if (Math.abs(vF) < 0.6 && input.brake > 0.5 && input.throttle < 0.05) {
@@ -205,11 +209,13 @@ export class LcCar implements Vehicle {
     }
     if (autoBox) this.pendingShift = 0;
     if (shift !== 0) { const gb = this.spec.config.gearbox; this.shiftBusy = shift < 0 ? gb.downshiftTimeS ?? gb.shiftTimeS : gb.shiftTimeS; }
-    // In reverse the brake pedal drives backwards and the throttle brakes. The pedals swap only while the engine is
-    // in reverse: on the way in (the downshift from first can take 0.1 s) the brake stays the brake, and on the way
-    // out the throttle waits for first gear instead of driving backwards.
+    // In reverse the throttle drives backwards and the brake brakes, as in gear (the engine's own reverse), except in
+    // the automatic box's reverse, which the brake selected: there the brake pedal drives backwards and the throttle
+    // brakes. The pedals swap only while the engine is in reverse: on the way in (the downshift from first can take
+    // 0.1 s) the brake stays the brake, and on the way out the throttle waits for first gear instead of driving
+    // backwards.
     let inp = input;
-    if (g === -1 && !this.neutral) {
+    if (g === -1 && autoBox) {
       inp = Object.assign(this.swapped, input);
       inp.throttle = shift > 0 ? 0 : input.brake; inp.brake = shift > 0 ? 0 : input.throttle;
     }
