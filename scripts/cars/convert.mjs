@@ -63,6 +63,7 @@ const CARS = {
       if (has(/^INT_Steer001$/)) return ['steerRim'];
       if (has(/^STEER_HR$/)) return ['steer'];
       if (has(/^EXT_Emissive_Brakelights$/)) return ['brake'];
+      if (/Windows|Windshield/.test(mat)) return ['glass'];
       if (has(/^COCKPIT_HR$/) || mat.startsWith('INT_')) return ['body', 'int'];
       return ['body', 'ext'];
     },
@@ -81,7 +82,7 @@ const CARS = {
       if (name === 'MIRROR') { set(lin(0x8a9096), 1, 0.08); m.setBaseColorTexture(null); return; }
       if (/^EXT_Banner/.test(name)) { set([1, 1, 1], 0, 0.5); m.setBaseColorTexture(tex('EXT_Banner_Colour.png', 't_banner')); return; }
       if (name === 'EXT_Logo') { set([1, 1, 1], 0.3, 0.4); m.setBaseColorTexture(tex('ext_decals_colour.png', 't_decals')); return; }
-      if (/Windows|Windshield/.test(name)) { set(lin(0x1a222b), 0.6, 0.08, { alpha: 0.45 }); return; }
+      if (/Windows|Windshield/.test(name)) { set(lin(0x1a222b), 0.6, 0.08, { alpha: 0.45 }); m.setDoubleSided(false); return; }
       if (/Glass/.test(name) && !m.getBaseColorTexture()) { set(lin(0x20262c), 0.5, 0.1, { alpha: 0.5 }); return; }
       if (/Carbon/.test(name)) { set(lin(0x1c1e22), 0.4, 0.35); return; }
       if (/Chrome|Wing_Metal/.test(name)) { set(lin(0xb0b4ba), 1, 0.25); return; }
@@ -101,9 +102,10 @@ const CARS = {
   lcgt3: {
     target: { zFront: 1.378, zRear: -1.272, wheelRadius: 0.34625, comHeight: 0.40 },
     turn: -90,
-    detail: { ext: [0.004, 0.2], int: [0.008, 0.08], wheel: [0.006, 0.2], hub: [0.02, 0.15], steer: [0.01, 0.15] },   // a denser mesh
+    detail: { ext: [0.004, 0.2], wheel: [0.006, 0.2], hub: [0.02, 0.15], steer: [0.004, 0.3] },   // a denser mesh
     part(names, mat) {
       if (mat === 'WorldGridMaterial') return null;   // an engine placeholder material
+      if (/windows_Glass|Windows_Stickers/.test(mat)) return ['glass'];   // the stickers are a dark tint film over the glass
       if (/Tyre_Inst/.test(mat)) return ['tyre'];
       if (/Rim_Inst|Brake_Disc/.test(mat)) return ['wheel'];
       if (/Caliper_Inst/.test(mat)) return ['hub'];
@@ -118,7 +120,8 @@ const CARS = {
       // game's environment map.
       for (const e of m.listExtensions()) m.setExtension(e.extensionName, null);
       const name = m.getName();
-      if (/windows_Glass/.test(name)) m.setBaseColorFactor([0.1, 0.12, 0.14, 0.45]).setMetallicFactor(0.6).setRoughnessFactor(0.08).setBaseColorTexture(null);
+      if (/Windows_Stickers/.test(name)) m.setDoubleSided(false);
+      if (/windows_Glass/.test(name)) m.setBaseColorFactor([0.1, 0.12, 0.14, 0.45]).setMetallicFactor(0.6).setRoughnessFactor(0.08).setBaseColorTexture(null).setDoubleSided(false);
       if (/Lights_Glass/.test(name)) m.setBaseColorFactor([0.09, 0.09, 0.09, 0.3]);
       if (/Livery/.test(name)) { m.setBaseColorFactor([1, 1, 1, 1]).setMetallicFactor(0.15).setRoughnessFactor(0.3); m.getBaseColorTexture()?.setName('livery'); }
       if (/Carbon_Fiber/.test(name)) m.setNormalTexture(null);   // tiling weave, invisible at this size
@@ -127,8 +130,15 @@ const CARS = {
 };
 
 // The simplifier's error limit, as a share of each part's size, and the share of triangles it aims for (a car's
-// `detail` overrides some).
-const DETAIL = { ext: [0.0015, 0.3], int: [0.004, 0.12], hidden: [0.05, 0.03], wheel: [0.004, 0.25], hub: [0.01, 0.2], steer: [0.006, 0.25], brake: [0.01, 0.5] };
+// `detail` overrides some). The driver camera looks at the cabin from a few centimetres: it (and the steering
+// wheel) is barely simplified, and the budget comes from what is never seen up close ('hidden': engine bay,
+// suspension, the interior behind the seats).
+const DETAIL = { ext: [0.0015, 0.3], cabin: [0.0004, 0.6], glass: [0.0005, 0.6], hidden: [0.05, 0.03], wheel: [0.004, 0.25],
+  hub: [0.01, 0.2], steer: [0.0015, 0.6], brake: [0.01, 0.5] };
+// The cabin, in the game's body coordinates: everything the driver camera sees close up (dash, cage, pillars, door
+// cards, mirrors, roof). Interior outside it counts as hidden.
+const CABIN = { x: 1.12, y: 0.12, z: [-1.15, 0.8] };
+const CABIN_CENTRE = [0, 0.45, -0.45];   // inside the glass, for telling its outer faces from inner ones
 
 // ---------------------------------------------------------------------------------------------------------------
 const [id, src, texDir] = process.argv.slice(2);
@@ -236,14 +246,43 @@ for (const s of soups.values()) for (let i = 0; i < s.pos.length; i += 3) {
 }
 const hubsG = hubs.map(place);
 
-// --- 4. The steering wheel's axis: the direction its rim is thinnest in (smallest principal axis). ----------------
+// --- 3b. Sort the body by where the driver camera can see it, and keep only the glass faces that face out: seen
+// from the seat the glass is then clear (single-sided), and from outside it looks as before. (Both models have an
+// inner layer of glass, or faces wound inwards, which tinted the view out twice over.)
+for (const [key, s] of [...soups]) {
+  if (s.kind !== 'body' && s.kind !== 'glass') continue;
+  soups.delete(key);
+  for (let t = 0; t < s.pos.length; t += 9) {
+    const P = s.pos, c = [0, 1, 2].map((k) => (P[t + k] + P[t + 3 + k] + P[t + 6 + k]) / 3);
+    const inCabin = Math.abs(c[0]) < CABIN.x && c[1] > CABIN.y && c[2] > CABIN.z[0] && c[2] < CABIN.z[1];
+    let detail;
+    if (s.kind === 'glass') {
+      const u = [0, 1, 2].map((k) => P[t + 3 + k] - P[t + k]), v = [0, 1, 2].map((k) => P[t + 6 + k] - P[t + k]);
+      const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+      if (n[0] * (c[0] - CABIN_CENTRE[0]) + n[1] * (c[1] - CABIN_CENTRE[1]) + n[2] * (c[2] - CABIN_CENTRE[2]) <= 0) continue;
+      detail = 'glass';
+    } else detail = inCabin ? 'cabin' : s.detail === 'int' ? 'hidden' : s.detail;
+    const d = soup('body', detail, s.material);
+    d.pos.push(...P.slice(t, t + 9)); d.nrm.push(...s.nrm.slice(t, t + 9)); d.uv.push(...s.uv.slice((t / 9) * 6, (t / 9) * 6 + 6));
+  }
+}
+
+// --- 4. The steering wheel's axis: the direction most of its surface faces (the largest principal axis of its
+// area-weighted face normals; the shape alone is ambiguous, a GT3 wheel being nearly as deep as it is tall). -------
 const rim = [...soups.values()].filter((s) => s.kind === 'steerRim').flatMap((s) => s.pos);
+const NN = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+for (let t = 0; t < rim.length; t += 9) {
+  const u = [0, 1, 2].map((k) => rim[t + 3 + k] - rim[t + k]), v = [0, 1, 2].map((k) => rim[t + 6 + k] - rim[t + k]);
+  const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]], a = Math.hypot(...n) || 1;
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) NN[r][c] += (n[r] * n[c]) / a;   // area * unit n * unit n
+}
 for (const s of soups.values()) if (s.kind === 'steerRim') s.kind = 'steer';
 const n = rim.length / 3, mean = [0, 0, 0];
 for (let i = 0; i < rim.length; i += 3) for (let k = 0; k < 3; k++) mean[k] += rim[i + k] / n;
 const C = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
 for (let i = 0; i < rim.length; i += 3) for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) C[r][c] += (rim[i + r] - mean[r]) * (rim[i + c] - mean[c]) / n;
-const axis = smallestEigenvector(C);
+const axis = eigenvector(NN, 'largest');
+if (process.env.VERBOSE) console.log('  rim shape axis (smallest spread):', eigenvector(C, 'smallest').map((v) => v.toFixed(3)).join(', '));
 if (axis[2] < 0) axis.forEach((v, k) => (axis[k] = -v));
 const rake = Math.atan2(-axis[1], axis[2]);   // the mount's rotation about x (the top leans away from the driver)
 const cr = Math.cos(rake), sr = Math.sin(rake);
@@ -360,8 +399,8 @@ console.log(`  scale ${scale.toFixed(4)}; hubs ${hubsG.map((h) => `[${fmt(h)}]`)
 console.log(`  tyre radius ${fmt(radii.map((r) => r * scale))} (spec ${tg.wheelRadius}); steering wheel at [${fmt(steerCentre)}], rake ${((rake * 180) / Math.PI).toFixed(1)} deg, grip ${grip.toFixed(3)}`);
 for (const node of root.listNodes()) console.log(`  ${node.getName()}: ${triCount(node.getMesh().listPrimitives())} triangles, ${node.getMesh().listPrimitives().length} primitives`);
 
-// Jacobi eigen-decomposition of a symmetric 3x3 matrix; returns the eigenvector of the smallest eigenvalue.
-function smallestEigenvector(A) {
+// Jacobi eigen-decomposition of a symmetric 3x3 matrix; returns the eigenvector of its smallest or largest eigenvalue.
+function eigenvector(A, which) {
   const a = A.map((r) => r.slice()), v = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
   for (let sweep = 0; sweep < 50; sweep++) {
     for (const [p, q] of [[0, 1], [0, 2], [1, 2]]) {
@@ -373,6 +412,6 @@ function smallestEigenvector(A) {
       for (let k = 0; k < 3; k++) { const vkp = v[k][p], vkq = v[k][q]; v[k][p] = c * vkp - s * vkq; v[k][q] = s * vkp + c * vkq; }
     }
   }
-  const i = [0, 1, 2].reduce((m, k) => (a[k][k] < a[m][m] ? k : m), 0);
+  const i = [0, 1, 2].reduce((m, k) => ((which === 'largest' ? a[k][k] > a[m][m] : a[k][k] < a[m][m]) ? k : m), 0);
   return [v[0][i], v[1][i], v[2][i]];
 }

@@ -20,7 +20,7 @@ Made by `scripts/cars/convert.mjs` (see its header to reproduce it from the orig
   steering wheel and the brake lights.
 - Removed parts: motion-blur rims, engine pistons, the seat belts (the game seats its own driver), stacked
   dashboard display overlays, an alternative roof banner and an interior light.
-- Simplified from about 302,000 to about 75,000 triangles.
+- Simplified from about 302,000 to about 121,000 triangles, the cabin barely (the driver camera sees it up close).
 - Materials: the livery, banner and logo textures supplied with the download applied to the paint, banner and logo
   materials; plain colours, metalness and roughness given to materials the download leaves untextured (glass,
   carbon, chrome, calipers and others).

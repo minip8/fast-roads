@@ -22,8 +22,10 @@ Made by `scripts/cars/convert.mjs` (see its header to reproduce it from the orig
 - Turned and scaled to this game's axes and car dimensions (wheelbase 2.65 m, its tyres on the road), and split
   into separately moving parts: the body, the four wheels (tyre, rim, brake disc), the four brake calipers, the
   steering wheel and the rear lights (lit under braking).
-- Removed one mesh with a placeholder grid material.
-- Simplified from about 497,000 to about 91,000 triangles; hidden parts (engine bay, suspension) the most.
+- Removed one mesh with a placeholder grid material, and the glass and window-tint faces that face into the
+  cabin.
+- Simplified from about 497,000 to about 153,000 triangles: the cabin barely, hidden parts (engine bay,
+  suspension, the interior behind the seats) the most.
 - Materials: the transmission, clearcoat and specular extensions removed (plain metal/roughness), the window glass
   made a tinted transparent colour, and the tiling carbon-weave normal maps dropped.
 - Textures resized (at most 2048 px for the livery, 1024 px for other colour maps, 512 px for normal and other maps) and re-encoded as WebP; geometry

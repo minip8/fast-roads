@@ -174,7 +174,7 @@ and override the mouse while held.
   control, all run at the engine's 500 Hz. One game tick costs about half a millisecond for these cars.
 - **Car bodies**: built from boxes and extrusions in code (`src/carMeshes.ts`), each with a seated driver whose
   hands turn the steering wheel in the driver camera. The two GT3s instead show 3D models (`public/cars/<id>/`, about
-  2 and 3.7 MB, 75-90k triangles): the built body shows until the model has downloaded, and stays if it can't.
+  2.3 and 4.3 MB, 120-155k triangles, most of them in the cabin): the built body shows until the model has downloaded, and stays if it can't.
   `scripts/cars/convert.mjs` makes them from the Sketchfab downloads (turned, scaled to the car's axles, split into
   body, wheels, calipers, steering wheel and brake lights, simplified, WebP textures, meshopt geometry). The
   service worker keeps a model once it has been downloaded rather than precaching both.
