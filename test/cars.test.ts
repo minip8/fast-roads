@@ -29,11 +29,6 @@ describe.each(Object.entries(CARS))('%s', (key, spec) => {
     expect(ours.redline).toBeLessThan(ours.overRev);
   });
 
-  it.runIf(spec.physics === 'rapier')('has a tyre curve: Pacejka coefficients or a brush tyre', () => {
-    const ours = ourSpec(spec);
-    expect(ours.pac ?? ours.brush).toBeDefined();
-  });
-
   it('builds a body with four wheels, and an autopilot plan', async () => {
     const { car, track } = await session(spec.id);
     expect(car.mesh.wheels).toHaveLength(4);

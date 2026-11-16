@@ -7,13 +7,9 @@ import { session } from './harness';
 // they only change when physics or car tuning changes (or the start: TrackDef.startBack and .flying). If you changed handling on purpose, check the car still behaves, then update them here.
 // Each lap has its own test file (laps-*.test.ts), so Vitest runs them in parallel.
 const EXPECTED = {
-  f1: { track: 'melbourne', car: 'f1', tc: true, time: '119.159', limit: 150 },
   drift: { track: 'melbourne', car: 'drift', tc: true, time: '157.514', limit: 200 },
   driftNoTc: { track: 'melbourne', car: 'drift', tc: false, time: '157.491', limit: 200 },
-  silverstoneF1: { track: 'silverstone', car: 'f1', tc: true, time: '129.121', limit: 170 },
   silverstoneDrift: { track: 'silverstone', car: 'drift', tc: true, time: '169.794', limit: 220 },
-  gt3: { track: 'melbourne', car: 'gt3', tc: true, time: '130.795', limit: 170 },
-  silverstoneGt3: { track: 'silverstone', car: 'gt3', tc: true, time: '141.453', limit: 190 },
   // on LibreCorsa's engine (src/lc)
   lcGt3: { track: 'melbourne', car: 'lcgt3', tc: true, time: '133.917', limit: 170 },
   silverstoneLcGt3: { track: 'silverstone', car: 'lcgt3', tc: true, time: '144.234', limit: 190 },

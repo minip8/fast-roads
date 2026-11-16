@@ -29,7 +29,7 @@ export interface TrackDef {
 export const TRACKS: Record<TrackId, TrackDef> = {
   melbourne: {
     id: 'melbourne', name: 'Albert Park', place: 'Melbourne', csv: melbourneCsv, storeKey: 'fastroads.v1.melbourne',
-    startBack: 160, flying: { f1: 274, drift: 219, gt3: 207, lcgt3: 206, lcf1: 232 },
+    startBack: 160, flying: { drift: 219, lcgt3: 206, lcf1: 232 },
     pit: [-220, 80], stands: [16, 3],
     skyline: true, trees: 1800, pitSide: 1,
   },
@@ -38,7 +38,7 @@ export const TRACKS: Record<TrackId, TrackDef> = {
   // and the pit complex on the inside (right) of the straight.
   silverstone: {
     id: 'silverstone', name: 'Silverstone', place: 'England', csv: silverstoneCsv, storeKey: 'fastroads.v1.silverstone',
-    startBack: 60, flying: { f1: 142, drift: 117, gt3: 127, lcgt3: 125, lcf1: 151 },
+    startBack: 60, flying: { drift: 117, lcgt3: 125, lcf1: 151 },
     pit: [-60, 240], stands: [3, 13],
     skyline: false, trees: 900, pitSide: -1,
   },

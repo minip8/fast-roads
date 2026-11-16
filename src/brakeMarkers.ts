@@ -12,7 +12,7 @@ import { wrapI } from './util';
 export interface BrakeZone { entry: number; s: number; fromKmh: number; toKmh: number }
 
 function findBrakeZones(tr: Track): BrakeZone[] {
-  const v = buildSpeedProfile(tr, CARS.f1), N = tr.N, zones: BrakeZone[] = [];   // boards are scenery: placed for the F1
+  const v = buildSpeedProfile(tr, CARS.lcf1), N = tr.N, zones: BrakeZone[] = [];   // boards are scenery: placed for the F1
   const braking = (i: number) => v[(i + 1) % N] < v[i] - 1e-3;
   let start = 0;
   while (braking(start)) start++;                 // begin outside a braking run

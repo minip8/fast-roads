@@ -16,6 +16,12 @@ describe('loadSettings', () => {
     localStorage.setItem('fastroads.settings', JSON.stringify({ car: 'drift', camera: 'nope', extra: 1 }));
     expect(loadSettings()).toEqual({ ...DEFAULT_SETTINGS, car: 'drift' });
   });
+  it('replaces a removed car with its LibreCorsa-engine twin', () => {
+    for (const [old, now] of [['f1', 'lcf1'], ['gt3', 'lcgt3']]) {
+      localStorage.setItem('fastroads.settings', JSON.stringify({ car: old }));
+      expect(loadSettings().car).toBe(now);
+    }
+  });
 });
 
 describe('loadStore', () => {

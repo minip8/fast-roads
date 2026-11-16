@@ -54,7 +54,7 @@ export async function main() {
   const { renderer, scene, camera } = stage;
 
   // Physics. session.car is replaced when the Car setting changes: read it at call time.
-  const session = new Session(track, scene, CARS.f1, def), { timing } = session;
+  const session = new Session(track, scene, CARS[settings.car], def), { timing } = session;
   const input = new Input();
   const audio = new EngineAudio();
   const dust = new Dust(scene);

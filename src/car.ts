@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { G_CAR, G_CARPART, G_GROUND, G_RAY, G_WALL, PLOUGH_FADE_V, PLOUGH_WHEEL_SHARE, SURF, SURF_BLEND_T, S_ASPHALT, groups } from './config';
 import { type CarMesh, poseCockpit } from './carMeshes';
-import type { BrushTyre, CarSpec } from './cars';
+import type { CarSpec } from './cars';
 import { pointAt, projectOnTrack, surfaceAt, trackLimitOut, type SurfaceRes, type Track, type TrackPos } from './track';
 import { clamp, lerp } from './util';
 import type { DriveInput, Vehicle } from './vehicle';
@@ -23,23 +23,14 @@ export interface Wheel {
   muBlend: number; rrBlend: number; decelBlend: number;   // surface properties, eased between surfaces
   surf: number; out: boolean;        // surface index; past the track limits
   slip: number;                      // slip amount (for sound)
-  comply: number;                    // steering flex: angle (rad) the cornering force has bent this wheel by
   spin: number; omega: number;       // visual rotation and angular speed
   proj: TrackPos; sres: SurfaceRes;
   contact: THREE.Vector3; normal: THREE.Vector3;
 }
 
 export function pacejka(spec: CarSpec, alpha: number, front: boolean) {
-  const { B, C, E } = (front && spec.pacFront) || spec.pac!, x = B * alpha;
+  const { B, C, E } = (front && spec.pacFront) || spec.pac, x = B * alpha;
   return Math.sin(C * Math.atan(x - E * (x - Math.atan(x))));
-}
-const COMPLY_T = 0.03;   // s: steering flex follows the cornering force over this long, so the two cannot chase each other
-// Brush tyre (Fiala's model, as LibreCorsa's GT3 slick uses it): share of the peak cornering force at slip
-// tan(slip angle) under load Fz. A tread of elastic bristles gives 1 - (1 - s)^3 up to the peak (three times as stiff
-// around the centre as a straight line to the peak), then the whole patch slides and the force eases down to `level`.
-export function brush(t: BrushTyre, tanAlpha: number, Fz: number) {
-  const peak = Math.tan(t.peak) * Math.max(0.25, 1 + t.peakGain * (Fz / t.fz0 - 1)), s = Math.abs(tanAlpha);
-  return Math.sign(tanAlpha) * (s <= peak ? 1 - (1 - s / peak) ** 3 : t.level + (1 - t.level) / (1 + t.slope * (s - peak)));
 }
 export function engineTorque(spec: CarSpec, rpm: number) {
   const T = spec.torque;
@@ -61,7 +52,6 @@ export class Car implements Vehicle {
   private steerIn = 0;                      // the driver's part of the wheel angle (steer adds the countersteer assist)
   private looseAsk = 0;                     // eased share of the rear looseness in play (see rearLoose)
   private rearSlip = 0; private slipRate = 0;   // rear slide angle (rad) and its smoothed rate, for the assist
-  private lastVF = 0; private accF = 0;     // last tick's forward speed, and the smoothed forward acceleration (m/s2)
   tc = true; manual = false;                // gearbox is automatic unless manual
   assist = false;                           // countersteer assist (only cars whose spec has one); off unless the player turns it on
   pendingShift = 0; shiftDenied = false;    // queued manual shifts; set when a downshift would over-rev
@@ -84,7 +74,7 @@ export class Car implements Vehicle {
       name, front, local: new THREE.Vector3(x, this.mountY, z), k: front ? this.spec.kFront : this.spec.kRear,
       comp: staticComp, prevComp: staticComp, Fz: 0, grounded: false, L: this.spec.suspLen - staticComp,
       muBlend: SURF[S_ASPHALT].mu, rrBlend: SURF[S_ASPHALT].rr, decelBlend: 0,
-      surf: S_ASPHALT, slip: 0, comply: 0, spin: 0, omega: 0, out: false, proj: { i: 0, lat: 0, s: 0 }, sres: { surf: 0, h: 0 },
+      surf: S_ASPHALT, slip: 0, spin: 0, omega: 0, out: false, proj: { i: 0, lat: 0, s: 0 }, sres: { surf: 0, h: 0 },
       contact: new THREE.Vector3(), normal: new THREE.Vector3(0, 1, 0),
     });
     this.wheels = [
@@ -132,13 +122,12 @@ export class Car implements Vehicle {
     this.body.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true);
     this.body.setLinvel({ x: tr.TX[i] * speed, y: 0, z: tr.TZ[i] * speed }, true);
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
-    this.gear = 1; this.steer = this.steerIn = this.rearSlip = this.slipRate = 0; this.looseAsk = this.spec.rearLoose[2]; this.shiftTimer = 0; this.tipped = 0; this.accF = 0;
-    this.lastVF = speed;
+    this.gear = 1; this.steer = this.steerIn = this.rearSlip = this.slipRate = 0; this.looseAsk = this.spec.rearLoose[2]; this.shiftTimer = 0; this.tipped = 0;
     // rolling: the gear the automatic box would be in (the lowest that is below its shift point)
     const top = this.spec.gearTop;
     while (this.gear < top.length - 1 && (this.spec.redline * speed) / top[this.gear] > this.spec.shiftPoint) this.gear++;
     this.rpm = Math.max(this.spec.idle, (this.spec.redline * speed) / top[this.gear]);
-    for (const w of this.wheels) { w.comp = w.prevComp = 0.025; w.omega = speed / this.spec.wheelRadius; w.comply = 0; w.muBlend = SURF[S_ASPHALT].mu; w.rrBlend = SURF[S_ASPHALT].rr; w.decelBlend = 0; }
+    for (const w of this.wheels) { w.comp = w.prevComp = 0.025; w.omega = speed / this.spec.wheelRadius; w.muBlend = SURF[S_ASPHALT].mu; w.rrBlend = SURF[S_ASPHALT].rr; w.decelBlend = 0; }
     this.proj.i = -1;
     this.readState();
     this.prevPos.copy(this.pos); this.prevQuat.copy(this.quat);
@@ -159,7 +148,6 @@ export class Car implements Vehicle {
     this.readState();
     projectOnTrack(tr, this.pos.x, this.pos.z, this.proj.i, this.proj);
     const v = this.vel.length(), vF = this.speedF;
-    this.accF += (clamp((vF - this.lastVF) / dt, -30, 30) - this.accF) * 0.3; this.lastVF = vF;
     this.tipped = this.up.y < 0.3 && v < 2 ? this.tipped + dt : 0;
 
     // Rear slide: the rear axle's sideways speed (m/s, positive = to the left) and the angle (rad) between where it
@@ -264,14 +252,6 @@ export class Car implements Vehicle {
       if (this.shiftTimer > 0) drive = 0;
       else if (throttle > 0.02) drive = throttle * engineTorque(this.spec, rpm) * (this.spec.redline * 2 * Math.PI / 60) / top;
       else if (vF > 2) drive = -this.spec.engineBrake * (rpm / this.spec.redline);    // engine braking
-      // The engine also has to spin itself, the gearbox and the wheels up as the car gains speed: in a low gear a
-      // good share of its push goes into that. They count as extra mass at the wheels (inertia x gearing squared),
-      // accelerating at the rate the car did over the last few ticks.
-      const [engineI, wheelI] = this.spec.rotInertia;
-      if (drive > 0 && (engineI > 0 || wheelI > 0)) {
-        const gearing = (this.spec.redline * 2 * Math.PI / 60) / top;   // engine rad per metre travelled
-        drive = Math.max(0, drive - (engineI * gearing * gearing + wheelI / this.spec.wheelRadius ** 2) * Math.max(0, this.accF));
-      }
     }
     this.throttle = throttle; this.brake = brake;
 
@@ -344,7 +324,7 @@ export class Car implements Vehicle {
       // suspension force
       b.applyImpulseAtPoint({ x: up.x * w.Fz * dt, y: up.y * w.Fz * dt, z: up.z * w.Fz * dt }, w.contact, true);
 
-      const delta = w.front ? this.steer + w.comply : 0;
+      const delta = w.front ? this.steer : 0;
       const wf = _v2.copy(this.fwd).multiplyScalar(Math.cos(delta)).addScaledVector(this.left, Math.sin(delta));
       wf.addScaledVector(n, -wf.dot(n)).normalize();
       const ws = _v3.crossVectors(n, wf);                     // points left
@@ -357,10 +337,9 @@ export class Car implements Vehicle {
       const wPlough = w.decelBlend * mc * Math.min(1, (vx / PLOUGH_FADE_V) ** 2);
       plough += wPlough * (1 - PLOUGH_WHEEL_SHARE);
       const alpha = Math.atan2(vy, Math.max(Math.abs(vx), 7));
-      const bt = this.spec.brush?.[w.front ? 'front' : 'rear'];   // a brush tyre brings its own curve and load sensitivity
-      const loadSens = bt ? Math.max(w.Fz / bt.fz0, 0.18) ** (bt.loadExp - 1) : clamp(1.08 - 0.08 * (w.Fz / 2000), 0.72, 1.1);
+      const loadSens = clamp(1.08 - 0.08 * (w.Fz / 2000), 0.72, 1.1);
       const Fmax = w.muBlend * loadSens * w.Fz * (w.front ? this.spec.gripFront : this.spec.gripRear * rearGrip);
-      let Fy = -Fmax * (bt ? brush(bt, vy / Math.max(Math.abs(vx), 7), w.Fz) : pacejka(this.spec, alpha, w.front));
+      let Fy = -Fmax * pacejka(this.spec, alpha, w.front);
 
       // longitudinal: drive (rear), brakes, rolling + surface drag
       let Fdrive = w.front ? 0 : drive / 2;
@@ -393,15 +372,12 @@ export class Car implements Vehicle {
       // no overshoot at low speed: never reverse the corner's lateral velocity in one step
       const maxFy = (mc * Math.abs(vy)) / dt;
       Fy = clamp(Fy, -maxFy, maxFy);
-      // Steering flex: the cornering force bends the rack and bushes, turning the wheel back towards straight. The
-      // car needs more lock the harder it corners (understeer), and the limit stays where it was.
-      if (w.front && this.spec.steerComply > 0) w.comply += (-this.spec.steerComply * Fy - w.comply) * Math.min(1, dt / COMPLY_T);
 
       const ax = (wf.x * Fx + ws.x * Fy) * dt, ay = (wf.y * Fx + ws.y * Fy) * dt, az = (wf.z * Fx + ws.z * Fy) * dt;
       const lift = this.spec.forceHeight;
       b.applyImpulseAtPoint({ x: ax, y: ay, z: az }, { x: w.contact.x + up.x * lift, y: w.contact.y + up.y * lift, z: w.contact.z + up.z * lift }, true);
 
-      w.slip = Math.max(Math.abs(alpha) / (bt ? 0.87 * bt.peak : 0.15), slide * 2);   // about 1.15 at the peak slip angle
+      w.slip = Math.max(Math.abs(alpha) / 0.15, slide * 2);
       w.omega = vx / this.spec.wheelRadius * (1 + (!w.front && Fdrive > 0 ? slide * 0.8 : 0)) * (brake > 0.9 && slide > 0.3 ? 0.2 : 1);
     }
     // CoM share of the ploughing resistance, along -velocity in the ground plane; never reverses the car in one tick

@@ -33,10 +33,6 @@ describe('handling', () => {
     expect(await maxSlipAngle('drift', 22, { brake: 0.5, steer: 0.4 })).toBeGreaterThan(15);
     expect(await maxSlipAngle('drift', 30, { brake: 1, steer: 0 })).toBeLessThan(1);
   });
-
-  it('F1 stays planted when braking while turning', async () => {
-    expect(await maxSlipAngle('f1', 22, { brake: 0.5, steer: 0.4 })).toBeLessThan(6);
-  });
 });
 
 // Where the rear axle is going relative to where the car points (degrees): the size of a slide.
@@ -247,7 +243,7 @@ describe('drift car', () => {
 });
 
 describe('manual gearbox', () => {
-  for (const id of ['f1', 'drift', 'gt3'] as const) {
+  for (const id of ['drift'] as const) {
     it(`${id}: a downshift that would over-rev is refused at once; neutral is below first, reverse below neutral`, async () => {
       const { car, drive } = await session(id, { walls: false });
       car.forceSurface = S_ASPHALT;
@@ -297,7 +293,7 @@ describe('manual gearbox', () => {
 });
 
 describe('reverse', () => {
-  for (const id of ['f1', 'drift', 'gt3'] as const) {
+  for (const id of ['drift'] as const) {
     it(`${id}: reverse tops out at reverseTop, and the throttle stops it`, async () => {
       const { car, drive } = await session(id);
       car.forceSurface = S_ASPHALT;
@@ -317,7 +313,7 @@ describe('reverse', () => {
 });
 
 it('a car left on its side is put back on its wheels', async () => {
-  const s = await session('drift'), car = ourCar(s.car), { drive } = s;   // the drift car's boxy body rests on its side; the F1 tips back
+  const s = await session('drift'), car = ourCar(s.car), { drive } = s;   // the drift car's boxy body rests on its side
   const roll = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2);
   car.body.setRotation(car.quat.clone().multiply(roll), true);
   car.body.setTranslation({ x: car.pos.x, y: car.spec.hull[0] + 0.05, z: car.pos.z }, true);
@@ -329,7 +325,7 @@ it('a car left on its side is put back on its wheels', async () => {
 });
 
 it('non-finite drive input is ignored instead of breaking the physics', async () => {
-  const { car, drive } = await session('f1');
+  const { car, drive } = await session('drift');
   car.forceSurface = S_ASPHALT;
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   drive(1, () => ({ throttle: 1, brake: 0, steer: 0, analog: true, steerAngle: 0, autoGears: true }));

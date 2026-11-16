@@ -1,4 +1,4 @@
-# GT3 (LC) car model (`model.glb`)
+# GT3 car model (`model.glb`)
 
 - **Title:** Mercedes-AMG GT3 Red Bull Racing
 - **Author:** VTX (Sketchfab user `VTX_car`)

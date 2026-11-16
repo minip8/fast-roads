@@ -5,7 +5,7 @@ import { CARS } from '../src/cars';
 import { engineLoop, LOOP_RMS, loopCount, makeLoop, type EngineLoop } from '../src/engineLoops';
 
 const SR = 48000;
-const voice = CARS.gt3.sound.loops!;
+const voice = CARS.lcgt3.sound.loops!;
 const loops = Array.from({ length: loopCount(voice) }, (_, k) => makeLoop(voice, SR, k));
 
 // Amplitude of crank order `order`: the loop holds a whole number of engine cycles (two crank turns), so every

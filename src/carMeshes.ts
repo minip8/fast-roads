@@ -174,7 +174,7 @@ const disposed = new WeakSet<CarMesh>();
 // Body colour, accent colour and wheel stripe, so one body can carry more than one livery.
 export interface Paint { body: number; accent: number; stripe: number }
 
-export function buildCarMesh(spec: CarInfo, paint: Paint = { body: 0xff6a13, accent: 0x1fa6ff, stripe: 0xffd23f }): CarMesh {
+export function buildCarMesh(spec: CarInfo, paint: Paint): CarMesh {
   const root = new THREE.Group(), bodyGroup = new THREE.Group();
   root.add(bodyGroup);
   const body = mat({ color: paint.body, roughness: 0.3, metalness: 0.25 });
@@ -329,7 +329,7 @@ export function buildDriftMesh(spec: CarInfo): CarMesh {
 // GT3 coupe: long bonnet, cabin set back, wide arches standing above it, splitter, diffuser and a full-width rear
 // wing. Origin is the centre of mass (0.40 m above the road); the floor is at y = -0.33.
 // With `model`, the model file replaces this body once it has loaded (see loadModel).
-export function buildGt3Mesh(spec: CarInfo, paint: Paint = { body: 0x0e6b57, accent: 0xf2d21b, stripe: 0xf2d21b }, model?: CarModelDef): CarMesh {
+export function buildGt3Mesh(spec: CarInfo, paint: Paint, model?: CarModelDef): CarMesh {
   const root = new THREE.Group(), bodyGroup = new THREE.Group();
   root.add(bodyGroup);
   const body = mat({ color: paint.body, roughness: 0.28, metalness: 0.3 });
@@ -405,11 +405,7 @@ export interface CarModelDef {
   driver: { head: [y: number, z: number]; shoulder: [dy: number, dz: number]; helmet: number; suit: number };
 }
 
-// The Mercedes-AMG GT3s (credits in public/cars/<id>/LICENSE.md). Both seat the driver on the left.
-export const GT3_MODEL: CarModelDef = {
-  url: 'cars/gt3/model.glb',
-  driver: { head: [0.52, -0.62], shoulder: [-0.2, 0.02], helmet: 0xf2f4f7, suit: 0x1c2a44 },
-};
+// The Mercedes-AMG GT3 (credits in public/cars/lcgt3/LICENSE.md): the driver sits on the left.
 export const LC_GT3_MODEL: CarModelDef = {
   url: 'cars/lcgt3/model.glb',
   driver: { head: [0.5, -0.62], shoulder: [-0.2, 0.02], helmet: 0x1b2a4e, suit: 0x1b2a4e },

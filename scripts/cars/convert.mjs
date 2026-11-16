@@ -2,18 +2,14 @@
 // game's axes (x left, y up, z forward), scaled and placed so its wheels sit on the car spec's axles, split into the
 // parts the game moves, simplified, with WebP textures and meshopt-compressed geometry.
 //
-//   node scripts/cars/convert.mjs <id> <source.glb> [<textures dir>]
+//   node scripts/cars/convert.mjs <id> <source.glb>
 //
 // The sources are not in the repository (50-80 MB each). Download them from Sketchfab ("Download 3D model", glTF
-// format, which gives a .glb in source/ and a textures/ directory next to it):
-//   gt3    "Mercedes-AMG GT3 | www.vecarz.com" by Vecarz (heynic), CC BY-NC-SA 4.0
-//          https://sketchfab.com/3d-models/mercedes-amg-gt3-wwwvecarzcom-6a3f7e3455064721b74b7f0b66427a07
-//          node scripts/cars/convert.mjs gt3 <dir>/source/amg_evo_3.glb <dir>/textures
-//          (the livery, banner and tyre textures are only in textures/: the .glb leaves those materials untextured)
+// format, which gives a .glb in source/):
 //   lcgt3  "Mercedes-AMG GT3 Red Bull Racing" by VTX (VTX_car), CC BY-NC-SA 4.0
 //          https://sketchfab.com/3d-models/mercedes-amg-gt3-red-bull-racing-035f061cb6624effbc483d5f9b5ecaba
 //          node scripts/cars/convert.mjs lcgt3 <dir>/source/mercedes_benz_amg_gt3_red_bull.glb
-// The licence files beside each output (LICENSE.md) list the changes made here, as the licence requires: update
+// The licence file beside each output (LICENSE.md) list the changes made here, as the licence requires: update
 // them with any change to what this does. Check the result in the game (wheels, steering wheel, driver camera) and
 // with test/carModels.test.ts; scripts/cars/inspect.mjs prints a file's scene graph, materials and textures.
 //
@@ -33,7 +29,7 @@ import { ALL_EXTENSIONS, EXTMeshoptCompression, EXTTextureWebP, KHRMaterialsClea
 import { compactPrimitive, dedup, join, meshopt, prune, textureCompress, weldPrimitive } from '@gltf-transform/functions';
 import { MeshoptDecoder, MeshoptEncoder, MeshoptSimplifier } from 'meshoptimizer';
 import sharp from 'sharp';
-import { mkdirSync, readFileSync, statSync } from 'node:fs';
+import { mkdirSync, statSync } from 'node:fs';
 import { dirname, join as pathJoin } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -50,55 +46,6 @@ const CORNERS = ['FL', 'FR', 'RL', 'RR'];
 // four corners triangle by triangle.
 // ---------------------------------------------------------------------------------------------------------------
 const CARS = {
-  gt3: {
-    target: { zFront: 1.378, zRear: -1.272, wheelRadius: 0.345, comHeight: 0.40 },
-    turn: 0,
-    part(names, mat) {
-      const has = (re) => names.some((n) => re.test(n));
-      if (has(/^RIM_BLUR|pistons|^CINTURE_(ON|OFF)$|^MOTEC2$|EXT_Banner002|^LED_RPM_LIMITER_1$|^LED_RPM_TC$|^auxiliary_light_interior$/)) return null;
-      if (has(/^AMG_GT3_DISPALY_MESH\d/)) return null;   // display overlays stacked on the screen (one is kept)
-      if (has(/^TYRE_/)) return ['tyre'];
-      if (has(/^RIM_|^Disc_/)) return ['wheel'];
-      if (has(/^SUSP_/)) return ['hub'];
-      if (has(/^INT_Steer001$/)) return ['steerRim'];
-      if (has(/^STEER_HR$/)) return ['steer'];
-      if (has(/^EXT_Emissive_Brakelights$/)) return ['brake'];
-      if (/Windows|Windshield/.test(mat)) return ['glass'];
-      if (has(/^COCKPIT_HR$/) || mat.startsWith('INT_')) return ['body', 'int'];
-      return ['body', 'ext'];
-    },
-    // The .glb leaves these untextured and flat grey: the livery and other textures are in textures/, and the
-    // rest get colours.
-    materials(m, tex) {
-      const name = m.getName();
-      const set = (color, metal, rough, extra = {}) => {
-        m.setBaseColorFactor([...color, extra.alpha ?? 1]).setMetallicFactor(metal).setRoughnessFactor(rough);
-        if (extra.alpha !== undefined) m.setAlphaMode('BLEND');
-        if (extra.emissive) m.setEmissiveFactor(extra.emissive);
-        if (extra.double) m.setDoubleSided(true);
-      };
-      const lin = (hex) => [hex >> 16, (hex >> 8) & 255, hex & 255].map((c) => (c / 255) ** 2.2);
-      if (/^EXT_Carpaint_Inst/.test(name)) { set([1, 1, 1], 0.1, 0.35); m.setBaseColorTexture(tex('EXT_Skin_Colour.png', 'livery')); return; }
-      if (name === 'MIRROR') { set(lin(0x8a9096), 1, 0.08); m.setBaseColorTexture(null); return; }
-      if (/^EXT_Banner/.test(name)) { set([1, 1, 1], 0, 0.5); m.setBaseColorTexture(tex('EXT_Banner_Colour.png', 't_banner')); return; }
-      if (name === 'EXT_Logo') { set([1, 1, 1], 0.3, 0.4); m.setBaseColorTexture(tex('ext_decals_colour.png', 't_decals')); return; }
-      if (/Windows|Windshield/.test(name)) { set(lin(0x1a222b), 0.6, 0.08, { alpha: 0.45 }); m.setDoubleSided(false); return; }
-      if (/Glass/.test(name) && !m.getBaseColorTexture()) { set(lin(0x20262c), 0.5, 0.1, { alpha: 0.5 }); return; }
-      if (/Carbon/.test(name)) { set(lin(0x1c1e22), 0.4, 0.35); return; }
-      if (/Chrome|Wing_Metal/.test(name)) { set(lin(0xb0b4ba), 1, 0.25); return; }
-      if (/Calipers/.test(name)) { set(lin(0xc81e1e), 0.3, 0.4); return; }
-      if (/Grid|Radiators/.test(name)) { set(lin(0x101113), 0.3, 0.6); return; }
-      if (/Exhaust/.test(name)) { set(lin(0x5a5550), 0.8, 0.4); return; }
-      if (/Lighthouse/.test(name)) { set(lin(0x2a2d31), 0.8, 0.2); return; }
-      if (/Wheelhouse|Hooks|Mechanics/.test(name) && !m.getBaseColorTexture()) { set(lin(0x17181a), 0.2, 0.7); return; }
-      if (/^INT_/.test(name) && !m.getBaseColorTexture()) { set(lin(name === 'INT_Seat' ? 0x2a2c30 : 0x1a1b1e), 0.1, 0.7); return; }
-      if (/^INT_Steer/.test(name) && !m.getBaseColorTexture()) { set(lin(0x16171a), 0.1, 0.6); return; }
-      if (name === 'amg_gt3_tyres') { set([1, 1, 1], 0, 0.85); return; }
-      if (name === 'amg_gt3_rims') { set([1, 1, 1], 0.6, 0.35); return; }
-      if (!m.getBaseColorTexture()) set(lin(0x2a2c30), 0.2, 0.6);
-      else m.setRoughnessFactor(Math.min(m.getRoughnessFactor(), 0.7));
-    },
-  },
   lcgt3: {
     target: { zFront: 1.378, zRear: -1.272, wheelRadius: 0.34625, comHeight: 0.40 },
     turn: -90,
@@ -141,10 +88,10 @@ const CABIN = { x: 1.12, y: 0.12, z: [-1.15, 0.8] };
 const CABIN_CENTRE = [0, 0.45, -0.45];   // inside the glass, for telling its outer faces from inner ones
 
 // ---------------------------------------------------------------------------------------------------------------
-const [id, src, texDir] = process.argv.slice(2);
+const [id, src] = process.argv.slice(2);
 const car = CARS[id];
 if (!car || !src) {
-  console.error('usage: node scripts/cars/convert.mjs <' + Object.keys(CARS).join('|') + '> <source.glb> [<textures dir>]');
+  console.error('usage: node scripts/cars/convert.mjs <' + Object.keys(CARS).join('|') + '> <source.glb>');
   process.exit(1);
 }
 await MeshoptDecoder.ready; await MeshoptEncoder.ready; await MeshoptSimplifier.ready;
@@ -155,20 +102,7 @@ const root = doc.getRoot(), buffer = root.listBuffers()[0];
 const triCount = (prims) => prims.reduce((a, p) => a + (p.getIndices() ?? p.getAttribute('POSITION')).getCount() / 3, 0);
 const srcTris = triCount(root.listMeshes().flatMap((m) => m.listPrimitives()));
 
-// Loose texture files, for materials the .glb leaves untextured. They are stored bottom row first (as DirectX
-// textures are), so they are flipped.
-const loose = new Map();
-const pending = [];
-const tex = (file, name) => {
-  if (!loose.has(file)) {
-    const t = doc.createTexture(name).setMimeType('image/png');
-    pending.push(sharp(readFileSync(pathJoin(texDir, file))).flip().png().toBuffer().then((b) => t.setImage(b)));
-    loose.set(file, t);
-  }
-  return loose.get(file);
-};
-for (const m of root.listMaterials()) car.materials(m, tex);
-await Promise.all(pending);
+for (const m of root.listMaterials()) car.materials(m);
 
 // --- 1. Collect every triangle in game axes (before scaling), sorted into soups by part and material. -------------
 const turn = (car.turn * Math.PI) / 180, ct = Math.cos(turn), st = Math.sin(turn);

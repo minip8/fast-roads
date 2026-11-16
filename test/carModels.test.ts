@@ -1,12 +1,12 @@
-// The GT3s' model files (public/cars/<id>/model.glb) and how a car swaps its model in. The files are checked
+// The GT3's model file (public/cars/<id>/model.glb) and how a car swaps its model in. The files are checked
 // against the specs they ride on; the swap runs with a stand-in model, since Node has no loader for the real ones.
 import { existsSync, readFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { afterEach, describe, expect, it } from 'vitest';
-import { type CarMesh, type CarModelDef, GT3_MODEL, LC_GT3_MODEL, setCarModelSource } from '../src/carMeshes';
+import { type CarMesh, type CarModelDef, LC_GT3_MODEL, setCarModelSource } from '../src/carMeshes';
 import { CARS, type CarId } from '../src/cars';
 
-const MODELS: [CarId, CarModelDef][] = [['gt3', GT3_MODEL], ['lcgt3', LC_GT3_MODEL]];
+const MODELS: [CarId, CarModelDef][] = [['lcgt3', LC_GT3_MODEL]];
 const PARTS = ['body', 'steering_wheel', 'brake_light', ...['FL', 'FR', 'RL', 'RR'].flatMap((c) => [`wheel_${c}`, `hub_${c}`])];
 
 // The JSON chunk of a .glb (no need to decode the geometry for where the parts are).
@@ -38,7 +38,7 @@ describe.each(MODELS)('%s model file', (id, def) => {
   });
 
   // The Red Bull model keeps the wheel's button labels in its interior stickers mesh: they must turn with the wheel.
-  it.runIf(id === 'lcgt3')('turns the labels with the steering wheel', () => {
+  it('turns the labels with the steering wheel', () => {
     const json = glbJson(file), node = json.nodes.find((n) => n.name === 'steering_wheel')!;
     const mats = json.meshes[node.mesh!].primitives.map((p) => json.materials[p.material!].name);
     expect(mats).toContain('MI_Mercedes_AMG_GT3_Evo_Interior_Stickers');
@@ -80,7 +80,7 @@ describe('model swap', () => {
   it('replaces the built body, wheels and steering wheel, and leaves the shared model alone on dispose', async () => {
     const m = standIn();
     setCarModelSource(async () => m.scene);
-    const spec = CARS.gt3, mesh = spec.mesh(spec);
+    const spec = CARS.lcgt3, mesh = spec.mesh(spec);
     const oldGeo = disposed(procedural(mesh).geometry), oldCockpit = mesh.cockpit, oldLight = mesh.brakeLight;
     await settle();
     expect(oldGeo.hit).toBe(true);                                         // the built body is freed

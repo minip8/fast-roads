@@ -34,7 +34,7 @@ export const SETTING_DEFS: { [K in SettingKey]: SettingDef<K> } = {
 };
 export const SETTING_KEYS = Object.keys(SETTING_DEFS) as SettingKey[];
 export const DEFAULT_SETTINGS: Settings = {
-  track: 'melbourne', car: 'f1', gearbox: 'auto', steering: 'keyboard', mouseSens: 'medium', mouseDeadzone: 'small', camera: 'onboard', hands: 'off', tc: 'on', assist: 'off', sound: 'on',
+  track: 'melbourne', car: 'lcf1', gearbox: 'auto', steering: 'keyboard', mouseSens: 'medium', mouseDeadzone: 'small', camera: 'onboard', hands: 'off', tc: 'on', assist: 'off', sound: 'on',
 };
 
 const SETTINGS_KEY = 'fastroads.settings';
@@ -51,6 +51,9 @@ export function loadSettings(): Settings {
     if (saved && typeof saved === 'object') {
       for (const k of SETTING_KEYS) if (k in saved) (settings as Record<SettingKey, unknown>)[k] = (saved as Record<string, unknown>)[k];
     }
+    // cars since removed: their twins on LibreCorsa's engine take their place
+    const car: unknown = settings.car;
+    if (car === 'f1' || car === 'gt3') settings.car = car === 'f1' ? 'lcf1' : 'lcgt3';
   } catch { /* storage unavailable or corrupt */ }
   const validate = <K extends SettingKey>(k: K) => {
     if (!SETTING_DEFS[k].options.some(([v]) => v === settings[k])) settings[k] = DEFAULT_SETTINGS[k];
