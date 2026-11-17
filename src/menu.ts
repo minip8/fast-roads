@@ -50,7 +50,8 @@ export interface NetHost {
   dismiss(): void;                      // forget the error (and a room link that failed)
   leave(): void;
   room(): RoomView | null;              // joined: the room, read straight from its NetClient
-  // The starting tyre for the room's sessions (null: none to choose). CONNECT: the in-car side applies it.
+  raceGoesOn(): boolean;                // a race we are in: it does not stop while the menu is open (our car is parked)
+  // The starting tyre for the room's sessions (Weekend.setStartCompound fits it whenever a session puts the car on track).
   readonly tyre: TyreChoice | null;
 }
 export interface RoomView {
@@ -61,11 +62,12 @@ export interface RoomView {
   readonly invite: string;              // the link to send others
   readonly circuitName: (id: string) => string;
   now(): number;                        // local clock (s) for net.serverTime / sample
+  tyreLife(wear: number): string;       // about how long our car's dry tyres last here at that wear, in words
 }
 export interface TyreChoice {
   options(): { id: string; name: string; letter: string; colour: string }[];   // the current car's compounds
-  get(): string;
-  set(id: string): void;
+  get(): string | null;                 // null: Auto (the weather and the session decide)
+  set(id: string | null): void;
 }
 type LobbyKit = typeof import('./lobby');
 
@@ -192,7 +194,11 @@ export class Menu {
 
   private update() {
     const { host } = this, car = CARS[host.settings.car], track = TRACKS[host.loadedTrack], room = host.net.room();
-    $('menuPaused').hidden = !host.started();
+    // (a race does not pause: say so, and that the car is stopped where it is)
+    const raceOn = host.net.raceGoesOn(), badge = $('menuPaused');
+    badge.hidden = !host.started() && !raceOn;
+    badge.textContent = raceOn ? 'Race on · your car is stopped' : 'Paused';
+    badge.classList.toggle('live', raceOn);
     $('menuSub').textContent = room
       ? `Room ${room.net.room} · ${room.kit.sessionTitle(room.net.session, room.net.settings)} · ${car.name} at ${track.name}`
       : `Time trial · ${car.name} at ${track.name}`;
@@ -463,16 +469,18 @@ export class Menu {
 
     // --- your car (and starting tyres)
     this.heading('Your car');
-    const racing = () => net.session.phase === 'race' && net.session.stage !== 'results';
+    // (a car change puts the car back at the start: in a race, or one-shot qualifying's single lap, that is not allowed)
+    const locked = () => (net.session.phase === 'race' && net.session.stage !== 'results' ? 'the race'
+      : net.session.phase === 'qualifying' && net.session.oneShot ? 'one-shot qualifying' : null);
     this.carCards(c, (id) => {
-      const only = this.roomSettings(r).car;
+      const only = this.roomSettings(r).car, during = locked();
       if (only && only !== id) return `This room races the ${carLabel(only)} only`;
-      return racing() ? 'Cars cannot be changed during the race' : null;
+      return during ? `Cars cannot be changed during ${during}` : null;
     });
     const carNote = h('p', 'mnote'); c.append(carNote);
     this.extraUpdates.push(() => {
-      const only = this.roomSettings(r).car;
-      carNote.textContent = only ? `The host has set this room to the ${carLabel(only)} only.` : racing() ? 'Cars cannot be changed during the race.' : '';
+      const only = this.roomSettings(r).car, during = locked();
+      carNote.textContent = only ? `The host has set this room to the ${carLabel(only)} only.` : during ? `Cars cannot be changed during ${during}.` : '';
     });
     if (host.net.tyre) this.tyreRow(host.net.tyre);
 
@@ -511,8 +519,11 @@ export class Menu {
   private roomRow(r: RoomView, f: RoomField, parent: HTMLElement, editable: boolean) {
     const kit = r.kit;
     const row = h('div', 'mrow'); row.tabIndex = -1;
-    const lab = h('div', 'mlabel'); lab.append(h('span', '', f.label), h('small', '', f.hint));
+    const hint = h('small', '', f.hint);
+    const lab = h('div', 'mlabel'); lab.append(h('span', '', f.label), hint);
     row.append(lab);
+    // (tyre wear: what the setting means in laps here, for the car we drive)
+    if (f.key === 'tyreWear') this.extraUpdates.push(() => { hint.textContent = `${f.hint} ${r.tyreLife(this.roomSettings(r).tyreWear)}`.trim(); });
     const cur = () => this.roomSettings(r)[f.key];
     const set = (v: RoomValue) => { if (editable && v !== cur()) this.setRoom(r, { [f.key]: v } as Partial<RoomSettings>); };
     const cycle = (dir: number) => set(kit.stepOption(f, cur(), dir, this.roomSettings(r), f.kind === 'choice'));
@@ -554,22 +565,25 @@ export class Menu {
       update: () => { sync(); row.classList.toggle('dim', !!f.applies && !f.applies(this.roomSettings(r))); row.classList.toggle('ro', !editable); } });
   }
 
-  // Starting tyres: the current car's compounds (rebuilt when the car changes; hidden with one compound).
+  // Starting tyres: Auto, then the current car's compounds (rebuilt when the car changes; hidden with one compound).
   private tyreRow(t: TyreChoice) {
     const { host } = this;
     const rows = h('div', 'menu-settings tyrerow'); this.contentEl.append(rows);
     const row = h('div', 'mrow');
-    const lab = h('div', 'mlabel'); lab.append(h('span', '', 'Starting tyres'), h('small', '', 'Fitted when each session puts you on track.'));
+    const lab = h('div', 'mlabel'); lab.append(h('span', '', 'Starting tyres'),
+      h('small', '', 'Fitted when each session puts you on track. Auto: soft in practice and qualifying, medium in the race, intermediates or wets on a wet track.'));
     const seg = h('div', 'seg'); row.append(lab, seg); rows.append(row);
-    let car = '', bts: (readonly [string, HTMLButtonElement])[] = [];
+    let car = '', bts: (readonly [string | null, HTMLButtonElement])[] = [];
     const fill = () => {
       car = host.settings.car; seg.innerHTML = '';
-      bts = t.options().map((o) => {
+      const opts = t.options();
+      bts = [{ id: null, name: 'Auto', colour: '' }, ...opts].map((o) => {
         const bt = button('', o.name);
-        bt.style.setProperty('--tc', o.colour);
+        if (o.colour) bt.style.setProperty('--tc', o.colour);
         bt.addEventListener('click', () => { t.set(o.id); this.update(); });
         seg.append(bt); return [o.id, bt] as const;
       });
+      if (opts.length < 2) bts = [];
     };
     this.items.push({ el: row, target: () => bts.find(([id]) => id === t.get())?.[1] ?? bts[0]?.[1] ?? row,
       cycle: (dir) => { const k = bts.findIndex(([id]) => id === t.get()); if (bts.length) { t.set(bts[wrapI(k + dir, bts.length)][0]); this.update(); } },
@@ -879,7 +893,8 @@ export class Menu {
     this.heading('Gamepad');
     c.append(this.refList([
       ['Left stick', 'Steer'], ['RT / LT', 'Throttle / brake'], ['RB / LB', 'Shift up / down'], ['Y', 'Change camera'],
-      ['Right stick click', 'Look behind (hold)'], ['X / Back', 'Restart lap'], ['Start', 'Pause menu'], ['In menus', 'D-pad moves · A selects · B back · LB / RB tabs'],
+      ['Right stick click', 'Look behind (hold)'], ['X / Back', 'Restart lap (in a race: a recovery)'], ['D-pad up', 'Next pit stop tyres (race weekends)'],
+      ['Start', 'Pause menu'], ['In menus', 'D-pad moves · A selects · B back · LB / RB tabs'],
     ]));
   }
 

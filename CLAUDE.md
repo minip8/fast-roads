@@ -103,7 +103,9 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   `test/race-weekend.test.ts` runs whole race weekends the same way (relay durations shortened, laps driven by
   placing the car before each timing line, about 15 s): qualifying setting the grid, cars held on their slots until
   lights out, a pit stop, a recovery, the finish and classification, one-shot qualifying, the weather in the physics,
-  a spectator. `test/raceGeometry.test.ts` checks the grid and the pit lane at every circuit. `test/pit-loss.test.ts`
+  a spectator, the timing panel's race laps (`lapState`), a race's best times starting empty, no chequered flag for
+  the winner after its finish. `test/raceGeometry.test.ts` checks the grid, the pit lane and the start gantry's posts
+  clear of it at every circuit. `test/pit-loss.test.ts`
   is a tool (`PITLOSS=melbourne`): the time a pit stop costs each car.
 - In the browser, `window.__game` exposes `simulate(seconds, driver, probeSecs)`, `car` (a getter: the car object is
   replaced when you switch cars), `simTime`, `session`, `timing`, `track`, `input`, `setSetting(key, value)` and
@@ -188,7 +190,8 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   (`import.meta.glob` makes each CSV its own chunk, so the game downloads only the circuit being driven)
 - `track.ts`: track geometry and colliders (`Track`)
 - `trackMeshes.ts`, `textures.ts`, `scenery.ts`, `brakeMarkers.ts`: visuals (`standBays` / `pitBuilding` in
-  `scenery.ts` place the buildings, leaving out or shortening any that would stand inside another stretch's walls); `batch.ts`: `Batch`, which merges many
+  `scenery.ts` place the buildings, leaving out or shortening any that would stand inside another stretch's walls;
+  `gantryPosts` stands the start gantry's pit-side post beyond the race weekends' pit lane); `batch.ts`: `Batch`, which merges many
   static parts into one mesh per material (grandstands, pit, gantry, brake boards, car bodies)
 - `weather.ts`: `Weather`, rain and track wetness as seen and heard (no physics). The game calls `weather.set({ rain,
   wetness })` (0..1 each; the first call is shown at once, later ones eased over ~4 s) and `weather.update(dt, cam,
@@ -513,4 +516,5 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   (`PLAN_LIFT`, `PLAN_COUNTER`: without them full power out of a wet corner spun the F1), and the session's start
   speed is scaled by how much slower the plan is over the next 400 m (`Session.flyingSpeed`). Within 1.5 m of the edge on the outside of a bend it lifts (the drift car slides
   wide under power in fast sweepers such as Monza's Curva Grande); no lap at Melbourne or Silverstone gets that close,
-  so their pins did not move. Brake-marker boards are scenery and are always placed from the `lcf1` profile.
+  so their pins did not move. In a room (`Track.pitLane` set) the road on the pit side reaches the lane's outer edge,
+  so a car put in the lane (out of its box after a reload, recovered into it) is not lifting off there. Brake-marker boards are scenery and are always placed from the `lcf1` profile.

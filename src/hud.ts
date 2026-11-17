@@ -34,6 +34,8 @@ export interface HudFrame {
   ghost?: { x: number; z: number } | null;   // the ghost car's position for the minimap, or null when it isn't shown
   others?: readonly MapDot[];       // other players' cars for the minimap (multiplayer)
   netGhost?: boolean;               // in a room, our car is not collidable yet (just restarted, or back from the menu)
+  // A race weekend's word on the lap (Weekend.lapState): the race's lap of its total, or our session over (no clock)
+  lapState?: { text: string; clock: boolean } | null;
 }
 
 export class Hud {
@@ -94,12 +96,12 @@ export class Hud {
     this.el.help.innerHTML = [
       `${k('throttle')} throttle · ${k('brake')} brake (auto gears: hold to reverse)`,
       `${k('left')} ${k('right')} steer`,
-      `${k('restart')} restart the lap (flying start)`,
+      `${k('restart')} restart the lap (flying start; in a race, a recovery) · ${k('tyre')} next pit stop tyres (race weekends)`,
       `${k('gearbox')} auto / manual gears · ${k('shiftUp')} ${k('shiftDown')} shift up / down`,
       `${k('steering')} mouse steering (L/R click throttle/brake, scroll shift)`,
       `${k('camera')} camera · ${k('lookBack')} look behind (hold) · ${k('tc')} traction control · ${k('mute')} sound`,
       `<kbd>${keyLabel(MENU_KEY)}</kbd> ${k('menu')} menu and settings · ${k('help')} hide this`,
-      '<span class="muted">Gamepad: RT throttle, LT brake, left stick steer, right stick click look behind, Start menu</span>',
+      '<span class="muted">Gamepad: RT throttle, LT brake, left stick steer, right stick click look behind, d-pad up next tyres, Start menu</span>',
     ].map((r) => `<div>${r}</div>`).join('');
     this.el.helpChip.innerHTML = `${k('help')} keys · <kbd>${keyLabel(MENU_KEY)}</kbd> menu`;
   }
@@ -127,10 +129,12 @@ export class Hud {
     if (this.root.hidden) return;
     const { car, timing, simTime } = f, el = this.el;
     const dt = f.paused ? 0 : f.dt;   // messages and the help panel wait while the game is paused
-    const lapStart = timing.lapStart, lapRunning = lapStart != null;
+    const ls = f.lapState, lapStart = timing.lapStart, lapRunning = lapStart != null && (!ls || ls.clock);
     setText(el.lap, lapRunning ? fmtTime(simTime + f.alpha * DT - lapStart) : '-:--.---');
     el.lap.classList.toggle('invalid', lapRunning && !timing.valid);
-    setText(el.state, !lapRunning ? (timing.nextInvalid ? `OUT LAP · NEXT LAP INVALID (${timing.nextInvalid})` : 'OUT LAP') : timing.valid ? `LAP ${timing.laps.length + 1}` : `LAP ${timing.laps.length + 1} · INVALID (${timing.invalidReason})`);
+    const lapText = ls?.text ?? `LAP ${timing.laps.length + 1}`;
+    setText(el.state, ls && !ls.clock ? ls.text : !lapRunning ? (timing.nextInvalid ? `OUT LAP · NEXT LAP INVALID (${timing.nextInvalid})` : 'OUT LAP')
+      : timing.valid ? lapText : `${lapText} · INVALID (${timing.invalidReason})`);
     const dl = this.showDelta && timing.valid ? timing.liveDelta(simTime, car.proj.s) : null;
     setText(el.delta, dl != null ? fmtDelta(dl) : '');
     setClass(el.delta, 'num ' + (dl == null ? '' : dl <= 0 ? 'ahead' : 'behind'));

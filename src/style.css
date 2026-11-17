@@ -43,7 +43,9 @@ canvas#view { display: block; width: 100vw; height: 100vh; }
 
 /* Multiplayer: the room's board (netHud.ts), its notices, and name tags over the other cars (remoteCars.ts) */
 #board { width: 280px; padding: 8px 10px 6px; font-size: 13px; }
-#board .bhead { display: flex; justify-content: space-between; font-size: 11px; letter-spacing: .12em; color: var(--muted); margin-bottom: 4px; }
+#board .bhead { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; letter-spacing: .12em; color: var(--muted); margin-bottom: 4px; }
+#board .bhead span { white-space: nowrap; }
+#board .bhead span:first-child { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 #board .bhead b { color: var(--text); letter-spacing: .14em; }
 #board .brow { display: grid; grid-template-columns: 16px 10px minmax(0, 1fr) auto auto; align-items: center; gap: 6px; padding: 2px 0; }
 #board .brow i { width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
@@ -161,6 +163,7 @@ body:has(#hud[hidden]) #netLabels { display: none; }
 #menuPaused { padding: 3px 9px; border-radius: 999px; background: rgba(255,255,255,.12); font-size: 11px; font-weight: 700;
   letter-spacing: .2em; text-transform: uppercase; color: var(--text); }
 #menuPaused[hidden] { display: none; }
+#menuPaused.live { background: #c62828; color: #fff; letter-spacing: .08em; }
 #menu .sub { color: var(--muted); margin: 4px 0 0; font-size: 14px; }
 #menu:has(#menuBody[hidden]) { height: auto; }   /* loading: just the title and the loading line */
 #loadState { color: var(--muted); margin: 26px 0 12px; display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 20px; }
@@ -499,6 +502,7 @@ kbd { font: inherit; font-weight: 700; color: var(--text); background: rgba(255,
   #raceLights i { width: 22px; height: 22px; }
   #racePit { right: auto; left: 16px; bottom: 252px; width: 190px; }
   #hud.race #timing { display: none; }   /* the tower and the strip carry the race */
+  #hud.race #msg { top: 200px; margin-top: 0; }   /* under the tower and its notices, clear of the strip */
 }
 .nametag .cchip { width: 14px; height: 14px; font-size: 9px; line-height: 14px; vertical-align: -2px; margin: 0 0 0 2px; box-shadow: 0 0 0 1.5px rgba(0,0,0,.6); }
 .nametag .tpit { font-size: 10px; margin-left: 4px; letter-spacing: .06em; }

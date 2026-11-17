@@ -124,9 +124,9 @@ export function buildScenery(tr: Track, scene: THREE.Scene, def: TrackDef) {
   {
     const m = new THREE.MeshStandardMaterial({ color: 0x2a2e35, roughness: 0.5, metalness: 0.6 });
     const lamp = new THREE.MeshStandardMaterial({ color: 0x220000, emissive: 0x330000 });
-    const wl = tr.WL[0] + 2, wr = tr.WR[0] + 2;
+    const { wl, wr } = gantryPosts(tr, def);
     M.compose(pos.set(tr.X[0], 0, tr.Z[0]), q.setFromEuler(e.set(0, Math.atan2(-tr.NZ[0], tr.NX[0]), 0)), sc.set(1, 1, 1));
-    const gpost = new THREE.BoxGeometry(0.5, 7, 0.5);
+    const gpost = new THREE.BoxGeometry(GANTRY_POST, 7, GANTRY_POST);
     for (const o of [wl, -wr]) part(gpost, o, 3.5, 0, m);
     part(new THREE.BoxGeometry(wl + wr, 0.9, 0.6), (wl - wr) / 2, 6.8, 0, m);
     const lampGeo = new THREE.BoxGeometry(0.5, 0.5, 0.2);
@@ -134,6 +134,17 @@ export function buildScenery(tr: Track, scene: THREE.Scene, def: TrackDef) {
   }
   batch.build(scene);
   return { bounds: { cx, cz, minX, maxX, minZ, maxZ }, terrain: terrainMat };
+}
+
+// The start gantry's posts: their centres' distance left (wl) and right (wr) of the centreline at the line. 2 m off the
+// track's edge, except on the pit building's side, where the post stands beyond a race weekend's pit lane (whose
+// outer edge stays 0.6 m off the barrier, or 6 m beyond the track's edge where there is none: raceGeometry.ts), not
+// on the lane's inner line.
+export const GANTRY_POST = 0.5;   // m square
+export function gantryPosts(tr: Track, def: Pick<TrackDef, 'pitSide'>): { wl: number; wr: number } {
+  const beyond = (bar: number, valid: boolean, edge: number) => Math.max(edge + 2, valid ? bar - 0.3 : edge + 6.5);
+  return def.pitSide > 0 ? { wl: beyond(tr.barL[0], !!tr.barLValid[0], tr.WL[0]), wr: tr.WR[0] + 2 }
+    : { wl: tr.WL[0] + 2, wr: beyond(tr.barR[0], !!tr.barRValid[0], tr.WR[0]) };
 }
 
 // Where the buildings go. A building may not reach another part of the circuit (a street circuit's straight often

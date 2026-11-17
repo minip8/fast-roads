@@ -102,7 +102,10 @@ export function autopilot(car: Vehicle, tr: Track, lat = 0): DriveInput {
   // Running out of road on the outside of a bend (the drift car sliding wide under power in a long fast curve, as in
   // Monza's Curva Grande): lift, more the further out, so the tyres bring it back. Off (x1) until the car is within
   // 1.5 m of the edge, which no pinned lap at Melbourne or Silverstone comes to (they keep 1.53 m or more).
-  const { i, lat: at } = car.proj, wide = Math.abs(at) - ((at > 0 ? tr.WL[i] : tr.WR[i]) - 1.5);
+  // In a room the road on the pit side runs out at the pit lane's outer edge (Track.pitLane; none in time trial): a car
+  // in the lane (out of its box, recovered into it) is not running wide.
+  const { i, lat: at } = car.proj, pl = tr.pitLane, laneOut = pl && Math.sign(at) === pl.side ? pl.outer[i] : Number.NaN;
+  const wide = Math.abs(at) - (Math.max(at > 0 ? tr.WL[i] : tr.WR[i], laneOut > 0 ? laneOut : 0) - 1.5);
   const lift = wide > 0 && Math.sign(at) !== Math.sign(tr.KS[i]) ? clamp(1 - wide, 0, 1) : 1;
   return { throttle: clamp((vt - v) * 0.5, 0, 1) * clamp(1 - liftK * Math.abs(slide), 0, 1) * lift, brake: clamp((v - vt) * 0.4, 0, 1), steer: 0, analog: true, steerAngle, autoGears: true };
 }

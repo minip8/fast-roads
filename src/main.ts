@@ -96,8 +96,8 @@ export async function main() {
 
   // Physics. session.car is replaced when the Car setting changes: read it at call time.
   const session = new Session(track, scene, CARS[settings.car], def), { timing } = session;
-  // ?wear=3&wet=0.6&rain=0.5&compound=medium&airc=18&trackc=24: race conditions single-player, until race sessions
-  // exist (a development tool, no menu). Laps in them keep best times of their own (the '.dev' store tag).
+  // ?wear=3&wet=0.6&rain=0.5&compound=medium&airc=18&trackc=24: race conditions single-player (a development tool, no
+  // menu: rooms run them for real). Laps in them keep best times of their own (the '.dev' store tag).
   const devRace = conditionsFromUrl(params);
   const fitDevCompound = (car: Vehicle) => {
     const c = devRace?.compound;
@@ -164,6 +164,7 @@ export async function main() {
     scene.add(pitLane.group);
     race.tyreKey = keysFor(bindings, 'tyre').map(keyLabel)[0] ?? '';
     mp.weekend.setStartCompound(startTyre);
+    hud.clearLaps();   // (the time trial's laps are not the room's)
     netRt = { mp, view: new mod.RemoteCars(scene, labels), board: new mod.NetHud($('leftCol')), race, pitLane, mod, server, log: new mod.lobby.RoomLog(net) };
     netStatus = { state: 'joined', text: '' };
     lastAttempt = () => { void enterRoom('join', net.room, server); };
@@ -176,6 +177,7 @@ export async function main() {
     if (!netRt) return;
     netRt.mp.close(); netRt.view.dispose(); netRt.board.dispose(); netRt.race.dispose(); netRt.pitLane.dispose(); netRt = null;
     session.proxies.length = 0;
+    hud.clearLaps();
     netStatus = status;
     history.replaceState(null, '', roomUrl(null));
     menu.rebuild();
@@ -247,6 +249,7 @@ export async function main() {
       if (inv) void enterRoom('join', inv.room, serverFor(inv.server));
     },
     retry: () => lastAttempt?.(),
+    raceGoesOn: () => !!netRt?.mp.weekend.keepsRunning,
     dismiss: () => { netStatus = { state: 'off', text: '' }; lastAttempt = null; history.replaceState(null, '', roomUrl(null)); menu.rebuild(); },
     leave: () => {
       const room = netRt?.mp.net.room ?? '';
@@ -257,12 +260,20 @@ export async function main() {
       if (!netRt) return null;
       const { mp, mod, server, log } = netRt;
       return { net: mp.net, kit: mod.lobby, log, server, invite: inviteUrl(mp.net.room, server), circuitName: (id) => (id in TRACKS ? TRACKS[id as TrackId].name : id),
-        now: () => performance.now() / 1000 };
+        now: () => performance.now() / 1000,
+        tyreLife: (wear) => {
+          const w = mp.weekend, ids = (['soft', 'medium', 'hard', 'allweather'] as const).filter((id) => session.car.compounds.some((c) => c.id === id));
+          const laps = ids.map((id) => [id, w.tyreLife(id, wear)] as const).filter((x): x is readonly [typeof x[0], number] => x[1] != null);
+          if (!laps.length) return '';
+          const fmt = (n: number) => (n >= 20 ? `${Math.round(n / 5) * 5}` : n >= 3 ? `${Math.round(n)}` : n.toFixed(1));
+          const each = laps.map(([id, n]) => `${id === 'allweather' ? 'a set' : id} ${fmt(n)} ${fmt(n) === '1' ? 'lap' : 'laps'}`);
+          return `Your ${session.car.spec.name}'s tyres here last about: ${each.join(', ')}.`;
+        } };
     },
     tyre: {
       options: () => session.car.compounds.map((c) => ({ id: c.id, name: c.name, letter: c.letter, colour: c.colour })),
-      get: () => netRt?.mp.weekend.startCompound ?? netRt?.mp.weekend.autoCompound() ?? session.car.compounds[0]?.id ?? '',
-      set: (id) => { startTyre = id as CompoundId; netRt?.mp.weekend.setStartCompound(startTyre); },
+      get: () => (netRt ? netRt.mp.weekend.startCompound : startTyre),
+      set: (id) => { startTyre = id as CompoundId | null; netRt?.mp.weekend.setStartCompound(startTyre); },
     },
   };
 
@@ -464,13 +475,13 @@ export async function main() {
     if (netRt) netRt.view.update(netRt.mp, nowS - DT, camera, simDt, !hud.hidden && !menu.isOpen);
     cockpitDisplay.update(car, timing, session.simTime, alpha, cam.mode === 'driver' && !cam.lookBack);
     if (netRt) weather.set({ rain: netRt.mp.weekend.rain, wetness: netRt.mp.weekend.wetness });   // the room's weather
-    else if (devWeather) weather.set(devWeather);
+    else weather.set(devWeather ?? DRY);   // (dry again after leaving a room in the rain)
     weather.update(simDt, cam, session, netRt?.view);
     audio.update(car, fdt, started && !paused);
 
     hud.handleEvents(timing);
     hud.update({ car, timing, simTime: session.simTime, alpha, dt: fdt, autoOn, paused, mouseSteer: input.mouse.enabled ? input.mouse.steer : null, ghost: ghost.shown ? ghost.mapPos : null,
-      others: netRt?.view.dots, netGhost: netRt?.mp.noCollide });
+      others: netRt?.view.dots, netGhost: netRt?.mp.noCollide, lapState: netRt?.mp.weekend.lapState });
     if (netRt && !hud.hidden) { netRt.board.update(netRt.mp, netRt.view.status, fdt, !live); netRt.race.update(netRt.mp, nowS, fdt); }
 
     renderer.render(scene, camera);
@@ -502,6 +513,7 @@ function netName(): string {
 }
 
 // The input while the player is in the menu during a race (the weekend brakes the car to a stop).
+const DRY = { rain: 0, wetness: 0 } as const;
 const PARKED: DriveInput = { throttle: 0, brake: 0, steer: 0, analog: false, steerAngle: null };
 
 // The ?opponents value: a count of the player's car (none given: one), or car ids separated by commas (unknown ids

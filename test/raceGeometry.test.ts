@@ -3,6 +3,7 @@
 import { describe, expect, test } from 'vitest';
 import { S_ASPHALT } from '../src/config';
 import { buildPitLane, enablePitLane, gridSlots, GRID, laneLimit, laneZone, PIT } from '../src/raceGeometry';
+import { GANTRY_POST, gantryPosts } from '../src/scenery';
 import { pointAt, projectOnTrack, surfaceAt, trackLimitOut, type TrackPos } from '../src/track';
 import { TRACKS, type TrackId } from '../src/tracks';
 import { wrapI } from '../src/util';
@@ -66,6 +67,16 @@ describe('the pit lane', () => {
     const k0s = wrapI(Math.round((tr.L - def.startBack) / ds) - lane.k0, tr.N);
     expect(k0s >= lane.n).toBe(true);
     if (process.env.NET_REPORT) console.log(`${id}: lane ${lane.len.toFixed(0)} m (limit ${(lane.limOut - lane.limIn).toFixed(0)} m), ${maxInto > 0 ? `${maxInto.toFixed(2)} m into the track` : 'on the run-off'}`);
+  });
+
+  test.each(IDS)('%s: the start gantry stands clear of the lane, inside the barrier', async (id) => {
+    const def = TRACKS[id], tr = await trackFor(id), lane = buildPitLane(tr, def), { wl, wr } = gantryPosts(tr, def);
+    const pit = def.pitSide > 0 ? wl : wr, far = def.pitSide > 0 ? wr : wl, half = GANTRY_POST / 2;
+    const bar = def.pitSide > 0 ? tr.barL : tr.barR, valid = def.pitSide > 0 ? tr.barLValid : tr.barRValid;
+    expect(far).toBeCloseTo((def.pitSide > 0 ? tr.WR[0] : tr.WL[0]) + 2, 6);
+    if (valid[0]) expect(pit + half).toBeLessThan(bar[0]);
+    const k = wrapI(0 - lane.k0, tr.N);
+    if (k < lane.n) expect(pit - half, `${id}: the post beyond the lane's outer edge`).toBeGreaterThan(lane.outer[k]);
   });
 
   test('asphalt and inside the track limits only while enabled; the limiter and the zones', async () => {

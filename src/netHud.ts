@@ -55,7 +55,8 @@ export class NetHud {
     }).sort((a, b) => (a.best ?? Infinity) - (b.best ?? Infinity) || a.id - b.id);
     const lead = rows[0]?.best ?? null;
     const WHERE: Record<string, string> = { track: 'On track', menu: 'Menu', ghost: 'Ghost', away: 'No signal' };
-    const phase = net.session.phase === 'lobby' ? `ROOM <b>${esc(net.room)}</b>` : `${sessionName(net.session).toUpperCase()} · <b>${esc(net.room)}</b>`;
+    const se = net.session, phase = se.phase === 'lobby' ? `ROOM <b>${esc(net.room)}</b>`
+      : `${(se.phase === 'qualifying' && se.oneShot ? 'One-shot quali' : sessionName(se)).toUpperCase()} · <b>${esc(net.room)}</b>`;
     const html = `<div class="bhead"><span>${phase}</span><span>${net.players.size}/${net.maxPlayers}${net.rtt > 0 ? ` · ${Math.round(net.rtt * 1000)} ms` : ''}</span></div>`
       + rows.map((r, k) => `<div class="brow${r.self ? ' self' : ''} ${r.where}" title="${esc(carName(r.car))} · ${WHERE[r.where]}">`
         + `<span class="bpos">${r.best != null ? k + 1 : '–'}</span><i style="--c:${r.self ? 'var(--accent)' : playerColor(r.id)}"></i>`

@@ -104,6 +104,8 @@ describe('a race weekend in the game', () => {
     for (const c of all) expect(c.s.storeTag).toBe('.mp');
     room.hopLap(cy, 0.4); room.hopLap(alice, 0.5); room.hopLap(bob, 0.6);
     room.run(0.5);
+    // a best lap from an earlier race here: not this race's best (the race's store starts empty)
+    for (const c of all) localStorage.setItem(DEF.storeKey + c.s.car.spec.storeKey + '.race', JSON.stringify({ bestLap: 1, bestSectors: [0.3, 0.3, 0.4], bestTrace: null, bestLapSectors: null }));
     expect(alice.mp.net.board.map((b) => b.name)).toEqual(['Cy', 'Alice', 'Bob']);
     // the race: every car on its own slot of the same grid, held there until the lights go out
     room.until(() => all.every((c) => c.mp.weekend.phase === 'race'), 15, 'the race');
@@ -116,7 +118,9 @@ describe('a race weekend in the game', () => {
       const k = c.mp.net.gridSlot()!, g = slots[k];
       expect(c.s.car.proj.s).toBeCloseTo(g.s, 0); expect(c.s.car.proj.lat).toBeCloseTo(g.lat, 0);
       expect(c.s.storeTag).toBe('.race');
+      expect(c.s.timing.store.bestLap).toBeNull();
       expect(c.mp.weekend.held).toBe(true);
+      expect(c.mp.weekend.lapState).toEqual({ text: 'ON THE GRID', clock: false });
     }
     const at = all.map((c) => c.s.car.pos.clone());
     let movedEarly = 0;
@@ -127,6 +131,7 @@ describe('a race weekend in the game', () => {
     expect(movedEarly).toBe(0);
     expect(sawLights).toBe(true);
     for (const c of all) c.driver = null;   // the autopilot drives off the grid and over the line
+    expect(alice.mp.weekend.lapState).toEqual({ text: 'LAP 1/2', clock: true });
     room.until(() => all.every((c) => !c.s.timing.standing), 8, 'the first crossing');
     // lap 1: Cy, Alice, Bob in order
     for (const c of [cy, alice, bob]) { room.hopLap(c, 0.4, false); }
@@ -177,13 +182,19 @@ describe('a race weekend in the game', () => {
     room.until(() => bob.mp.weekend.recovering === 0, RECOVERY_SECS, 'the recovery');
     // lap 2: Cy wins on the road, then Alice and Bob; Cy and Bob made no stop (60 s each)
     for (const c of [cy, alice, bob]) room.hopLap(c, 0.4, alice.s.timing.lapStart == null);
-    room.until(() => all.every((c) => c.mp.net.standingsFinal), 6, 'the result');
+    let flags: string[] = [];
+    room.until(() => { for (const c of all) for (const n of c.mp.takeNotices()) if (n.kind === 'flag') flags.push(`${c.name}: ${n.text}`); return all.every((c) => c.mp.net.standingsFinal); }, 6, 'the result');
+    // the chequered flag is for those still racing: never told to the winner once it has its FINISHED P1
+    flags = flags.filter((f) => f.startsWith('Cy:') && /CHEQUERED|FINISHED/.test(f));
+    expect(flags).toContain('Cy: FINISHED P1');
+    expect(flags.slice(flags.indexOf('Cy: FINISHED P1'))).not.toContain('Cy: CHEQUERED FLAG');
     const result = alice.mp.net.standings.map((s) => [s.name, s.status, s.laps, s.penalty]);
     expect(result).toEqual([['Alice', 'finished', 2, 0], ['Cy', 'finished', 2, 60], ['Bob', 'finished', 2, 60]]);
     for (const c of all) {
       expect(c.mp.net.standings.map((s) => s.name)).toEqual(['Alice', 'Cy', 'Bob']);
       expect(c.mp.weekend.finished).toBe(true);
       expect(c.mp.weekend.reason).toBe(CAR_REASON.finished);
+      expect(c.mp.weekend.lapState).toEqual({ text: 'RACE OVER', clock: false });
     }
     // the time trial's best times were never touched; the weekend's laps went under their own keys
     for (const c of all) expect(localStorage.getItem(DEF.storeKey + c.s.car.spec.storeKey)).toBeNull();

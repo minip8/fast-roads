@@ -3,6 +3,7 @@ import { DT } from './config';
 import { CAR_REASON, COMPOUND, type NetClient, type NetEvent, type Phase, type RaceStage, type SessionInfo, type Stage, type StandingStatus } from './net';
 import { buildPitLane, enablePitLane, gridSlots, laneDist, laneIndex, laneLimit, laneZone, PIT, type GridSlot, type PitLane } from './raceGeometry';
 import type { Session } from './sim';
+import { clearStore } from './timing';
 import { pointAt, projectOnTrack, type TrackPos } from './track';
 import type { TrackDef } from './tracks';
 import { fmtTime } from './util';
@@ -120,6 +121,17 @@ export class Weekend {
     if (this.recovering > 0 || this.oneShotGhost) return CAR_REASON.ghost;
     return CAR_REASON.none;
   }
+  // What the timing panel says about the lap (null: the usual): in a race the race's lap of its total (lap 1 from the
+  // grid, so the out-lap words do not apply), and no lap clock once our session is over.
+  get lapState(): { text: string; clock: boolean } | null {
+    if (this.phase === 'race' && !this.spectator) {
+      if (this.finished) return { text: this.stage === 'results' ? 'RACE OVER' : 'FINISHED', clock: false };
+      if (this.held) return { text: 'ON THE GRID', clock: false };
+      return { text: `LAP ${Math.min(this.raceLaps + 1, this.net.settings.raceLaps)}/${this.net.settings.raceLaps}`, clock: true };
+    }
+    if (this.finished) return { text: 'SESSION OVER', clock: false };
+    return null;
+  }
   private get oneShotGhost() { return this.phase === 'qualifying' && this.net.session.oneShot; }
   // The compounds our car can fit, the next one in the list (dir -1: the one before), and the set for a start.
   cycleCompound(dir = 1) {
@@ -131,15 +143,18 @@ export class Weekend {
   // About how many laps a fresh set of `id` lasts here at the room's wear (from the F1's at Melbourne at scale 1,
   // per km: 43 / 64 / 90 laps soft / medium / hard, the rain tyres about as the medium; CarInfo.race.wearScale makes
   // each car's about the F1's). Null for a car or compound that does not wear.
-  tyreLife(id: CompoundId = this.nextCompound): number | null {
+  // k: the wear setting (the room's by default; the lobby screen passes the one the host is choosing).
+  tyreLife(id: CompoundId = this.nextCompound, k = this.net.settings.tyreWear): number | null {
     const base: Partial<Record<CompoundId, number>> = { soft: 43, medium: 64, hard: 90, intermediate: 64, wet: 64, allweather: 60 };
-    const b = base[id], k = this.net.settings.tyreWear;
+    const b = base[id];
     return b == null || !(k > 0) ? null : (b * 5.278) / (this.def.lengthKm * k);
   }
-  // The start compound the weather calls for (rain tyres on a wet track, else the medium for a race, soft otherwise).
+  // The start compound the weather calls for (rain tyres on a wet track, else the medium for a race, soft otherwise):
+  // intermediates beat slicks from a wetness of about 0.18 and wets beat intermediates from about 0.65 (README, Race
+  // conditions), so the switch is just past each.
   autoCompound(): CompoundId {
     const cs = this.session.car.compounds, has = (id: CompoundId) => cs.some((c) => c.id === id);
-    const want: CompoundId = this.wetness >= 0.55 ? 'wet' : this.wetness >= 0.25 ? 'intermediate' : this.net.session.phase === 'race' ? 'medium' : 'soft';
+    const want: CompoundId = this.wetness >= 0.65 ? 'wet' : this.wetness >= 0.2 ? 'intermediate' : this.net.session.phase === 'race' ? 'medium' : 'soft';
     return has(want) ? want : cs[0].id;
   }
 
@@ -190,7 +205,8 @@ export class Weekend {
       // lights out: lap 1 is timed from here (from the grid, through the first crossing, to the second)
       this.goSim = this.session.simTime + Math.max(0, Math.min(DT, (s.goAt ?? T) - (T - DT)));
       this.session.timing.startStanding(this.goSim);
-      this.notify('flag', 'LIGHTS OUT');
+      const n = this.mandatoryStops;
+      this.notify('flag', 'LIGHTS OUT', n ? `${n} pit stop${n > 1 ? 's' : ''} to make: stop in your box in the pit lane` : undefined);
     }
     const car = this.session.car, v = car.speedF;
     // stopping: the brake while it rolls, then nothing (a brake held at a standstill is the automatic box's reverse)
@@ -253,6 +269,8 @@ export class Weekend {
     this.finished = false; this.oneShotGo = false; this.goSim = null; this.recovering = 0; this.raceLaps = 0; this.lastPenalty = 0;
     Object.assign(this.pit, { service: 0, stops: 0, stopped: false, limiter: false });
     this.runners.clear(); this.order = []; this.gapAhead = this.gapBehind = null;
+    // (a race's best times are this race's: the timing panel's BEST is the best lap of this race, not of earlier ones)
+    if (s.phase === 'race') clearStore(this.def.storeKey + ses.car.spec.storeKey + '.race');
     ses.setStoreTag(s.phase === 'race' ? '.race' : '.mp');
     ses.timing.runup = s.phase === 'race' ? 0 : this.def.startBack;
     this.spectator = this.net.isSpectator();
@@ -292,9 +310,10 @@ export class Weekend {
   private stageChanged(s: SessionInfo) {
     const before = this.stage;
     this.stage = s.stage;
-    if (s.phase === 'race' && s.stage === 'finishing' && before === 'running') this.notify('flag', 'CHEQUERED FLAG', 'Finish this lap');
+    // (not for the winner, whose finish the standings may have told already, nor for a spectator)
+    if (s.phase === 'race' && s.stage === 'finishing' && before === 'running' && !this.finished && !this.spectator) this.notify('flag', 'CHEQUERED FLAG', 'Finish this lap');
     if (s.phase === 'race' && s.stage === 'results') this.finished = true;
-    if (s.phase === 'qualifying' && s.stage === 'finishing' && !s.oneShot) this.notify('flag', 'CHEQUERED FLAG', 'Your next lap is your last');
+    if (s.phase === 'qualifying' && s.stage === 'finishing' && !s.oneShot) this.notify('flag', 'CHEQUERED FLAG', 'Finish the lap you are on: it is your last');
   }
 
   private standings() {
@@ -309,7 +328,10 @@ export class Weekend {
     if (!me) return;
     if (me.laps !== this.raceLaps) {
       this.raceLaps = me.laps;
-      if (me.laps === this.net.settings.raceLaps - 1 && this.stage === 'running' && me.status === 'racing') this.notify('flag', 'FINAL LAP');
+      if (me.laps === this.net.settings.raceLaps - 1 && this.stage === 'running' && me.status === 'racing') {
+        const owed = this.mandatoryStops - me.pits;   // (a missed stop costs a minute: say so while there is a lap to make it)
+        this.notify('flag', 'FINAL LAP', owed > 0 ? `Pit this lap: ${owed} stop${owed > 1 ? 's' : ''} still to make` : undefined);
+      }
     }
     if (me.status !== 'racing' && !this.finished) {
       this.finished = true;

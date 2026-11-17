@@ -157,7 +157,7 @@ chicane, say) and the lap that follows is deleted, as is the one you were on if 
 
 ## Race conditions (tyre wear, compounds, a wet track)
 
-The time trial runs on fresh tyres on a dry track. Race weekends (still to come) will run the cars in **conditions**
+The time trial runs on fresh tyres on a dry track. Race weekends run the cars in **conditions**
 (`src/conditions.ts`, owned by the session): a tyre wear rate, rain and track wetness (0 dry to 1 flooded, which may
 change during a session), and air and track temperatures. On the F1 2026 and the GT3 all of it is LibreCorsa's own
 physics: tread wear against the compound's wear curve (or the engine's generic one), graining, blistering and flat
@@ -247,14 +247,17 @@ In a room, the **Room** tab has the room code in large letters with **Copy invit
 browser can), the session (what is on, the time or laps left, what comes next), the drivers (host, car, on track /
 in the menu / no signal, grid slot in a race), the times (the session's board, the race order, and after the race
 its results: positions, time or gap, best lap, stops, penalties, DNF / out of time; the last qualifying too), your
-car (and starting tyres), the weekend's options and the circuit. **Leave room** (click twice) leaves.
+car (not to be changed during the race or one-shot qualifying, where a change would put it back at the start; and
+starting tyres: Auto, the weather's choice, or one compound for every session), the weekend's options and the
+circuit. **Leave room** (click twice) leaves.
 
 The host picks a **race format** (Quick race: straight to a random grid, 5 laps; Short weekend: 10 min practice,
 10 min qualifying, 5 laps; Full weekend: two practices, 15 min qualifying, 20 laps with a pit stop and tyre wear,
 any weather) and presses **Start weekend**; or sets each option, each explained in a line: practice sessions and
 length, qualifying (none, timed, one shot) and length, race laps, starting grid (qualifying, random, reversed, join
 order), mandatory pit stops, tyre wear, collisions, track limits penalty, time to finish after the winner, allowed
-cars, weather. Everyone else sees the same options read-only, changing as the host changes them. During a weekend
+cars, weather. The tyre wear row says what the rate means here: about how many laps your car's soft, medium and
+hard last at this circuit. Everyone else sees the same options read-only, changing as the host changes them. During a weekend
 the host can end the session now or abort the weekend (each click twice). Choosing another circuit (click twice)
 moves the whole room there: every game reloads onto it and comes back into the room. A room that allows one car
 switches you to it. When the race ends the menu opens on its results.
@@ -276,7 +279,8 @@ offers to open it again or go back to time trial. If the connection drops, the m
   GHOST in the HUD while it lasts.
 - The board, under the timing panel: the room, the players (best lap first, the gap to the fastest, the car, and
   whether each is on track, a ghost, in the menu or has no signal), then short notices when someone joins, leaves or
-  sets a best lap. Your own lap times, best laps and ghost car are kept in the browser as in single-player.
+  sets a best lap. Your own lap times, best laps and ghost car are kept in the browser, apart from the time trial's
+  (race conditions have best times of their own).
 
 The Node relay speaks plain `ws://`; a page served over https needs a `wss://` address, so put it behind a TLS
 reverse proxy, or host the relay on Cloudflare. Without a room joined the game is single-player as before, and does not download the networking code.
@@ -292,23 +296,28 @@ tyre wear, weather, collisions, penalties) are set in the lobby; the relay times
   Melbourne, a medium 5, a hard 7-8) and the relay's weather, rain and a track that gets wet and dries. Laps in a
   room keep best times of their own, never the time trial's.
 - **Sessions.** At each session's start the car is put at the flying start on a fresh set (the one you chose for the
-  weekend, or the weather's: wets or intermediates on a wet track, else softs, mediums for the race). One-shot
+  weekend, or Auto, the weather's: wets from a wetness of 0.65, intermediates from 0.2, else softs, mediums for the
+  race). One-shot
   qualifying holds everyone at the start spot and releases them together for one flying lap each. The race: two
   staggered columns behind the line, pole on the inside of the first corner, held until the five red lights go out;
   lap 1 runs from the grid. The chequered flag after the winner; a finished car drives on as a ghost.
 - **Pit lane.** A lane along the pit building, marked in white with boards (PIT IN, the 80 km/h limit, PIT OUT) and a
-  yellow box. In it your car is a ghost and a limiter holds it to 80 km/h (braking for you if you come in too fast).
+  yellow box (the start gantry's post on that side stands beyond it). In it your car is a ghost and a limiter holds it to 80 km/h (braking for you if you come in too fast).
   Stop in the box for a fresh set of the tyres shown as NEXT TYRES (N, or the d-pad up, cycles them): 2.5 s in the
   F1, 8 s in the GT3, 6 s in the drift car. At Melbourne a stop costs about 20-24 s in all. Driving through without
   stopping is not a stop.
 - **Restart in a race** is a recovery: put back on the track where you are, at rest, held 10 s as a ghost. In
   practice and qualifying R is the flying start on a fresh set.
-- **The menu during a race** does not stop it: your car brakes to a stop where it is, a ghost, while the race goes on.
+- **The menu during a race** does not stop it: your car brakes to a stop where it is, a ghost, while the race goes on
+  (the menu's title says so: RACE ON · YOUR CAR IS STOPPED). A reload during the race brings you back out of your pit
+  box, which serves the car as a stop (a fresh set, counted as a stop).
 - **HUD.** The start lights and, under them, your position, lap and the gaps to the cars ahead and behind (practice
   and qualifying: the session and its clock); the board becomes a timing tower (gaps to the leader, tyres, PIT);
   over the dash the pit panel (pit lane and limiter, the service, NEXT TYRES, stops made of those required);
-  messages for lights out, the final lap, the flag, penalties and rain. In a race the delta to your best lap and the
-  list of laps are hidden.
+  messages for lights out (with the pit stops to make), the final lap ("pit this lap" while a required stop is still
+  owed), the flag, penalties and rain. In a race the timing panel counts the race's
+  laps (ON THE GRID, LAP 2/5, FINISHED), its BEST is your best lap of this race, and the delta to your best lap and
+  the list of laps are hidden. On a phone the timing panel gives way to the tower in a race.
 
 ### Hosting it free on Cloudflare
 
@@ -358,11 +367,11 @@ The default keys (all but Esc can be changed in the menu's Controls tab):
 | G | Automatic / manual gears (also in the menu) |
 | E / Q | Shift up / down (manual): reverse, neutral, first... A downshift that would over-rev is refused, and reverse is selected only at a standstill. In R the throttle drives backwards and the brake brakes |
 | T | Traction control on/off |
-| Esc / P | Open the menu (pauses) |
+| Esc / P | Open the menu (pauses, except a multiplayer race you are in) |
 | M / H | Mute / show or hide the key help |
 
 Gamepad: RT throttle, LT brake, left stick steer, RB/LB shift up/down, Y camera, right stick click (hold) look behind,
-X or Back restart, Start menu.
+X or Back restart, d-pad up the next pit stop's tyres (race weekends), Start menu.
 
 Mouse steering: the cursor stays visible, and how far it is left or right of the screen centre sets the wheel
 (in direct proportion, reaching full lock towards the edge). Mouse sensitivity (Low / Medium / High) in the menu sets how far
