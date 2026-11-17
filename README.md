@@ -26,6 +26,9 @@ The autopilot isn't part of the game itself. It laps every circuit cleanly in ev
 Spa, which slides wide in the fast sweepers there. `?opponents=2` (that many of your car) or `?opponents=lcgt3,drift`
 (car ids: `lcf1`, `lcgt3`, `drift`) adds autopilot cars starting 30 m apart ahead of you, to drive into: a first step
 towards multiplayer, with no race rules, HUD or minimap for them. A restart puts them back too.
+`?rain=0.7&wet=0.5` shows that weather (each 0..1: rain from a dry sky to a downpour, the track from dry through damp
+at about 0.3 to standing water at 1; `?rain` alone wets the track to match). These flags set what you see and hear
+only: the grip is the physics' own business.
 
 ## Main menu
 
@@ -43,7 +46,9 @@ The game opens on a menu with **Drive** at the top right and three tabs:
   - *HUD*: speed units (km/h / mph), timing panel (full / compact / hidden), live delta, track map (hidden / small /
     medium / large), tyre temperatures (shown / hidden), rear-view mirror (hidden / onboard & driver cameras / all cameras), mouse steering bar, key help (at start / always / hidden), frame rate counter, HUD size (70–150%)
     and panel background (0–100%).
-  - *Graphics*: render resolution (50–100% of the screen's pixels), shadows (off / low / high), brightness.
+  - *Graphics*: render resolution (50–100% of the screen's pixels), shadows (off / low / high), brightness, weather
+    effects (full / reduced / off: falling rain, spray and drops on the lens; reduced has fewer of them and no lens
+    drops, off has none, while the sky, light and wet road always show the weather).
   - *Audio*: sound on/off and volume.
 
   **Reset all settings** puts them all back (not the car or circuit).
@@ -295,6 +300,21 @@ and override the mouse while held.
   `scripts/cars/convert.mjs` makes it from the Sketchfab download (turned, scaled to the car's axles, split into
   body, wheels, calipers, steering wheel and brake lights, simplified, WebP textures, meshopt geometry). The
   service worker keeps the model once it has been downloaded rather than precaching it.
+- **Weather** (`src/weather.ts`, visuals and sound only), from two numbers the game sets every frame: rain (0 a dry
+  sky, 1 a downpour) and track wetness (0 dry, about 0.3 damp, 1 standing water), independent of each other (the
+  track stays wet after the rain stops; a damp track under a clearing sky keeps the sun). Rain greys the sky over
+  (the sky shader's overcast deck), fades the sun and its shadows, turns the sky light grey and thickens the fog to
+  a few hundred metres in a downpour; the fog's colour is the one that tone-maps to the sky's horizon, so far scenery
+  melts into it. Cars and the wet road reflect an overcast copy of the sky (a few levels, each made once when the
+  weather reaches it). The wet road is a copy of its material: darker and glossy, patchy while damp, with puddles
+  that are nearly mirrors in standing water; kerbs and lines turn glossy, grass, gravel and walls darker. Rain
+  (`src/rain.ts`) is streaks round the camera that sweep past with the car's speed (a cube of drops wrapped round
+  the camera, faded out well inside it, none inside the car's body), and drops on the lens or visor in the Onboard
+  and Driver cameras that the airflow drags away at speed. Spray (`src/spray.ts`) comes off every car's tyres and
+  the back of the car with speed and water on the road, hangs in the air and hides the car ahead when you follow
+  close; yours is fainter. Rain hiss and patter and the hiss and swish of wet tyres (`src/weatherAudio.ts`) go
+  through the sound graph. With both numbers at 0 nothing is built and the game is exactly as dry; back at 0,
+  everything is undone and freed.
 - **Sound**: all synthesised, no recordings. Each car has its own engine voice (a smooth V6 in the F1, a lumpy V8 in
   the drift car) that brightens under load, cuts briefly on upshifts, blips on downshifts and stutters on the rev
   limiter. The voices get their weight from the spectrum, not from a lower pitch: crank orders under the firing note

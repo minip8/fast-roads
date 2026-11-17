@@ -10,6 +10,7 @@ const SUSPEND_AFTER = 300;   // ms: let the fade-out finish before suspending
 
 export class EngineAudio {
   muted = false;
+  readonly weather = { rain: 0, wetness: 0 };   // rain and track wetness 0..1 (set by weather.ts): rain and wet tyre sound
   private ctx: AudioContext | null = null;
   private graph: SoundGraph | null = null;
   private out: GainNode | null = null;   // the Volume setting, between the sound graph and the speakers
@@ -48,7 +49,7 @@ export class EngineAudio {
   // Once per frame. active: driving (not paused or in the menu); the game sounds fade out otherwise.
   update(car: AudioCar, dt: number, active: boolean) {
     const ctx = this.ctx;
-    if (ctx && this.graph && ctx.state === 'running') this.graph.update(car, dt, active, ctx.currentTime);
+    if (ctx && this.graph && ctx.state === 'running') this.graph.update(car, dt, active, ctx.currentTime, this.weather);
   }
 
   // Fade the master in or out to match mute and tab visibility; suspend the context once it is silent.

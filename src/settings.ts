@@ -4,6 +4,7 @@ import type { MouseDeadzone, MouseSensitivity, PadDeadzone } from './input';
 import type { MirrorMode } from './mirror';
 import { TRACKS, type TrackId } from './tracks';
 import { clamp, wrapI } from './util';
+import type { WeatherQuality } from './weather';
 
 // ============================================================================
 // Player settings: menu rows, defaults and persistence. What each one does is the applySetting table in main.ts.
@@ -23,7 +24,7 @@ export interface Settings {
   units: 'kmh' | 'mph'; timingPanel: 'full' | 'compact' | 'off'; delta: OnOff; minimap: 'off' | 'small' | 'medium' | 'large';
   tyres: OnOff; mirror: MirrorMode; mouseBar: OnOff; help:'auto' | 'always' | 'off'; fps: OnOff; hudScale: number; hudOpacity: number;
   // graphics
-  resolution: number; shadows: 'off' | 'low' | 'high'; brightness: number;
+  resolution: number; shadows: 'off' | 'low' | 'high'; brightness: number; weather: WeatherQuality;
   // audio
   sound: OnOff; volume: number;
 }
@@ -88,6 +89,7 @@ export const SETTING_DEFS: { [K in SettingKey]: SettingDef<K> } = {
   resolution: { label: 'Render resolution', section: 'graphics', hint: 'Lower is faster on slow GPUs and big screens', slider: true, options: steps(50, 100, 10, pct) },
   shadows: { label: 'Shadows', section: 'graphics', options: [['off', 'Off'], ['low', 'Low'], ['high', 'High']] },
   brightness: { label: 'Brightness', section: 'graphics', slider: true, options: steps(70, 130, 10, pct) },
+  weather: { label: 'Weather effects', section: 'graphics', hint: 'Rain, spray and drops on the lens; lower is faster on slow GPUs', options: [['full', 'Full'], ['reduced', 'Reduced'], ['off', 'Off']] },
 
   sound: { label: 'Sound', section: 'audio', options: onOff() },
   volume: { label: 'Volume', section: 'audio', slider: true, options: steps(0, 100, 10, pct) },
@@ -99,7 +101,7 @@ export const DEFAULT_SETTINGS: Settings = {
   steering: 'keyboard', mouseSens: 'medium', mouseDeadzone: 'small', padDeadzone: 'medium',
   camera: 'onboard', fov: 0, speedFov: 'on', shake: 'on', hands: 'off',
   units: 'kmh', timingPanel: 'full', delta: 'on', minimap: 'medium', tyres: 'on', mirror: 'on', mouseBar: 'on', help: 'auto', fps: 'off', hudScale: 100, hudOpacity: 70,
-  resolution: 100, shadows: 'high', brightness: 100,
+  resolution: 100, shadows: 'high', brightness: 100, weather: 'full',
   sound: 'on', volume: 100,
 };
 

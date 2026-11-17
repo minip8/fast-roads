@@ -34,6 +34,7 @@ export function buildStage(canvas: HTMLCanvasElement, track: Track, def: TrackDe
 
   const sunDir = new THREE.Vector3(-0.45, 0.62, 0.35).normalize();
   const sky = buildSky(scene, sunDir);
+  let env: THREE.Texture;
   // Blurred sky-and-ground environment for car paint, glass and rims (cars only; the circuit keeps its lighting).
   {
     const envScene = new THREE.Scene(), pmrem = new THREE.PMREMGenerator(renderer);
@@ -41,11 +42,13 @@ export function buildStage(canvas: HTMLCanvasElement, track: Track, def: TrackDe
     const ground = new THREE.Mesh(new THREE.CircleGeometry(45, 32), new THREE.MeshBasicMaterial({ color: new THREE.Color().setRGB(0.16, 0.2, 0.13) }));
     ground.rotation.x = -Math.PI / 2; ground.position.y = -2;
     envScene.add(ground);
-    setCarEnvironment(pmrem.fromScene(envScene, 0.02).texture);
+    env = pmrem.fromScene(envScene, 0.02).texture;
+    setCarEnvironment(env);
     pmrem.dispose(); ground.geometry.dispose(); ground.material.dispose();
   }
   installCarModels();   // cars with a model file swap it in when it has loaded
-  scene.add(new THREE.HemisphereLight(0xcfe3ff, 0x5a6a40, 1.1));
+  const hemi = new THREE.HemisphereLight(0xcfe3ff, 0x5a6a40, 1.1);
+  scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xfff1dc, 3.0);
   sun.castShadow = true;
   sun.shadow.mapSize.set(SHADOW_MAPS.high, SHADOW_MAPS.high);
@@ -69,8 +72,8 @@ export function buildStage(canvas: HTMLCanvasElement, track: Track, def: TrackDe
     sun.position.copy(centre).addScaledVector(sunDir, SUN_DIST);
   };
 
-  buildTrackMeshes(track, scene);
-  const bounds = buildScenery(track, scene, def);
+  const trackMaterials = buildTrackMeshes(track, scene);
+  const { bounds, terrain } = buildScenery(track, scene, def);
   const brakeMarkers = buildBrakeMarkers(track, scene);
 
   const fit = () => {
@@ -94,6 +97,8 @@ export function buildStage(canvas: HTMLCanvasElement, track: Track, def: TrackDe
   };
   const setBrightness = (exposure: number) => { renderer.toneMappingExposure = exposure; };
 
-  return { renderer, scene, camera, sky, sun, sunDir, followSun, bounds, brakeMarkers, setResolution, setShadows, setBrightness };
+  // (weather.ts changes the sky, lights, fog and these materials while it rains or the track is wet)
+  const surfaces = { ...trackMaterials, terrain };
+  return { renderer, scene, camera, sky, sun, sunDir, hemi, env, surfaces, followSun, bounds, brakeMarkers, setResolution, setShadows, setBrightness };
 }
 export type Stage = ReturnType<typeof buildStage>;

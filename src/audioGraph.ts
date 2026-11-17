@@ -2,6 +2,7 @@ import type { CarId } from './cars';
 import { S_GRASS, S_GRAVEL, S_KERB } from './config';
 import { loopCount, makeLoop, type EngineLoop, type LoopVoice } from './engineLoops';
 import { clamp } from './util';
+import { WeatherSound } from './weatherAudio';
 
 // ============================================================================
 // Sound graph: every node is created once here; update() only moves parameters (with setTargetAtTime, so nothing
@@ -16,6 +17,7 @@ import { clamp } from './util';
 //   surface: road roar, kerb rumble (chopped at the rumble-strip rate), grass rumble, gravel crunch
 //   wind:    noise -> bandpass rising with speed
 //   impact:  falling sine + low noise burst, fired on a sudden change of velocity
+//   weather: rain and wet tyres (weatherAudio.ts), built the first time it rains or the road is wet
 //   all -> bus (silent when paused) -> compressor -> soft clipper -> master (mute) -> destination
 // ============================================================================
 
@@ -115,6 +117,7 @@ export class SoundGraph {
   private pv = { x: 0, y: 0, z: 0 }; private pp = { x: 0, y: 0, z: 0 };
   private thudReady = 0;
   private readonly tn = { squeal: 0, scrub: 0 };
+  private weather: WeatherSound | null = null;
 
   constructor(private readonly ctx: BaseAudioContext, dest: AudioNode) {
     const gain = (v: number, to?: AudioNode | AudioParam) => { const g = ctx.createGain(); g.gain.value = v; if (to) g.connect(to as AudioNode); return g; };
@@ -212,8 +215,9 @@ export class SoundGraph {
   // Master level (mute fade).
   setLevel(level: number, t: number, tc = 0.05) { this.master.gain.setTargetAtTime(level, t, tc); }
 
-  // Once per frame. dt: frame time (s); active: driving (not paused / in the menu); t: the context's current time.
-  update(car: AudioCar, dt: number, active: boolean, t: number) {
+  // Once per frame. dt: frame time (s); active: driving (not paused / in the menu); t: the context's current time;
+  // weather: rain and track wetness, 0..1 each (weather.ts).
+  update(car: AudioCar, dt: number, active: boolean, t: number, weather?: { readonly rain: number; readonly wetness: number }) {
     const v = car.spec.sound, abs = Math.abs(car.speedF);
     if (this.voiceId !== car.spec.id) {   // switching car happens in the menu, while the bus is silent
       this.voiceId = car.spec.id;
@@ -275,6 +279,8 @@ export class SoundGraph {
     this.gravelMod.playbackRate.setTargetAtTime(0.6 + abs / 12, t, 0.1);
     this.wind.gain.setTargetAtTime(MIX.wind * Math.min(1, (abs / 85) ** 2), t, 0.1);
     this.windF.frequency.setTargetAtTime(350 + abs * 9, t, 0.1);
+    if (weather && !this.weather && (weather.rain > 0 || weather.wetness > 0)) this.weather = new WeatherSound(this.ctx, this.bus);
+    this.weather?.update(weather?.rain ?? 0, weather?.wetness ?? 0, abs, onRoad / n, t);
 
     // ---- impact: a velocity change no brake or tyre can produce, unless the car was just teleported (reset)
     const pv = this.pv, pp = this.pp, vel = car.vel, pos = car.pos;

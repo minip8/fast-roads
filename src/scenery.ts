@@ -32,7 +32,8 @@ export function buildScenery(tr: Track, scene: THREE.Scene, def: TrackDef) {
     cols[i * 3] = tmp.r; cols[i * 3 + 1] = tmp.g; cols[i * 3 + 2] = tmp.b;
   }
   tg.setAttribute('color', new THREE.BufferAttribute(cols, 3));
-  const terrain = new THREE.Mesh(tg, new THREE.MeshStandardMaterial({ map: grassTex, vertexColors: true, roughness: 1 }));
+  const terrainMat = new THREE.MeshStandardMaterial({ map: grassTex, vertexColors: true, roughness: 1 });
+  const terrain = new THREE.Mesh(tg, terrainMat);
   terrain.position.set(cx, -0.03, cz);
   terrain.receiveShadow = true;
   scene.add(terrain);
@@ -132,7 +133,7 @@ export function buildScenery(tr: Track, scene: THREE.Scene, def: TrackDef) {
     for (let k = 0; k < 5; k++) part(lampGeo, -1.4 + k * 0.7, 6.8, 0.35, lamp);
   }
   batch.build(scene);
-  return { cx, cz, minX, maxX, minZ, maxZ };
+  return { bounds: { cx, cz, minX, maxX, minZ, maxZ }, terrain: terrainMat };
 }
 
 // Where the buildings go. A building may not reach another part of the circuit (a street circuit's straight often
@@ -218,20 +219,30 @@ function mulberry32(a: number): () => number {
   return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 }
 
+// The sky dome. With the WEATHER define (weather.ts sets it only while it is overcast, so a dry day's shader is the
+// plain one) the uniforms uOvercast (0..1), uRain (0..1) and uFog (the fog colour, display space) turn it grey: the
+// horizon is the fog's colour, the cloud closes over and the sun goes behind it.
 export function buildSky(scene: THREE.Scene, sunDir: THREE.Vector3) {
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, fog: false, toneMapped: false,
-    uniforms: { sunDir: { value: sunDir } },
+    uniforms: { sunDir: { value: sunDir }, uOvercast: { value: 0 }, uRain: { value: 0 }, uFog: { value: new THREE.Color(0.80, 0.87, 0.93) } },
     vertexShader: `varying vec3 vDir; void main(){ vDir = position; vec4 p = projectionMatrix * modelViewMatrix * vec4(position,1.); gl_Position = p.xyww; }`,
     // Colours are display-space and match the fog colour at the horizon. Clouds: value-noise fbm on a flat layer
     // (direction projected onto a plane overhead), thinned out towards the horizon so it stays hazy there.
     fragmentShader: `varying vec3 vDir; uniform vec3 sunDir;
+      #ifdef WEATHER
+      uniform float uOvercast, uRain; uniform vec3 uFog;
+      #endif
       float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f);
         return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y); }
       float fbm(vec2 p){ float v = 0., a = 0.5; for (int k = 0; k < 5; k++) { v += a * vnoise(p); p = p * 2.03 + 17.1; a *= 0.5; } return v; }
       void main(){ vec3 d = normalize(vDir); float h = clamp(d.y, 0., 1.);
+        #ifdef WEATHER
+        vec3 horizon = uFog, zenith = mix(vec3(0.28, 0.52, 0.86), uFog, 0.5 * uOvercast);
+        #else
         vec3 horizon = vec3(0.80, 0.87, 0.93), zenith = vec3(0.28, 0.52, 0.86);
+        #endif
         vec3 col = mix(horizon, zenith, pow(h, 0.55));
         float s = max(dot(d, normalize(sunDir)), 0.);
         if (d.y > 0.) {
@@ -241,8 +252,19 @@ export function buildSky(scene: THREE.Scene, sunDir: THREE.Vector3) {
           float shade = 0.82 + 0.18 * fbm(uv * 1.7 + 5.);            // lumpy undersides
           vec3 cloud = mix(vec3(0.74, 0.79, 0.86), vec3(1.0, 0.99, 0.97), shade) + vec3(1.0, 0.9, 0.7) * pow(s, 8.) * 0.25;
           col = mix(col, cloud, c * 0.85);
+          #ifdef WEATHER
+          // Overcast: one grey deck, darker and lumpier the heavier the rain. Low down it is exactly the fog's colour:
+          // anything far off (a city skyline) is fogged to that colour too, and must not stand out against the sky.
+          float n = fbm(uv * 0.55 + vec2(1.3, 7.1) + 0.6 * vec2(fbm(uv * 0.3), 0.));
+          vec3 deck = uFog * (1.03 - 0.08 * h) * mix(1.0, 0.72 + 0.5 * n, 0.5 + 0.5 * uRain);
+          col = mix(col, mix(deck, uFog, 1. - smoothstep(0.14, 0.5, d.y)), uOvercast);
+          #endif
         }
+        #ifdef WEATHER
+        col += vec3(1.0, 0.92, 0.75) * (pow(s, 900.) * 6. + pow(s, 12.) * 0.18) * (1. - uOvercast) * (1. - uOvercast);
+        #else
         col += vec3(1.0, 0.92, 0.75) * (pow(s, 900.) * 6. + pow(s, 12.) * 0.18);
+        #endif
         if (d.y < 0.) col = horizon * mix(1.0, 0.85, clamp(-d.y * 4., 0., 1.));
         gl_FragColor = vec4(col, 1.); }`,
   });

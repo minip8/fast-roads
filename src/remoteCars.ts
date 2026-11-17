@@ -4,6 +4,7 @@ import type { CarInfo } from './cars';
 import type { MapDot } from './minimap';
 import type { Multiplayer } from './multiplayer';
 import { emptySample, STATE_FLAG, type RemoteSample } from './net';
+import type { SprayCar } from './spray';
 
 // ============================================================================
 // Other players' cars, drawn: each a body of its car (the car spec's own mesh builder, as the player's car), posed
@@ -26,12 +27,14 @@ interface View {
   ghost: boolean | null; opacity: number; spin: number;
   label: HTMLElement; labelText: string;
   readonly sample: RemoteSample;
+  readonly spray: SprayCar & { vel: { x: number; y: number; z: number } };
 }
 
 const _v = new THREE.Vector3(), _fwd = new THREE.Vector3();
 
 export class RemoteCars {
   readonly dots: MapDot[] = [];
+  readonly drawn: SprayCar[] = [];   // the cars drawn this frame, as spray sources (weather.ts)
   readonly status = new Map<number, RemoteStatus>();
   private readonly views = new Map<number, View>();
 
@@ -43,7 +46,7 @@ export class RemoteCars {
       const p = mp.players.get(id);
       if (!p || p.spec?.id !== v.spec.id) this.remove(id);
     }
-    this.dots.length = 0;
+    this.dots.length = 0; this.drawn.length = 0;
     this.status.clear();
     const w = innerWidth, h = innerHeight;
     for (const p of mp.players.values()) {
@@ -58,6 +61,8 @@ export class RemoteCars {
       if (v.mesh.cockpit !== v.cockpit) this.adopt(v);
       this.look(v, ghost, ghost ? GHOST_OPACITY * s.alpha : s.alpha);
       this.pose(v, s, dt);
+      v.spray.root = v.mesh.root; v.spray.vel.x = s.vx; v.spray.vel.y = s.vy; v.spray.vel.z = s.vz;
+      this.drawn.push(v.spray);
       this.dots.push({ x: s.x, z: s.z, color: playerColor(p.id), ghost });
       this.tag(v, p.info.name, p.id, camera, w, h, showLabels);
     }
@@ -74,7 +79,8 @@ export class RemoteCars {
     label.className = 'nametag';
     label.hidden = true;
     this.labels.append(label);
-    const v: View = { spec, mesh, cockpit: null, base: new Map(), ghost: null, opacity: -1, spin: 0, label, labelText: '', sample: emptySample() };
+    const v: View = { spec, mesh, cockpit: null, base: new Map(), ghost: null, opacity: -1, spin: 0, label, labelText: '', sample: emptySample(),
+      spray: { root: mesh.root, spec, vel: { x: 0, y: 0, z: 0 } } };
     this.adopt(v);
     return v;
   }

@@ -105,6 +105,10 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   room's `Multiplayer`, or null). Use it for checks that need the page (menu, HUD, settings), e.g.
   from headless Chromium; `input.bindings` holds the current keys. Judge menu and HUD changes by screenshots, at a
   desktop and a phone width.
+- `test/weather.test.ts`: weather without a GPU: `weatherLook`, the URL flags, the fog colour's tone mapping, the
+  sound levels, and a `Weather` on a fake stage (nothing built or changed while dry; built by quality; everything
+  restored and disposed when dry again). Look at weather changes in screenshots (dry, damp, light rain, heavy rain
+  with standing water, following another car with `?opponents=1`) at a desktop and a phone width.
 - `test/storage.test.ts` covers loading settings and key bindings (corrupt, old or invalid data loads as defaults)
   and `nextOption`; `test/tracks.test.ts` checks each circuit's menu card (length, outline).
 
@@ -171,6 +175,25 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
 - `trackMeshes.ts`, `textures.ts`, `scenery.ts`, `brakeMarkers.ts`: visuals (`standBays` / `pitBuilding` in
   `scenery.ts` place the buildings, leaving out or shortening any that would stand inside another stretch's walls); `batch.ts`: `Batch`, which merges many
   static parts into one mesh per material (grandstands, pit, gantry, brake boards, car bodies)
+- `weather.ts`: `Weather`, rain and track wetness as seen and heard (no physics). The game calls `weather.set({ rain,
+  wetness })` (0..1 each; the first call is shown at once, later ones eased over ~4 s) and `weather.update(dt, cam,
+  session, remoteCars)` every frame after the camera moves (main.ts; `?rain=&wet=` set it, `weatherFromUrl`).
+  `weatherLook` maps the two numbers to everything drawn (tested). At 0/0 nothing is built and nothing changed; the
+  first non-zero value builds the parts (`parts`), and back at 0/0 `teardown` restores every value it changed and
+  disposes everything (`test/weather.test.ts` checks both with a fake stage). It changes: the sky's `WEATHER` define
+  and uniforms (`scenery.ts buildSky`; only while overcast), fog (colour from `fogForDisplay`, which inverts three's
+  ACES tone mapping so fogged scenery meets the display-space sky), sun and hemisphere light, `stage.surfaces`
+  (the road mesh swaps to `wetRoadMaterial`, an `onBeforeCompile` copy: wet darkening, gloss, puddles from a tiling
+  `puddleMap`; kerb/line/gravel/terrain/wall colours and roughness), and the environment map of every material
+  using the stage's (`stage.env`) to overcast PMREMs, cached per level (`useEnv`, rechecked each second for new
+  cars; `setCarEnvironment` too). Particles by the Weather effects setting (`quality`, `WEATHER_BUDGET`):
+  `rain.ts` `RainStreaks` (instanced quads, cube of drops wrapped round the camera in the vertex shader, streak =
+  sweep relative to the car's velocity, hidden inside the player's `bodyBox`) and `LensDrops` (screen-space, on
+  layer `LENS_LAYER`, which only the main camera enables: not in the mirror); `spray.ts` `Spray` (instanced
+  billboards from `SprayCar`s: the session's cars with their wheels, other players' from `RemoteCars.drawn`).
+  Particle shaders write display-space colours (as the sky and dust do). Sound: `EngineAudio.weather` (set by
+  `Weather`) goes to `SoundGraph.update`, which builds `weatherAudio.ts` `WeatherSound` the first time it is
+  non-zero; `weatherSound` (tested) holds the levels.
 - `audio.ts`: `EngineAudio`, the AudioContext's lifecycle (created on the first gesture, suspended while muted or
   hidden); `audioGraph.ts`: `SoundGraph`, every sound node, built once, with `update()` moving only parameters.
   It reads the car through the `AudioCar` interface and each car's `spec.sound` (`EngineVoice`). A voice with
@@ -184,7 +207,7 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   firing note) and the graph's biquads. Tyre noise is `tyreNoise` (squeal from `SQUEAL_SLIP`, faint scrub below)
   on `VehicleWheel.slip`, which both engines report as 1 at the tyre's grip peak whichever way it slips (`peakSlip`
   in `lcCar.ts` rescales the engine's lateral-peak combinedSlip; `car.ts` divides by `pacejkaPeak`);
-  `test/tyreNoise.test.ts` holds when it plays. Measure a sound change rather than guessing: render it offline
+  `test/tyreNoise.test.ts` holds when it plays. Rain and wet tyres: `weatherAudio.ts` (see `weather.ts` above). Measure a sound change rather than guessing: render it offline
   (an `OfflineAudioContext` in headless Chromium plays the real graph) and compare spectra and levels.
 - `timing.ts`, `input.ts`, `dust.ts`, `autopilot.ts`
 - `ghost.ts`: ghost laps without rendering (`GhostRecorder`, which `Timing` runs; the packed format; `ghostPose`
@@ -392,7 +415,7 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   older versions load with the newer keys at their defaults; a value not among a setting's options (sliders
   included: their options are the listed numbers) falls back to the default. `nextOption` wraps buttons round and
   stops sliders at their ends. What the settings reach: `CameraRig` (`fovOffset`, `speedFov`, `shake`), `Hud`
-  setters, the stage's `setResolution` / `setShadows` / `setBrightness`, and `EngineAudio.setVolume` (a gain node of
+  setters, the stage's `setResolution` / `setShadows` / `setBrightness`, `Weather.quality`, and `EngineAudio.setVolume` (a gain node of
   its own between the sound graph and the speakers; there are no per-sound volumes).
 - **Timing**: start/finish and two sector lines as segments, with crossings interpolated within a tick; track-limit
   invalidation, which in the run-up (the last `startBack` m before the line: from the start spot, or at the end of

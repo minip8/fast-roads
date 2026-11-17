@@ -68,11 +68,12 @@ export function buildTrackMeshes(tr: Track, scene: THREE.Scene) {
   // Large-scale shading the 8 m texture tile can't give: slow light/dark bands along the lap (resurfaced
   // stretches) and a slightly darker, rubbered middle.
   const along = (i: number) => { const s = tr.S[i]; return 0.93 + 0.035 * Math.sin(s / 41) + 0.025 * Math.sin(s / 97 + 1.7) + 0.02 * Math.sin(s / 13.3 + 0.4); };
-  scene.add(ribbon(tr, [
+  const road = ribbon(tr, [
     { o: (i) => -tr.WR[i], y: 0, u: (i) => -tr.WR[i] / 8 },
     { o: () => 0, y: 0, u: 0 },
     { o: (i) => tr.WL[i], y: 0, u: (i) => tr.WL[i] / 8 },
-  ], { vScale: 1 / 8, material: roadMat, shade: (i, c) => along(i) * (c === 1 ? 0.9 : 1.04) }));
+  ], { vScale: 1 / 8, material: roadMat, shade: (i, c) => along(i) * (c === 1 ? 0.9 : 1.04) });
+  scene.add(road);
 
   const lineMat = new THREE.MeshStandardMaterial({ color: 0xf4f4f0, roughness: 0.7, side: THREE.DoubleSide });
   scene.add(ribbon(tr, [{ o: (i) => tr.WL[i] - 0.22, y: 0.004, u: 0 }, { o: (i) => tr.WL[i] - 0.02, y: 0.004, u: 1 }], { material: lineMat }));
@@ -123,4 +124,5 @@ export function buildTrackMeshes(tr: Track, scene: THREE.Scene) {
     wall.castShadow = true; cap.castShadow = true;
     scene.add(wall, cap);
   }
+  return { road, roadMat, lineMat, kerbMat, gravelMat, wallMat };
 }

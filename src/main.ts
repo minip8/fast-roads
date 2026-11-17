@@ -25,6 +25,7 @@ import { buildTrack, parseCSV, type Track } from './track';
 import { loadTrackCsv, TRACKS, type TrackId } from './tracks';
 import { clamp } from './util';
 import type { DriveInput, Vehicle } from './vehicle';
+import { Weather, weatherFromUrl } from './weather';
 
 // ============================================================================
 // Main: wires the modules together and runs the game loop. Started by boot.ts.
@@ -44,6 +45,7 @@ export interface GameHook {
   readonly stage: ReturnType<typeof buildStage>;   // renderer, scene, camera (screenshots, renderer.info)
   readonly mirror: RearMirror;                      // the rear-view mirror (its pass's draw calls: mirror.stats)
   readonly multiplayer: Multiplayer | null;         // the room joined (null: single-player)
+  readonly weather: Weather;                        // rain and wet track, as drawn and heard (weather.set)
 }
 type NetModule = typeof import('./netGame');
 // Multiplayer while in a room (netGame.ts, loaded only then): the glue, the other cars drawn, the board.
@@ -97,6 +99,7 @@ export async function main() {
   const cockpitDisplay = new CockpitDisplay();
   const ghost = new GhostCar(scene);
   const mirror = new RearMirror($('mirror'));
+  const weather = new Weather(stage, audio), devWeather = weatherFromUrl(params);   // ?rain=0.7&wet=0.5 (visuals)
   hud.setKeys(bindings);
 
   // Game state
@@ -185,6 +188,7 @@ export async function main() {
     resolution: (v) => stage.setResolution(v / 100),
     shadows: (v) => stage.setShadows(v),
     brightness: (v) => stage.setBrightness(v / 100),
+    weather: (v) => { weather.quality = v; },
     sound: (v) => { audio.setMuted(v === 'off'); },
     volume: (v) => audio.setVolume(v / 100),
   };
@@ -264,7 +268,7 @@ export async function main() {
   window.__game = {
     simulate, setSetting, setAutopilot: (on) => { autoOn = on; },
     get car() { return session.car; }, get simTime() { return session.simTime; },
-    session, timing, track, input, autopilot, brakeMarkers: stage.brakeMarkers, stage, mirror,
+    session, timing, track, input, autopilot, brakeMarkers: stage.brakeMarkers, stage, mirror, weather,
     get multiplayer() { return netRt?.mp ?? null; },
   };
 
@@ -331,6 +335,8 @@ export async function main() {
     // other players at the time the car is drawn at (it is interpolated a tick behind the physics)
     if (netRt) netRt.view.update(netRt.mp, nowS - DT, camera, paused ? 0 : fdt, !hud.hidden && !menu.isOpen);
     cockpitDisplay.update(car, timing, session.simTime, alpha, cam.mode === 'driver' && !cam.lookBack);
+    if (devWeather) weather.set(devWeather);
+    weather.update(paused ? 0 : fdt, cam, session, netRt?.view);
     audio.update(car, fdt, started && !paused);
 
     hud.handleEvents(timing);
