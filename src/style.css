@@ -459,3 +459,45 @@ kbd { font: inherit; font-weight: 700; color: var(--text); background: rgba(255,
   #loadState::before { animation-duration: 2.4s; }
   #shiftLights.flash.off i.on { background: #3d8bff; box-shadow: 0 0 8px #3d8bff; }   /* steady blue instead of flashing */
 }
+
+/* ---------------------------------------------------------------------------------------------------------------
+   Race weekend HUD (raceHud.ts, the tower in netHud.ts): start lights and the race strip at the top, the pit panel
+   over the dash. #hud.race hides what a race does not need. */
+#raceTop { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center;
+  gap: 8px; pointer-events: none; }
+#hud:has(#mirror:not([hidden])) #raceTop { top: calc(22px + var(--mirror-w) / 4); }
+#raceLights { display: flex; gap: 10px; padding: 10px 14px; }
+#raceLights i { width: 30px; height: 30px; border-radius: 50%; background: #2a0d0d; box-shadow: inset 0 0 0 2px rgba(0,0,0,.6); }
+#raceLights i.on { background: #ff2b2b; box-shadow: 0 0 14px #ff2b2b, inset 0 0 0 2px rgba(0,0,0,.3); }
+#raceLights.out i { background: #1c1f24; }
+#raceInfo { padding: 6px 14px; font-size: 13px; min-width: 200px; text-align: center; }
+#raceInfo .rrow { display: flex; align-items: baseline; justify-content: center; gap: 8px; white-space: nowrap; }
+#raceInfo .rrow small { color: var(--muted); margin-left: -6px; }
+#raceInfo .rbig { font-size: 24px; font-weight: 800; }
+#raceInfo .rname, #raceInfo .rlap, #raceInfo .rpos { font-size: 11px; letter-spacing: .12em; color: var(--muted); }
+#raceInfo .rlap b, #raceInfo .rrow > b { color: var(--text); font-size: 16px; letter-spacing: 0; }
+#raceInfo .rpos { color: var(--text); font-weight: 700; }
+#raceInfo .gaps { gap: 14px; font-size: 12px; color: #d6dbe0; margin-top: 2px; }
+#raceInfo .gap.ahead b { color: var(--green); } #raceInfo .gap.behind b { color: var(--red); }
+#racePit { position: fixed; right: 16px; bottom: 150px; width: 236px; padding: 7px 12px; font-size: 12px; }
+#racePit .prow { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 2px 0; }
+#racePit .prow span { color: var(--muted); font-size: 10px; letter-spacing: .12em; }
+#racePit .prow kbd { font: 600 10px system-ui, sans-serif; padding: 0 4px; border-radius: 3px; background: rgba(255,255,255,.14); color: var(--text); letter-spacing: 0; }
+#racePit .prow.lane b { color: var(--yellow); } #racePit .prow.lane.lim b { color: var(--accent); }
+#racePit .prow.warn b, #racePit .prow.box b { color: var(--yellow); }
+#racePit .prow.done b { color: var(--green); }
+#racePit .pbar { height: 5px; border-radius: 3px; background: rgba(255,255,255,.12); overflow: hidden; margin: 2px 0 4px; }
+#racePit .pbar i { display: block; height: 100%; background: var(--yellow); }
+.cchip { display: inline-block; width: 16px; height: 16px; border-radius: 50%; vertical-align: -3px; text-align: center; font: 800 10px/16px system-ui, sans-serif;
+  font-style: normal; color: #111; background: var(--cc, #ccc); box-shadow: 0 0 0 2px rgba(0,0,0,.5); margin-right: 3px; }
+#board .bcar .cchip { width: 14px; height: 14px; font-size: 9px; line-height: 14px; vertical-align: -2px; }
+#hud.race #delta, #hud.race #timing .row:has(#optLap), #hud.race #lapList { display: none; }
+@media (max-width: 700px) {
+  #raceTop { top: auto; bottom: 168px; }
+  #raceLights { order: 2; }
+  #raceLights i { width: 22px; height: 22px; }
+  #racePit { right: auto; left: 16px; bottom: 150px; width: 190px; }
+  #hud.race #timing { display: none; }   /* the tower and the strip carry the race */
+}
+.nametag .cchip { width: 14px; height: 14px; font-size: 9px; line-height: 14px; vertical-align: -2px; margin: 0 0 0 2px; box-shadow: 0 0 0 1.5px rgba(0,0,0,.6); }
+.nametag .tpit { font-size: 10px; margin-left: 4px; letter-spacing: .06em; }

@@ -36,6 +36,9 @@ export class Timing {
   cur!: SectorTimes; trace!: number[];
   next!: number; sectorStart!: number;           // next line expected (-1 after wrong-way); current sector start
   nextInvalid!: string;                          // why the next lap is deleted before it starts ('' if it is not)
+  // A standing start (startStanding): the lap under way began on the grid, behind the line, so the first crossing of
+  // the line does not end it (it carries on into sector 1, which includes the run from the grid).
+  standing = false;
   // The best lap's recording (ghost.ts), replayed by the ghost car; saved next to the best times. Null if there is
   // no best lap, or its recording was lost (storage full) or is from before ghosts were recorded.
   ghost!: GhostLap | null;
@@ -45,7 +48,8 @@ export class Timing {
   // runup: how far before the line the car starts (TrackDef.startBack). That stretch is the run-up to every lap, the
   // first one from the start spot and each later one at the end of the lap before: going off the track there (all
   // four wheels out) gains speed for the lap that follows, so that lap is deleted too, as well as the lap under way.
-  constructor(private readonly track: Track, storeKey: string, private readonly runup = 0) {
+  // A race sets it to 0: there every lap counts, and going off before the line costs only the lap under way.
+  constructor(private readonly track: Track, storeKey: string, public runup = 0) {
     const N = track.N;
     this.lines = [0, Math.round(N / 3), Math.round((2 * N) / 3)].map((i) => {
       const l = Math.max(track.barL[i], track.WL[i] + 30) + 2, r = Math.max(track.barR[i], track.WR[i] + 30) + 2;
@@ -66,7 +70,14 @@ export class Timing {
   reset() {
     this.lapStart = null; this.next = 0; this.valid = true; this.sectorStart = 0;
     this.cur = [null, null, null]; this.trace = []; this.invalidReason = ''; this.nextInvalid = '';
+    this.standing = false;
     this.rec.stop();
+  }
+  // A race's first lap, from the grid (behind the line) at sim time t: timed from t, through the first crossing of
+  // the line, to the second. Not recorded as a ghost (it is not a lap from the line).
+  startStanding(t: number) {
+    this.reset();
+    this.lapStart = t; this.sectorStart = t; this.next = 0; this.standing = true;
   }
   // Deletes the lap under way, and with `next` the one after it too.
   invalidate(reason: string, next = false) {
@@ -109,6 +120,7 @@ export class Timing {
   // tc: when the line was crossed; tStart, tEnd: sim time at the start and end of this tick
   private cross(k: number, tc: number, tStart: number, tEnd: number, car: Vehicle) {
     if (k === 0) {
+      if (this.standing && this.next === 0) { this.standing = false; this.next = 1; return; }
       if (this.lapStart != null && this.next === 0) {
         this.cur[2] = tc - this.sectorStart;
         this.rec.finish(car, tEnd - this.lapStart, tc - this.lapStart);

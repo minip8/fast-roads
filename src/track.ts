@@ -24,6 +24,9 @@ export interface Track {
   nearestDist: (x: number, z: number) => number;
   speedProfiles?: Partial<Record<CarId, Float64Array>>;   // autopilot cache
   gripProfiles?: Map<string, Float64Array>;   // ...for worn tyres or a wet track (speedPlan)
+  // A race weekend's pit lane (raceGeometry.ts enablePitLane; only in a multiplayer room): on `side`, sample i's ground
+  // is asphalt and inside the track limits from the track's edge out to outer[i] (side x lat; NaN: no lane there).
+  pitLane?: { side: 1 | -1; outer: Float64Array };
 }
 
 // Where a point is on the track: nearest sample i, arc length s, lateral offset lat (positive = left).
@@ -181,12 +184,15 @@ export function surfaceAt(tr: Track, i: number, lat: number, s: number, res: Sur
   res.h = 0;
   if (lat <= wl && lat >= -wr) return (res.surf = S_ASPHALT);
   const left = lat > 0, e = left ? lat - wl : -wr - lat;
+  if (tr.pitLane && inPitLane(tr.pitLane, i, lat)) return (res.surf = S_ASPHALT);
   if ((left ? tr.kerbL[i] : tr.kerbR[i]) && e <= KERB_W) { res.h = kerbHeight(e, s); return (res.surf = S_KERB); }
   const bar = left ? tr.barL[i] : tr.barR[i];
   if ((left ? tr.gravelL[i] : tr.gravelR[i]) && e <= KERB_W + GRAVEL_W && lat * (left ? 1 : -1) < bar) return (res.surf = S_GRAVEL);
   return (res.surf = S_GRASS);
 }
+const inPitLane = (p: NonNullable<Track['pitLane']>, i: number, lat: number) => lat * p.side > 0 && lat * p.side <= p.outer[i];
 export function trackLimitOut(tr: Track, i: number, lat: number): boolean {
+  if (tr.pitLane && inPitLane(tr.pitLane, i, lat)) return false;
   if (lat > 0) return lat > tr.WL[i] + (tr.kerbL[i] ? KERB_W : LIMIT_TOL_NO_KERB);
   return -lat > tr.WR[i] + (tr.kerbR[i] ? KERB_W : LIMIT_TOL_NO_KERB);
 }

@@ -177,8 +177,9 @@ export function standBays(tr: Track, def: TrackDef): Footprint[] {
   return bays;
 }
 
-// The pit building (12 m deep, 8 m high) along the chord of the straight from def.pit[0] to def.pit[1].
-export function pitBuilding(tr: Track, def: TrackDef): (Footprint & { len: number }) | null {
+// The pit building (12 m deep, 8 m high) along the chord of the straight from def.pit[0] to def.pit[1]. k0, k1: the
+// samples (counted from the line, negative before it) its ends stand beside, once shortened to fit.
+export function pitBuilding(tr: Track, def: Pick<TrackDef, 'pit' | 'pitSide'>): (Footprint & { len: number; k0: number; k1: number }) | null {
   const ds = tr.L / tr.N;
   let k0 = Math.round(def.pit[0] / ds), k1 = Math.round(def.pit[1] / ds);
   while (k1 - k0 >= 20) {   // at least 40 m long
@@ -190,7 +191,7 @@ export function pitBuilding(tr: Track, def: TrackDef): (Footprint & { len: numbe
     const nx = (side * az) / len, nz = (-side * ax) / len;
     if (clear(tr, boxPoints(x, z, ax / len, az / len, len / 2, nx, nz, -6, 6), i0, i0 + k1 - k0)) {
       // On the left the building's local -x faces the track; on the right it is turned round so that face still does.
-      return { x, z, len, yaw: Math.atan2(ax, az) + (side > 0 ? 0 : Math.PI) };
+      return { x, z, len, k0, k1, yaw: Math.atan2(ax, az) + (side > 0 ? 0 : Math.PI) };
     }
     k0 += 2; k1 -= 2;
   }

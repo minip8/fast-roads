@@ -54,6 +54,7 @@ type NetModule = typeof import('./netGame');
 interface NetRuntime {
   mp: Multiplayer; view: InstanceType<NetModule['RemoteCars']>; board: InstanceType<NetModule['NetHud']>;
   mod: NetModule; server: string; log: InstanceType<NetModule['lobby']['RoomLog']>;   // (for the menu's room tab)
+  race: InstanceType<NetModule['RaceHud']>; pitLane: InstanceType<NetModule['PitLaneMesh']>;   // the race weekend's HUD, the pit lane drawn
 }
 declare global { interface Window { __game?: GameHook } }
 
@@ -132,7 +133,11 @@ export async function main() {
   let acc = 0, last = performance.now(), menuTick = 0;
   session.onReset = () => cam.reset();
 
-  const restart = () => { session.restart(); hud.showMsg('Flying lap<small>Starts at the line</small>', 1.5); };
+  // (in a room the weekend decides: a flying start on fresh tyres, or a recovery in a race)
+  const restart = () => {
+    if (netRt) { netRt.mp.requestRestart(); return; }
+    session.restart(); hud.showMsg('Flying lap<small>Starts at the line</small>', 1.5);
+  };
 
   // ---------------- Multiplayer ----------------
   // Entering a room (create, join, a link, a retry), leaving it, and what the room's events mean for the page: a
@@ -142,8 +147,8 @@ export async function main() {
   let netStatus: NetStatus = bootError ?? { state: 'off', text: '' };
   // what Try again does: the last attempt (a create stays a create), or rejoining the room last in
   let lastAttempt: (() => void) | null = link ? () => { void enterRoom('join', link.room, serverFor(link.server)); } : null;
-  // CONNECT (in-car side): the starting compound the menu's room tab offers. Held here until Multiplayer takes it
-  // (e.g. `netRt.mp.startCompound = id`), which fits it when a session puts the car on track.
+  // The starting compound chosen in the menu's room tab (null: the weekend picks by the weather). The weekend fits it
+  // whenever a session puts the car on track; kept here too so it survives leaving and rejoining.
   let startTyre: string | null = null;
   const labels = document.createElement('div');
   labels.id = 'netLabels';
@@ -155,7 +160,11 @@ export async function main() {
   };
   const startNet = (mod: NetModule, net: NetClient, server: string) => {
     clearInterval(bootKeep);
-    netRt = { mp: new mod.Multiplayer(net, session), view: new mod.RemoteCars(scene, labels), board: new mod.NetHud($('leftCol')), mod, server, log: new mod.lobby.RoomLog(net) };
+    const mp = new mod.Multiplayer(net, session, def), pitLane = new mod.PitLaneMesh(track, mp.weekend.lane), race = new mod.RaceHud($('hud'));
+    scene.add(pitLane.group);
+    race.tyreKey = keysFor(bindings, 'tyre').map(keyLabel)[0] ?? '';
+    mp.weekend.setStartCompound(startTyre);
+    netRt = { mp, view: new mod.RemoteCars(scene, labels), board: new mod.NetHud($('leftCol')), race, pitLane, mod, server, log: new mod.lobby.RoomLog(net) };
     netStatus = { state: 'joined', text: '' };
     lastAttempt = () => { void enterRoom('join', net.room, server); };
     saveSeat({ room: net.room, server, token: net.token });
@@ -165,7 +174,7 @@ export async function main() {
   };
   const stopNet = (status: NetStatus) => {
     if (!netRt) return;
-    netRt.mp.close(); netRt.view.dispose(); netRt.board.dispose(); netRt = null;
+    netRt.mp.close(); netRt.view.dispose(); netRt.board.dispose(); netRt.race.dispose(); netRt.pitLane.dispose(); netRt = null;
     session.proxies.length = 0;
     netStatus = status;
     history.replaceState(null, '', roomUrl(null));
@@ -252,8 +261,8 @@ export async function main() {
     },
     tyre: {
       options: () => session.car.compounds.map((c) => ({ id: c.id, name: c.name, letter: c.letter, colour: c.colour })),
-      get: () => (startTyre && session.car.compounds.some((c) => c.id === startTyre) ? startTyre : session.car.compounds[0]?.id ?? ''),
-      set: (id) => { startTyre = id; },
+      get: () => netRt?.mp.weekend.startCompound ?? netRt?.mp.weekend.autoCompound() ?? session.car.compounds[0]?.id ?? '',
+      set: (id) => { startTyre = id; netRt?.mp.weekend.setStartCompound(id); },
     },
   };
 
@@ -312,6 +321,7 @@ export async function main() {
   const cycleSetting = (key: SettingKey, dir = 1) => setSetting(key, nextOption(key, settings[key], dir));
   const setBindings = (b: typeof bindings) => {
     bindings = b; input.bindings = b; saveBindings(b); hud.setKeys(b);
+    if (netRt) netRt.race.tyreKey = keysFor(b, 'tyre').map(keyLabel)[0] ?? '';
   };
   const keyText = (a: Action) => keysFor(bindings, a).map(keyLabel).join(' / ') || 'unbound';
 
@@ -395,6 +405,11 @@ export async function main() {
       hud.showMsg(input.mouse.enabled ? 'Mouse steering<small>Cursor left/right of centre steers · left click throttle · right click brake · scroll to shift</small>' : 'Keyboard steering', 2.2);
     }
     if (input.takeAction('help')) hud.toggleHelp();
+    if (input.takeAction('tyre')) {
+      const w = netRt?.mp.weekend;
+      if (w && car.compounds.length > 1) { w.cycleCompound(); const c = car.compounds.find((k) => k.id === w.nextCompound)!; hud.showMsg(`Next tyres: ${c.name}<small>Fitted at your next pit stop or restart</small>`, 1.5); }
+      else if (!w) hud.showMsg('Tyre choice<small>For pit stops in a multiplayer race weekend</small>', 1.5);
+    }
     if (input.takeAction('restart')) restart();   // back to the start of the lap
     input.pressed.clear();
   };
@@ -402,7 +417,8 @@ export async function main() {
   const frame = (now: number) => {
     requestAnimationFrame(frame);
     const fdt = Math.min((now - last) / 1000, 0.1); last = now;
-    const nowS = now / 1000, running = started && !paused;
+    // live: the player is driving. A race we are in goes on while the menu is open (the car parked: Weekend).
+    const nowS = now / 1000, live = started && !paused, running = live || !!netRt?.mp.weekend.keepsRunning;
     if (netRt) {
       let fatal: { code: number; message: string } | null = null;
       for (const e of netRt.mp.update(nowS, !running)) {
@@ -411,7 +427,10 @@ export async function main() {
         onNetEvent(e);
         if (!netRt) break;   // (left: the page is reloading onto another circuit)
       }
-      if (netRt) for (const n of netRt.mp.takeNotices()) netRt.board.notice(n);
+      if (netRt) for (const n of netRt.mp.takeNotices()) {
+        if (n.kind === 'flag') hud.showMsg(`${n.text}${n.sub ? `<small>${n.sub}</small>` : ''}`, 2.5);
+        else netRt.board.notice(n);
+      }
       if (netRt && menu.isOpen && now - menuTick > 250) { menuTick = now; menu.refresh(); }   // the room tab's clocks
     }
 
@@ -424,31 +443,35 @@ export async function main() {
       acc += fdt;
       let steps = 0;
       while (acc >= DT && steps < MAX_STEPS_PER_FRAME) {
-        const inp = autoOn ? autopilot(session.car, track) : input.poll(DT);
-        if (netRt) netRt.mp.tick(inp, autoOn, nowS - (acc - DT));   // (the local time this tick's state is for)
+        const inp = !live ? PARKED : autoOn ? autopilot(session.car, track) : input.poll(DT);
+        if (netRt) netRt.mp.tick(inp, autoOn && live, nowS - (acc - DT), !live);   // (the local time this tick's state is for)
         else session.tick(inp, autoOn);
         acc -= DT; steps++;
       }
       if (steps === MAX_STEPS_PER_FRAME) acc = 0;
     } else netRt?.mp.idle(nowS);
-    const alpha = clamp(acc / DT, 0, 1), car = session.car;
-    car.render(alpha, paused ? 0 : fdt);
-    for (const o of session.others) o.car.render(alpha, paused ? 0 : fdt);
-    dust.update(paused ? 0 : fdt, car, camera, renderer);
+    const alpha = clamp(acc / DT, 0, 1), car = session.car, simDt = running ? fdt : 0;
+    car.render(alpha, simDt);
+    for (const o of session.others) o.car.render(alpha, simDt);
+    dust.update(simDt, car, camera, renderer);
     cam.lookBack = !menu.isOpen && input.lookingBack();
     cam.update(fdt, car);
+    // (no ghost of a best lap in a race: real cars are racing)
+    const ghostOn = settings.ghost === 'on' && !netRt?.mp.weekend.inRace;
+    if (ghost.enabled !== ghostOn) ghost.enabled = ghostOn;
     ghost.update(car, timing, session.simTime, alpha, camera);
     // other players at the time the car is drawn at (it is interpolated a tick behind the physics)
-    if (netRt) netRt.view.update(netRt.mp, nowS - DT, camera, paused ? 0 : fdt, !hud.hidden && !menu.isOpen);
+    if (netRt) netRt.view.update(netRt.mp, nowS - DT, camera, simDt, !hud.hidden && !menu.isOpen);
     cockpitDisplay.update(car, timing, session.simTime, alpha, cam.mode === 'driver' && !cam.lookBack);
-    if (devWeather) weather.set(devWeather);
-    weather.update(paused ? 0 : fdt, cam, session, netRt?.view);
+    if (netRt) weather.set({ rain: netRt.mp.weekend.rain, wetness: netRt.mp.weekend.wetness });   // the room's weather
+    else if (devWeather) weather.set(devWeather);
+    weather.update(simDt, cam, session, netRt?.view);
     audio.update(car, fdt, started && !paused);
 
     hud.handleEvents(timing);
     hud.update({ car, timing, simTime: session.simTime, alpha, dt: fdt, autoOn, paused, mouseSteer: input.mouse.enabled ? input.mouse.steer : null, ghost: ghost.shown ? ghost.mapPos : null,
       others: netRt?.view.dots, netGhost: netRt?.mp.noCollide });
-    if (netRt && !hud.hidden) netRt.board.update(netRt.mp, netRt.view.status, fdt, !running);
+    if (netRt && !hud.hidden) { netRt.board.update(netRt.mp, netRt.view.status, fdt, !live); netRt.race.update(netRt.mp, nowS, fdt); }
 
     renderer.render(scene, camera);
     const cockpitView = cam.mode === 'onboard' || cam.mode === 'driver';
@@ -477,6 +500,9 @@ function netName(): string {
   saveNetPrefs({ ...p, name });
   return name;
 }
+
+// The input while the player is in the menu during a race (the weekend brakes the car to a stop).
+const PARKED: DriveInput = { throttle: 0, brake: 0, steer: 0, analog: false, steerAngle: null };
 
 // The ?opponents value: a count of the player's car (none given: one), or car ids separated by commas (unknown ids
 // are skipped).

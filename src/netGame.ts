@@ -8,6 +8,8 @@ import { newRoomCode } from './netPrefs';
 // ============================================================================
 export { Multiplayer } from './multiplayer';
 export { NetHud } from './netHud';
+export { PitLaneMesh } from './pitLaneMesh';
+export { RaceHud } from './raceHud';
 export { RemoteCars } from './remoteCars';
 export * as lobby from './lobby';
 

@@ -18,6 +18,7 @@ export const ACTIONS = {
   steering: 'Mouse steering on / off',
   mute: 'Sound on / off',
   help: 'Show / hide key help',
+  tyre: 'Next pit stop tyres (race weekends)',
   menu: 'Pause menu',
 } as const;
 export type Action = keyof typeof ACTIONS;
@@ -33,7 +34,7 @@ export const DEFAULT_BINDINGS: Readonly<Bindings> = {
   shiftUp: ['KeyE', null], shiftDown: ['KeyQ', null], restart: ['KeyR', 'Enter'], camera: ['KeyC', null],
   lookBack: ['KeyB', null],
   gearbox: ['KeyG', null], tc: ['KeyT', null], steering: ['KeyV', null], mute: ['KeyM', null], help: ['KeyH', null],
-  menu: ['KeyP', null],
+  tyre: ['KeyN', null], menu: ['KeyP', null],
 };
 
 const STORE_KEY = 'fastroads.keys';

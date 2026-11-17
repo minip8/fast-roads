@@ -38,7 +38,7 @@ class Room {
     const pair = this.net.pair(link, link);
     this.relay.accept(pair.server);
     const net = new NetClient(pair.client, { room: 'TEST', name, car, circuit: 'melbourne', clock: () => this.net.now });
-    const c: Client = { name, s: h.session, mp: new Multiplayer(net, h.session), driver, ticking: true };
+    const c: Client = { name, s: h.session, mp: new Multiplayer(net, h.session, TRACKS.melbourne), driver, ticking: true };
     this.clients.push(c);
     return c;
   }

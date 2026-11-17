@@ -39,6 +39,9 @@ export interface CarInfo {
   // autopilot
   autoGrip: number; autoLong: number; autoCounter: number; autoLift: number;
   autoUndersteer: number;                   // extra lock the autopilot adds per m/s2 of cornering (rad), for a car that understeers
+  // race weekends (multiplayer): s stationary for a set of tyres at a pit stop, and the wear scale that makes one
+  // of the room's tyre-wear steps wear this car's tyres about as fast in laps as the F1's (raceWear.ts)
+  race: { pitSecs: number; wearScale: number };
   // visuals
   tyreW: [front: number, rear: number];
   cam: { up: number; back: number; down: number };   // onboard camera offset
@@ -206,6 +209,7 @@ export const CARS: Record<CarId, AnyCarSpec> = {
     autoUndersteer: 0,                        // their plan computes none for it
     redline: 12500, idle: 4000, shiftPoint: 12200, shiftLightsFrom: 10800,
     sound: F1_VOICE,
+    race: { pitSecs: 2.5, wearScale: 1 },     // a front-running crew's four tyres; the wear the steps are set for
     cam: { up: 0.98, back: 0.3, down: 1.1 },
   },
   // LibreCorsa's Mercedes-AMG GT3 on their engine (src/lc/vendor).
@@ -230,6 +234,9 @@ export const CARS: Record<CarId, AnyCarSpec> = {
     autoUndersteer: 0.0025,                   // the 1.41 deg/g their reference manoeuvre measures on this engine
     redline: 7900, idle: 2100, shiftPoint: 7500, shiftLightsFrom: 6200,   // their limiter, idle, upshift and shift lights
     sound: GT3_VOICE,
+    // a sprint-race tyre change with GT rules' small crew (two wheel guns); its tyres last about 4.1 times the F1's
+    // laps at Melbourne (soft 170 / 43, medium 263 / 64, hard 385 / 90 at scale 1)
+    race: { pitSecs: 8, wearScale: 4.1 },
     cam: { up: 0.58, back: -0.8, down: 0.3 },
   },
   // Rear-drive coupe: light, little downforce, lots of torque, loose rear. The tail swings a long way out and digs
@@ -294,6 +301,8 @@ export const CARS: Record<CarId, AnyCarSpec> = {
     hull: [0.82, 0.28, 2.15, 0, 0.18, 0],
     parts: [[0.7, 0.2, 0.95, 0, 0.53, -0.35]],
     tyreW: [0.25, 0.27],
+    // a club crew's tyre change; its all-weather tyre lasts about as many laps as the F1's medium (DRIFT_TYRE)
+    race: { pitSecs: 6, wearScale: 1 },
     cam: { up: 0.6, back: -1.0, down: 0.35 },  // bonnet camera, just ahead of the windscreen
   },
 };

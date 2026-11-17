@@ -17,7 +17,8 @@ export const PAD_DEADZONE = { small: 0.04, medium: 0.08, large: 0.15 };
 const PAD_CURVE = 1.4;
 
 // Gamepad buttons (standard mapping) that act like a key press: Y camera, X and Back restart, Start menu, RB/LB shift.
-export const PAD_BUTTONS: readonly [button: number, action: Action][] = [[3, 'camera'], [2, 'restart'], [8, 'restart'], [9, 'menu'], [5, 'shiftUp'], [4, 'shiftDown']];
+// (d-pad up: the next pit stop's tyres, in a race weekend)
+export const PAD_BUTTONS: readonly [button: number, action: Action][] = [[3, 'camera'], [2, 'restart'], [8, 'restart'], [9, 'menu'], [5, 'shiftUp'], [4, 'shiftDown'], [12, 'tyre']];
 // Gamepad button held to look behind: right stick click.
 export const PAD_LOOK_BACK = 11;
 // Gamepad buttons in the menu, as the keys they stand for: d-pad, A select, B / Start back, LB / RB change tab.

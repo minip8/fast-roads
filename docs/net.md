@@ -328,7 +328,7 @@ NetClient applies nothing; the game's rule is under **In the game** below.
 
 ## In the game (`src/multiplayer.ts`)
 
-`Multiplayer(net, session)` joins one game `Session` to a room. It has no DOM and no rendering, so
+`Multiplayer(net, session, def)` joins one game `Session` (on circuit `def`) to a room. It has no DOM and no rendering, so
 `test/multiplayer.test.ts` runs exactly this code with several Sessions in Node; the game adds `remoteCars.ts`
 (the other cars drawn, name tags, minimap dots) and `netHud.ts` (the board), all loaded with `netGame.ts` by a
 dynamic import, so a single-player page never downloads `src/net`.
@@ -336,21 +336,23 @@ dynamic import, so a single-player page never downloads `src/net`.
 | Member | |
 |---|---|
 | `update(now, paused)` | every frame, before the ticks: `net.update`, the events handled (roster, cars, contacts, laps), and returned for the game's own use (the circuit, errors, `closed`). `paused`: the game is not simulating (menu, before the first Drive) |
-| `tick(input, autopilot, tickAt)` | in place of `session.tick`: proxies sampled at `tickAt` into `session.proxies`, the tick, then contacts, laps and our state sent. `tickAt` is the local time the tick's result is for (`now - (acc - DT)` in the frame loop) |
+| `tick(input, autopilot, tickAt)` | in place of `session.tick`: proxies sampled at `tickAt` into `session.proxies`, the weekend's input (held, limiter, service), the tick, then contacts, laps (with the crossing's time: `at`) and our state sent. `tickAt` is the local time the tick's result is for (`now - (acc - DT)` in the frame loop) |
 | `idle(now)` | a frame without ticks: our state, held, sent as paused |
 | `players` | everyone else: `RemotePlayer` (info, spec, the proxy `body` and its `sample` at the last tick, `collidable`) |
 | `noCollide`, `epoch`, `stats` | ours; `stats` counts contact ticks, events sent, applied, ignored, dropped, laps sent |
 | `sampleAt(id, now, out)` | for drawing; the game draws other cars at `now - DT`, where the player's own car is drawn (interpolated a tick behind) |
-| `takeNotices()` | joins, leaves, car changes, best laps, non-fatal errors, as text for the HUD |
+| `takeNotices()` | joins, leaves, car changes, best laps, non-fatal errors, as text for the HUD's feed; kind `race` (a stop made, a drive-through, rain) for the feed too, `flag` (lights out, final lap, the flag, a penalty, a session starting) for the big message, with `sub` under it |
+| `tick(input, autopilot, tickAt, parked)` | `parked`: the player is in the menu during a race (`weekend.keepsRunning`): the game keeps ticking, the car brakes to a stop, a ghost |
+| `requestRestart()` | the restart key and the menu's Restart: what the weekend allows (below) |
+| `weekend` | the race weekend as our car lives it (below) |
 
-Protocol 2 status: the menu side is wired (`main.ts`, `menu.ts`, `lobby.ts`): rooms are created (`mode: 'create'`,
-a code the game makes, another on `roomTaken`) or joined (`mode: 'join'`; a `?room=` link never creates), the token
-is kept in the tab's sessionStorage and sent on every rejoin (a reload, a circuit change), a `settings` event with
-`circuitChanged` reloads onto the circuit, and the host's settings, start, skip and abort, the session, the drivers
-and the standings are in the menu's room tab. `Multiplayer` itself still drives the lobby's way (laps sent without
-`at`, so their crossing is the moment `sendLap` runs, within a tick of the real one; byte 42 of the state left 0):
-the weekend in the car (grid placement, holding cars until `goAt`, pit reports, weather, the race HUD) is still to
-do, from **Race weekends** and the client API above.
+The weekend in the car (sessions, the grid, the pit lane, recoveries, conditions, the running order) is
+`Multiplayer.weekend`, a `Weekend` (`src/weekend.ts`; **Race weekends in the game**, below). The menu side
+(`main.ts`, `menu.ts`, `lobby.ts`) enters rooms: created (`mode: 'create'`, a code the game makes, another on
+`roomTaken`) or joined (`mode: 'join'`; a `?room=` link never creates), the token kept in the tab's sessionStorage
+and sent on every rejoin (a reload, a circuit change), a `settings` event with `circuitChanged` reloading onto the
+circuit, and the host's settings, start, skip and abort, the session, the drivers, the starting tyre
+(`weekend.setStartCompound`) and the standings in the menu's room tab.
 
 Our car: the state after every tick (velocity and pedals zeroed while paused, so nobody extrapolates a parked car
 down the road), the epoch bumped and `restart` sent whenever the Session puts the car at the start spot
@@ -399,6 +401,111 @@ saw the hit (8 ticks each), every event was ignored, and the momentum the two ca
 (sum 0.5 kN s, 2%). The same with the struck car's simulation blind to proxies: all 8 events applied, once each,
 30.3 and 31.1 kN s (sum 0.8 kN s).
 
+### Race weekends in the game (`src/weekend.ts`)
+
+`Multiplayer.weekend` follows `net.session` (each frame, after the events) and decides everything about our car in it.
+It has no DOM; `raceHud.ts` (the lights, the race strip, the pit panel), `netHud.ts` (the board, a timing tower in a
+race) and `pitLaneMesh.ts` (the lane drawn) show it. Every client works the geometry out from the track alone
+(`src/raceGeometry.ts`), so all agree on it.
+
+**Conditions.** In a room the physics runs with tyre wear (`settings.tyreWear` x the car's `CarInfo.race.wearScale`:
+1 for the F1 and the drift car, 4.1 for the GT3, whose tyres last 4.1 times the F1's laps at scale 1) and the relay's
+weather (`net.conditions(now)` every 0.5 s into `Session.setConditions` as rain and wetness, rounded to 1/200; the
+game draws `weekend.rain` / `weekend.wetness` with `weather.set`). The lobby is dry, with wear. Leaving the room puts
+the time trial back (no wear, dry, no pit lane, the time trial's best times, a fresh set of the first compound and a
+flying start). The wear steps are multipliers as the F1 wears; `weekend.tyreLife(compound)` turns the room's step
+into laps for a menu ("soft about 4 laps"): at Melbourne at scale 1 the F1's soft, medium and hard last about 43, 64
+and 90 laps, scaled here by the circuit's length (a rough figure: wear depends on the circuit's corners as much).
+At 12 that is about 3.6, 5.3 and 7.5 laps, so one stop pays in a 5-10 lap race; 20 makes it two.
+
+**Best times and ghosts.** Laps in a room never touch the time trial's best times: `Session.setStoreTag('.mp')` in the
+lobby, practice and qualifying (one set of "race conditions" bests per circuit and car, with its own ghost, which
+practice and qualifying show), `'.race'` in a race, where the ghost car is not drawn (real cars are racing).
+
+**Where the car goes.** On each new session (phase, index or start differ) the session's tyres are fitted fresh
+(`weekend.startCompound`, set by the menu, or by the weather: `autoCompound()`, wets from wetness 0.55, intermediates
+from 0.25, else the medium in a race and the soft otherwise) and the car is put:
+- lobby (joining one: driving on where it is), practice, timed qualifying: the flying start (`Session.restart`).
+- one-shot qualifying, an entrant: at rest at the start spot, held (`net.held`) until `goAt`, then all released
+  together with a flying start (a ghost all session: `collisions` is off). A joiner after the start: a flying start,
+  laps not sent.
+- the race, on the grid: first a spawn at the start spot (a fresh car: full battery), then the grid slot
+  (`gridSlots`, below) at rest, held until `goAt`. Lap 1 is timed from the tick the lights go out
+  (`Timing.startStanding`: the first crossing of the line does not end it; sector 1 includes the run from the grid)
+  and is reported with its crossing's relay time like every lap. A racer back after a reload (its token, the race
+  under way): out of its pit box at rest. A spectator (joined after the start): a flying start, a ghost, never
+  classified.
+
+While held, recovering or being serviced the input is replaced by a stop (the brake while it rolls, then nothing: a
+brake held at a standstill is the automatic box's reverse).
+
+**The grid** (`gridSlots(track, n)`): two staggered columns, slot k `8 + 8k` m behind the line (16 m nose to nose in a
+column, 10 m clear in front of the 5.6 m F1), pole on the inside of the first corner, the columns 3 m either side of
+the middle of the road (less where it is narrow: 1.6 m from the car's side to the edge). The 32 slots of a full room
+reach 256 m back: on asphalt at every circuit (`test/raceGeometry.test.ts`).
+
+**The pit lane** (`buildPitLane(track, def)`): a strip 4 m wide on the pit building's side (`TrackDef.pitSide`), its
+inner edge 2 m beyond the track's edge, or nearer (into the track) so that its outer edge stays 0.6 m off the
+barrier: on the run-off at the 19 permanent circuits (7 m of it), 1.1 m into the road at the five street circuits
+(3.5 m of pavement). Along the lap it is centred on the pit building: a speed-limited stretch as long as the building
+(at most 320 m: 120 m at Monaco), an entry and an exit ramp of 60 m, the box (12 m) in the middle. `enablePitLane` (a
+room only) makes the ground asphalt and inside the track limits from the track's edge to the lane's outer edge all
+along it, so the time trial's track and the pinned laps are untouched. A car is in the lane once its centre is in the
+lane's outer half (beyond its middle less 1.2 m) and until it is back on the track (hysteresis); in it the car is a
+ghost (reason `pits`), and an automatic limiter holds it to 80 km/h through the limited stretch and, on the entry
+ramp, to what braking at 9 m/s² down to the limit line allows (above it: no throttle, the brake). Stopping in the
+box (centre within 6 m of it, under 0.5 m/s) starts the service: `CarInfo.race.pitSecs` (F1 2.5 s, GT3 8 s, drift
+car 6 s), then a fresh set of `weekend.nextCompound` out of the blankets and `sendPit` (the relay counts it in a race
+after lights out). Leaving without stopping is a drive-through (a notice, nothing reported). The autopilot never
+enters it (it drives the centreline). Measured (`PITLOSS=melbourne npx vitest run test/pit-loss.test.ts`: the
+autopilot from the start spot to 300 m past the lane's end, through the lane with a stop, against on the track):
+at Melbourne a stop costs the F1
+19.7 s (38.3 s against 18.5 s; 2.5 s of it in the box), the GT3 23.8 s (8 s in the box), the drift car 21.1 s (6 s).
+
+**Restarts.** The restart key (`Multiplayer.requestRestart`) and Session's own resets (a stuck autopilot, a car on its
+roof: `Session.autoReset`): in the lobby, practice and timed qualifying a flying start on a fresh set of
+`nextCompound`; in a race (racing) and in one-shot qualifying after the release a **recovery**: the car put back on
+the track at the nearest point (in the pit lane, the lane's middle; else at most 2 m inside the edge), at rest, the
+lap going on, and held there for `RECOVERY_SECS` (10 s) as a ghost: with the standing start after it, a recovery
+costs well over 10 s, so it is a last resort, and it never gains ground. Nothing on the grid before the lights.
+
+**Pausing in a race.** A race does not stop for one player: while the menu is open (or before the first Drive) in a
+race we are in, the game keeps simulating our car (`weekend.keepsRunning`) with the input parked (it brakes to a stop
+where it is), a ghost (reason `paused`); the race clock and the others go on. A hidden tab gets no frames: the car is
+then frozen and sent as paused, as in every other session. In the lobby, practice and qualifying the menu pauses as
+before.
+
+**Laps.** Every completed lap is sent with the relay time of its crossing (`at`: the tick's time less the part of
+the tick after the crossing), except: one-shot qualifying's laps after our first from the release (and every lap of
+a non-entrant); timed qualifying's laps after the flag beyond the first (sent only if it began before the flag + 1 s);
+a race's after our finish (NetClient does not send them either). In a race `Timing.runup` is 0: going off before the
+line costs only the lap under way. Our session over (finished, one-shot lap done, qualifying's last lap), we drive on
+as a ghost (reason `finished`).
+
+**Running order** (`weekend.order`, 10 times a second in a race): every classified car's distance since the start,
+its track position (the proxy at the tick, ours) unwrapped tick to tick and put right by the standings' lap counts
+(beyond 50 m of slack); finished cars first in the standings' order, then by distance. Gaps come from each car's
+timing loops (when it passed every 10 m, over the last lap): a car's gap to the leader is the time since the leader
+passed its distance, `gapAhead` / `gapBehind` likewise; more than a lap: `lapsDown`.
+
+**Car state byte.** `compound` is the fitted set (`COMPOUND`; the drift car's all-weather tyre is unknown); `reason`
+pits / spectator / paused (parked, or the menu) / finished / ghost (recovering, one-shot, after a restart until clear)
+/ none. Other cars' compound shows on their name tags, the board and the tower, and reason `pits` as PIT.
+
+| `Weekend` member | |
+|---|---|
+| `phase`, `index`, `stage`, `raceStage` | the session as we acted on it |
+| `startCompound`, `setStartCompound(id \| null)` | the set every session starts on (null: `autoCompound()`), for the lobby screen |
+| `nextCompound`, `cycleCompound(dir)` | the set the next stop or restart fits (the HUD's NEXT TYRES; action `tyre`, N or d-pad up) |
+| `tyreLife(id)` | about how many laps a set lasts here at the room's wear |
+| `pit` | `zone`, `inLane`, `limiter`, `dist` (m along the lane), `service` / `serviceTotal` (s), `stops`, `stopped` (this visit) |
+| `mandatoryStops` | the race's `pitStops` |
+| `held`, `recovering`, `parked`, `finished`, `spectator`, `raceLaps` | |
+| `order`, `gapAhead`, `gapBehind`, `aheadId`, `behindId` | the live running order (`RaceEntry`: id, name, car, pos, laps, dist, gap, lapsDown, status, compound, pits, inPits, penalty) |
+| `keepsRunning`, `inRace`, `reason` | |
+| `rain`, `wetness` | the relay's weather now |
+| `lane` | the pit lane (`PitLane`) |
+
 ## Race weekends
 
 The relay runs them; clients follow its messages. Everything below is timed on the relay clock and every
@@ -417,7 +524,7 @@ the rest with `normaliseSettings` and broadcasts them; `defaultSettings(circuit)
 | `raceLaps` | 1-99 (5) | |
 | `grid` | `qualifying` / `random` / `reversed` / `joinOrder` (`qualifying`) | with qualifying `none`, `qualifying` and `reversed` become `joinOrder` |
 | `pitStops` | 0-3 (0) | mandatory stops in the race |
-| `tyreWear` | 0.5, 1, 2, 3, 5 (1; nearest) | for the game's tyre model; the relay only passes it on |
+| `tyreWear` | 0.5, 1, 2, 3, 5, 8, 12, 20 (1; nearest) | for the game's tyre model (as the F1 wears: each car's own is scaled to match, **Race weekends in the game**); the relay only passes it on |
 | `weather` | `dry` / `damp` / `wet` / `changeable` / `random` (`dry`) | **Weather** |
 | `collisions` | on / off (on) | in the race; practice and timed qualifying always collide, one-shot qualifying never |
 | `invalidPenalty` | 0, 1, 2, 3, 5, 10 s (0; nearest) | per invalid race lap |
@@ -855,3 +962,14 @@ capacity above counts only the object's requests).
 - `test/multiplayer.test.ts`: game Sessions joined through the relay with `Multiplayer` (above): proxy accuracy,
   a rear-end hit seen by both sides and by one, restarting onto an occupied spot, pausing, joins, car changes,
   leaving, a lap reaching the board.
+- `test/race-weekend.test.ts`: whole weekends of game Sessions (the F1, the GT3, the drift car) on a relay with short
+  durations: wear and store tags in the lobby and sessions, timed qualifying setting the grid, every car on its own
+  slot and held there at full throttle until lights out, the standing lap 1, the live order, a pit stop (into the
+  lane at 30 m/s, the limiter, the box, the service: hards fitted, wear gone, the stop in every client's standings,
+  a ghost to the others, the compound in its state), the limiter's 80 km/h, a recovery (put back where it was,
+  held, a ghost, its lap going on), the finish and the classification with missed-stop penalties, the time trial's
+  best times untouched, leaving back to the time trial; one-shot qualifying (held at the start spot, released
+  together, ghosts, one lap sent), the wet weather in the physics and wets fitted for it, a spectator joining
+  mid-race.
+- `test/raceGeometry.test.ts`: the grid (32 slots) and the pit lane at every circuit, the lane's ground and track
+  limits only while enabled.

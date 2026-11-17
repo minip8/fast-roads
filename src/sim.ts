@@ -95,10 +95,13 @@ export class Session {
   // Added to every best-times key (TrackDef.storeKey + the car's), so laps in other conditions (a race, a dev URL
   // flag) do not become the time trial's best times: setStoreTag.
   storeTag = '';
+  // What a car that needs putting back gets (stuck autopilot, on its roof): restart() unless set. A race sets its own
+  // (a recovery where the car is: multiplayer.ts), since a race has no start spot to go back to.
+  autoReset: (() => void) | null = null;
   private readonly inputs: DriveInput[] = [];
   private readonly bodyA: ContactBody = newBody({ front: 0, rear: 0, halfWidth: 0, mass: 0, yawInertia: 0 });
   private readonly bodyB: ContactBody = newBody(this.bodyA.shape);
-  private readonly startS: number;
+  readonly startS: number;           // the start spot (s): TrackDef.startBack before the line
   private stuck = 0;
 
   // def: the circuit's start spot (which is also the run-up timing watches for track limits), each car's flying-lap
@@ -123,7 +126,9 @@ export class Session {
     } else this.stepAll(inp);
     this.simTime += DT;
     this.stuck = autopilot && Math.abs(this.car.speedF) < 1 ? this.stuck + DT : 0;
-    if (this.stuck > STUCK_SECS || needsReset(this.car)) this.restart();
+    if (this.stuck > STUCK_SECS || needsReset(this.car)) {
+      if (this.autoReset) { this.stuck = 0; this.autoReset(); } else this.restart();
+    }
     for (const o of this.others) {
       o.stuck = Math.abs(o.car.speedF) < 1 ? o.stuck + DT : 0;
       if (o.stuck > STUCK_SECS || needsReset(o.car)) this.placeExtra(o);
@@ -200,6 +205,16 @@ export class Session {
     this.place();
     this.timing.reset();
     for (const o of this.others) this.placeExtra(o);
+  }
+
+  // The car put at (s, lat), stopped or rolling at speed m/s (a grid slot, a recovery, the pit box): counted as a reset
+  // (resets, onReset) like a restart. The lap under way is dropped unless keepLap (a recovery: the lap goes on).
+  placeCar(s: number, lat: number, speed = 0, keepLap = false) {
+    this.car.placeAt(s, lat, speed);
+    if (!keepLap) this.timing.reset();
+    this.stuck = 0;
+    this.resets++;
+    this.onReset();
   }
 
   // Swap in another car (with default driver settings: the caller applies its own) at the start, with its best times.

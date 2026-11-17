@@ -2,11 +2,13 @@ import * as THREE from 'three';
 import { CARS, type CarId, type CarInfo } from './cars';
 import { collide, contactBody, newBody, type ContactBody, type ContactShape } from './collide';
 import { DT } from './config';
-import { emptyCarState, emptySample, STATE_FLAG, type BoardEntry, type NetClient, type NetEvent, type PlayerInfo, type RemoteSample } from './net';
+import { CAR_REASON, emptyCarState, emptySample, STATE_FLAG, type BoardEntry, type NetClient, type NetEvent, type PlayerInfo, type RemoteSample } from './net';
 import { createVehicle, type Session } from './sim';
 import type { Lap } from './timing';
+import type { TrackDef } from './tracks';
 import { fmtTime } from './util';
 import type { DriveInput } from './vehicle';
+import { COMPOUND_CODE, Weekend } from './weekend';
 
 // ============================================================================
 // Multiplayer glue: one game Session joined to a room through a NetClient (docs/net.md). No DOM, no rendering, so the
@@ -66,8 +68,9 @@ export interface MultiplayerStats {
   lapsSent: number;
 }
 
-// Something to tell the player (the HUD's feed): plain text.
-export interface Notice { kind: 'join' | 'leave' | 'best' | 'car' | 'error'; text: string }
+// Something to tell the player: plain text for the HUD's feed, or a 'flag' (lights out, the final lap, a penalty...)
+// for the big message in the middle of the screen, with a line under it.
+export interface Notice { kind: 'join' | 'leave' | 'best' | 'car' | 'error' | 'race' | 'flag'; text: string; sub?: string }
 
 export class Multiplayer {
   readonly players = new Map<number, RemotePlayer>();   // everyone else in the room
@@ -77,6 +80,8 @@ export class Multiplayer {
   // Testing: false keeps every proxy out of the Session, so this client's simulation misses every hit and its half
   // can only come from the other client's events.
   localCollisions = true;
+  // The race weekend as our car lives it (weekend.ts): sessions, grid, pit lane, recoveries, running order.
+  readonly weekend: Weekend;
   private clearFor = 0;
   private paused = false;
   private lastResets: number;
@@ -92,7 +97,8 @@ export class Multiplayer {
   private notices: Notice[] = [];
   private bests = new Map<string, number>();   // player:car -> best valid lap seen
 
-  constructor(readonly net: NetClient, readonly session: Session) {
+  constructor(readonly net: NetClient, readonly session: Session, def: TrackDef) {
+    this.weekend = new Weekend(net, session, def, (kind, text, sub) => this.notices.push({ kind, text, sub }));
     this.lastResets = session.resets;
     this.lastLap = session.timing.lastLap;
     this.carId = session.car.spec.id;
@@ -112,17 +118,22 @@ export class Multiplayer {
     if (paused && !this.paused) this.setGhost();
     this.paused = paused;
     const events = this.net.takeEvents();
-    for (const e of events) this.handle(e, now);
+    for (const e of events) { this.handle(e, now); this.weekend.onEvent(e); }
+    if (this.connected) this.weekend.update(now);
     return events;
   }
 
   // One physics tick at local time tickAt (the time the tick's result is for): the proxies placed for it, the Session
-  // ticked, then our side of it sent.
-  tick(inp: DriveInput, autopilot: boolean, tickAt: number) {
+  // ticked, then our side of it sent. parked: the player is in the menu while the race goes on (Weekend.keepsRunning):
+  // the car brakes to a stop where it is, a ghost.
+  tick(inp: DriveInput, autopilot: boolean, tickAt: number, parked = false) {
     this.beforeTick(tickAt);
-    this.session.tick(inp, autopilot);
+    this.session.tick(this.weekend.input(inp, tickAt, parked), autopilot && !parked);
     this.afterTick(tickAt);
   }
+
+  // The player's restart key (R / Enter, the menu's Restart): what the weekend allows (Weekend.requestRestart).
+  requestRestart() { this.weekend.requestRestart(); }
 
   // A frame without ticks (paused): our car's state as held, marked paused.
   idle(now: number) {
@@ -140,19 +151,22 @@ export class Multiplayer {
   close(reason = 'left') {
     this.net.close(reason);
     this.dropAll();
+    this.weekend.dispose();
   }
 
   // ------------------------------------------------------------------------
   private beforeTick(tickAt: number) {
     this.sync();
-    const T = this.net.serverTime(tickAt), proxies = this.session.proxies;
+    const T = this.net.serverTime(tickAt), proxies = this.session.proxies, seen = this.weekend.mpSamples;
     proxies.length = 0;
+    seen.clear();
     for (const p of this.players.values()) {
       const s = this.net.remotes.get(p.id)?.sample(T, p.sample, true) ?? null;
       p.hasSample = s != null;
       p.collidable = false;
       if (!s || !p.spec) continue;
       bodyFrom(s, p.body);
+      if (s.alpha > 0) seen.set(p.id, { x: s.x, z: s.z, compound: s.compound, reason: s.reason });
       p.collidable = s.collidable && !(s.flags & STATE_FLAG.paused) && T >= p.suppressUntil;
       if (p.collidable && !this.noCollide && this.localCollisions) proxies.push(p.body);
     }
@@ -178,11 +192,15 @@ export class Multiplayer {
       if (p.chunk && p.hits[p.hits.length - 1] !== T) this.flush(p);   // the contact ended
       while (p.hits.length && p.hits[0] < T - HIT_KEEP) p.hits.shift();
     }
-    if (this.noCollide) this.checkClear();
+    this.weekend.afterTick(tickAt);
+    // a ghost for the weekend's reasons (the pit lane, spectating, parked, finished, recovering, one-shot), and until
+    // clear of every car after it
+    if (this.weekend.reason !== CAR_REASON.none) this.setGhost();
+    else if (this.noCollide) this.checkClear();
     // our pose, for late events' lever arms
     const h = this.hist[this.histN++ % HISTORY];
     h.t = T; h.x = car.pos.x; h.z = car.pos.z; h.fx = car.fwd.x; h.fz = car.fwd.z;
-    this.sendLaps();
+    this.sendLaps(tickAt);
     this.fillState(false);
     this.net.sendState(this.state, tickAt);
   }
@@ -239,13 +257,16 @@ export class Multiplayer {
     this.stats.contactsSent++;
   }
 
-  private sendLaps() {
-    const lap = this.session.timing.lastLap;
+  private sendLaps(tickAt: number) {
+    const tm = this.session.timing, lap = tm.lastLap;
     if (lap === this.lastLap) return;
     this.lastLap = lap;
     // a lap started before we joined is refused by the relay (longer than our time in the room): not sent
     if (!lap || this.session.simTime - lap.time < this.joinedSim - 0.5) return;
-    this.net.sendLap({ time: lap.time, sectors: lap.sectors, valid: lap.valid });
+    // the crossing that ended it, in local time: the lap just ended, so the timing's lap start is that crossing
+    const at = tickAt - (this.session.simTime - (tm.lapStart ?? this.session.simTime));
+    if (!this.weekend.shouldSend(lap, this.net.serverTime(at))) return;
+    this.net.sendLap({ time: lap.time, sectors: lap.sectors, valid: lap.valid, at });
     this.stats.lapsSent++;
   }
 
@@ -260,6 +281,8 @@ export class Multiplayer {
     s.steer = c.steer; s.throttle = paused ? 0 : c.throttle; s.brake = paused ? 0 : c.brake; s.gear = c.gear; s.rpm = c.rpm;
     s.flags = (this.noCollide || paused ? STATE_FLAG.noCollide : 0) | (paused ? STATE_FLAG.paused : 0) | (c.flapsOpen ? STATE_FLAG.flapsOpen : 0);
     s.epoch = this.epoch;
+    s.compound = COMPOUND_CODE[c.compound.id];
+    s.reason = paused ? CAR_REASON.paused : this.weekend.reason !== CAR_REASON.none ? this.weekend.reason : this.noCollide ? CAR_REASON.ghost : CAR_REASON.none;
   }
 
   private handle(e: NetEvent, now: number) {

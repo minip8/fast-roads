@@ -3,7 +3,8 @@ import { poseCockpit, type CarMesh, type Cockpit } from './carMeshes';
 import type { CarInfo } from './cars';
 import type { MapDot } from './minimap';
 import type { Multiplayer } from './multiplayer';
-import { emptySample, STATE_FLAG, type RemoteSample } from './net';
+import { CAR_REASON, emptySample, STATE_FLAG, type RemoteSample } from './net';
+import { compoundChip } from './raceHud';
 import type { SprayCar } from './spray';
 
 // ============================================================================
@@ -64,7 +65,7 @@ export class RemoteCars {
       v.spray.root = v.mesh.root; v.spray.vel.x = s.vx; v.spray.vel.y = s.vy; v.spray.vel.z = s.vz;
       this.drawn.push(v.spray);
       this.dots.push({ x: s.x, z: s.z, color: playerColor(p.id), ghost });
-      this.tag(v, p.info.name, p.id, camera, w, h, showLabels);
+      this.tag(v, p.info.name, s.compound, s.reason === CAR_REASON.pits, p.id, camera, w, h, showLabels);
     }
   }
 
@@ -141,7 +142,8 @@ export class RemoteCars {
     m.brakeLight.material.emissiveIntensity = s.brake > 0.1 ? 3 : 0.4;
   }
 
-  private tag(v: View, name: string, id: number, camera: THREE.PerspectiveCamera, w: number, h: number, show: boolean) {
+  // The tag: the name, then the tyres on (a race weekend) and PIT while in the pit lane.
+  private tag(v: View, name: string, compound: number, pits: boolean, id: number, camera: THREE.PerspectiveCamera, w: number, h: number, show: boolean) {
     const p = _v.copy(v.mesh.root.position);
     p.y += 1.5;
     const d = camera.position.distanceTo(p);
@@ -149,7 +151,12 @@ export class RemoteCars {
     const on = show && p.z > -1 && p.z < 1 && Math.abs(p.x) < 1.1 && Math.abs(p.y) < 1.1 && d < LABEL_FAR && d > 2;
     v.label.hidden = !on;
     if (!on) return;
-    if (v.labelText !== name) { v.labelText = name; v.label.textContent = name; v.label.style.setProperty('--c', playerColor(id)); }
+    const key = `${name}|${compound}|${pits}`;
+    if (v.labelText !== key) {
+      v.labelText = key; v.label.textContent = name;
+      if (compound || pits) v.label.insertAdjacentHTML('beforeend', ` ${compoundChip(compound)}${pits ? '<b class="tpit">PIT</b>' : ''}`);
+      v.label.style.setProperty('--c', playerColor(id));
+    }
     const x = (p.x * 0.5 + 0.5) * w, y = (-p.y * 0.5 + 0.5) * h;
     v.label.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -100%)`;
     v.label.style.opacity = String(Math.max(0.25, Math.min(1, 1.2 - d / LABEL_FAR)) * (v.ghost ? 0.7 : 1));
