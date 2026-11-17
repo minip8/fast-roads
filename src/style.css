@@ -266,11 +266,28 @@ p.mnote:not(:empty) { margin: 8px 2px; }
 .sbig[hidden] { display: none; }
 .stext { font-size: 15px; color: #dfe3e8; }
 .snext { margin: 2px 0 0; font-size: 13px; color: var(--muted); line-height: 1.45; }
-.presets { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 14px; }
-.plabel { font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
-.presets .seg.chips { margin: 0; flex-wrap: wrap; overflow: visible; }
-.pcustom { padding: 7px 14px; font-size: 14px; border-radius: 6px; color: var(--text); background: rgba(255,255,255,.18); font-weight: 600; }
-.pcustom[hidden] { display: none; }
+.wkbox { margin-top: 10px; }
+.wkbox > .mh-row { margin-top: 18px; }
+.cards.presets { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); margin-bottom: 4px; }
+.pcard { padding: 11px 14px 12px; }
+.pcard .cfacts { margin-top: 2px; line-height: 1.4; }
+.pcard.near { border-color: rgba(255,106,19,.6); border-style: dashed; }
+.ptag { position: absolute; top: 10px; right: 11px; font-style: normal; font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+  padding: 1px 6px; border-radius: 4px; background: rgba(255,106,19,.25); color: var(--text); }
+.ptag[hidden] { display: none; }
+p.pnote:not(:empty) { margin: 6px 2px 10px; }
+.wkrows { margin-top: 8px; }
+.seg.wrap { flex-wrap: wrap; overflow: visible; justify-content: flex-end; }
+.wkrows .seg button { min-height: 36px; padding: 6px 12px; }
+.wkrows .stepper button { width: 40px; height: 38px; }
+.wkrows .stepper output { min-width: 112px; }
+.mbtn.more { width: 100%; margin-top: 8px; font-size: 14px; padding: 10px 14px; text-align: left; }
+.mbtn.more::after { content: ' \25BE'; float: right; }
+.mbtn.more[aria-expanded=true]::after { content: ' \25B4'; }
+.moreopts[hidden] { display: none; }
+.ref.facts { grid-template-columns: max-content 1fr; }
+.ref.facts dd { line-height: 1.45; }
+.carnote { margin: 0 2px 8px !important; }
 .sessbox .start { margin-top: 12px; }
 .swait { margin: 10px 0 0; font-size: 14px; color: #dfe3e8; }
 .sctl { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
@@ -284,6 +301,7 @@ p.mnote:not(:empty) { margin: 8px 2px; }
 .rtable .p { width: 34px; text-align: right; color: var(--muted); }
 .rtable td.d { font-family: system-ui, sans-serif; white-space: normal; width: 34%; }
 .rtable td.d small { display: block; font-size: 11px; color: var(--muted); }
+.rtable .mob { display: none; }
 .rtable td.t { font-weight: 600; }
 .rtable tr.self td { background: rgba(255,106,19,.1); }
 .rtable tr.self td.d b { color: var(--accent); }
@@ -321,6 +339,7 @@ p.mnote:not(:empty) { margin: 8px 2px; }
 .seg button:disabled:not(.on) { opacity: .35; cursor: default; }
 .tyrerow { margin-top: 8px; }
 .tyrerow[hidden] { display: none; }
+.tyrerow .seg { flex-wrap: wrap; overflow: visible; }
 .tyrerow .seg button { box-shadow: inset 3px 0 0 var(--tc, transparent); }
 .card.locked { opacity: .45; cursor: default; }
 
@@ -418,6 +437,21 @@ kbd { font: inherit; font-weight: 700; color: var(--text); background: rgba(255,
   .sessbox { padding: 12px 14px 14px; }
   .sessbox .start { width: 100%; }
   .rtable .w { display: none; }
+  .rtable .mob { display: inline; }
+  .cards.presets { grid-template-columns: 1fr; gap: 6px; }
+  .pcard .cblurb { display: none; }   /* the name and what it sets */
+  .cards.cars.inroom { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .cards.cars.inroom .card { padding: 9px 10px; }
+  .cards.cars.inroom .cname { font-size: 14px; padding-right: 18px; }
+  .cards.cars.inroom .cblurb, .cards.cars.inroom .cfacts { display: none; }
+  .cards.cars.inroom .card.sel::after { width: 16px; height: 16px; top: 7px; right: 7px; font-size: 10px; }
+  .wkrows .mrow { flex-wrap: wrap; }
+  .wkrows .seg.wrap, .tyrerow .seg { margin-left: 0; width: 100%; justify-content: flex-start; }
+  .wkrows .seg.wrap button, .tyrerow .seg button { flex: 1 1 auto; padding: 6px 8px; }
+  .wkrows .stepper { margin-left: auto; }
+  .ref.facts { grid-template-columns: 1fr; gap: 2px 0; }
+  .ref.facts dd { margin-bottom: 6px; }
+  .seg.chips button { padding: 7px 10px; }
   .nlabel { min-width: 0; }
 }
 @media (max-height: 560px) {

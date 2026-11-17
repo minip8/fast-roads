@@ -261,11 +261,19 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   tab reads the room through `MenuHost.net.room()` (`RoomView`: the `NetClient`, `lobby.ts` as `kit`, `RoomLog`), so
   menu.ts imports only types from `src/net`; `main.ts` passes every room event to `Menu.roomEvent` (host or phase
   changes rebuild the tab, the rest update it) and refreshes it 4 times a second for the clocks. The host's settings
-  changes show at once (`pending`, merged into the next change since the relay takes them whole) until echoed.
+  changes show at once (`pending`, merged into the next change since the relay takes them whole) until echoed. The
+  host's weekend in the lobby is format cards (`.pcard`, one ↑ ↓ stop, ← → change format), the `main` rows, and a
+  More options toggle (`moreOpen`) over the other groups; everyone else gets `weekendFacts` as text. The host's
+  circuit grid hides behind Change circuit (`circuitsOpen`). The tab opens scrolled to the top.
 - `lobby.ts` (loaded with `netGame.ts`, never by a single-player page): the room tab without the DOM. `ROOM_FIELDS`
-  (every `RoomSettings` key but the circuit as a menu control: label, plain-words hint, group, buttons or a stepper,
-  options built from `src/net/race.ts`'s lists and ranges, `applies` / `allowed`), `PRESETS` (Quick race, Short
-  weekend = the relay's defaults, Full weekend) with `presetOf` / `withPreset`, `weekendSummary`, `sessionTitle` /
+  (every `RoomSettings` key but the circuit as a menu control: label, plain-words hint, group (`main`, shown under
+  the formats; the rest behind More options), buttons or a stepper, options built from `src/net/race.ts`'s lists and
+  ranges, `applies` / `allowed`; tyre wear is shown as tyre life in laps, `tyreLaps`), `PRESETS` (Quick race,
+  Sprint, Grand Prix, Endurance, Wet race: every option but circuit and car, the tyre wear derived per circuit from
+  the race length and the stops, `presetWear`) with `presetOf` / `withPreset` / `closestPreset` / `withCircuit`,
+  `newRoomSettings` (a created room: `DEFAULT_PRESET`, everyone in the host's car; main.ts sends it after creating,
+  the relay's own defaults stay as they are), `weekendSummary` / `presetSummary` / `weekendFacts` (the weekend in
+  words, for guests), `sessionTitle` /
   `sessionState` / `nextSession` / `skipLabel`, `raceRows` / `boardRows` (results tables), `playerState`, `RoomLog`
   (keeps the last qualifying board, which the race's start resets, until the next weekend), `joinErrorText` /
   `closedText`. Tests: `test/lobby.test.ts` (with `netPrefs.ts`'s codes, invite links and seat).

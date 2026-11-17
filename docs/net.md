@@ -417,7 +417,9 @@ the time trial back (no wear, dry, no pit lane, the time trial's best times, a f
 flying start). The wear steps are multipliers as the F1 wears; `weekend.tyreLife(compound)` turns the room's step
 into laps for a menu ("soft about 4 laps"): at Melbourne at scale 1 the F1's soft, medium and hard last about 43, 64
 and 90 laps, scaled here by the circuit's length (a rough figure: wear depends on the circuit's corners as much).
-At 12 that is about 3.6, 5.3 and 7.5 laps, so one stop pays in a 5-10 lap race; 20 makes it two.
+At 12 that is about 3.6, 5.3 and 7.5 laps. The menu's formats (`lobby.ts` `PRESETS`) pick the step per circuit so
+the softs (wets for a wet race) last about 1.4 races where no stop is required, 0.65 with one and 0.45 with two
+(`lobby.ts` `tyreLaps` is the same arithmetic without a `Weekend`).
 
 **Best times and ghosts.** Laps in a room never touch the time trial's best times: `Session.setStoreTag('.mp')` in the
 lobby, practice and qualifying (one set of "race conditions" bests per circuit and car, with its own ghost, which
@@ -523,13 +525,13 @@ the rest with `normaliseSettings` and broadcasts them; `defaultSettings(circuit)
 | Field | Values (default) | |
 |---|---|---|
 | `circuit` | a circuit id (the creator's) | changing it resets the board and the kept results; clients reload onto it (`settings` event `circuitChanged`) |
-| `car` | `''` any, or one car id (`''`) | a `player` change to another car is refused (`badCar`), so is a lap in another; a hello in another car is accepted (the game switches after the welcome) |
+| `car` | `''` any, or one car id (`''`) | a `player` change to another car is refused (`badCar`), so is a lap in another; a hello in another car is accepted (the game switches after the welcome). The game makes a room it creates one-car (its creator's) at once, in its default format (`lobby.ts` `newRoomSettings`): the relay's own default stays `''` |
 | `practice`, `practiceMinutes` | 0-3 (1), 1-120 (10) | sessions and their length |
 | `qualifying`, `qualifyingMinutes` | `none` / `timed` / `oneShot` (`timed`), 1-60 (10) | |
 | `raceLaps` | 1-99 (5) | |
 | `grid` | `qualifying` / `random` / `reversed` / `joinOrder` (`qualifying`) | with qualifying `none`, `qualifying` and `reversed` become `joinOrder` |
 | `pitStops` | 0-3 (0) | mandatory stops in the race |
-| `tyreWear` | 0.5, 1, 2, 3, 5, 8, 12, 20 (1; nearest) | for the game's tyre model (as the F1 wears: each car's own is scaled to match, **Race weekends in the game**); the relay only passes it on |
+| `tyreWear` | 0.5-20 in steps: 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 6, 7, 8, 9, 10, 12, 15, 20 (1; nearest) | for the game's tyre model (as the F1 wears: each car's own is scaled to match, **Race weekends in the game**); the relay only passes it on |
 | `weather` | `dry` / `damp` / `wet` / `changeable` / `random` (`dry`) | **Weather** |
 | `collisions` | on / off (on) | in the race; practice and timed qualifying always collide, one-shot qualifying never |
 | `invalidPenalty` | 0, 1, 2, 3, 5, 10 s (0; nearest) | per invalid race lap |

@@ -10,9 +10,10 @@ export type Qualifying = (typeof QUALIFYING)[number];
 export const GRID_ORDERS = ['qualifying', 'random', 'reversed', 'joinOrder'] as const;
 export type GridOrder = (typeof GRID_ORDERS)[number];
 // Multipliers of the tyre model's wear (never 0), as the F1 wears; the game scales each car's own to match (CarInfo.race).
-// At Melbourne at 1 the F1's soft, medium and hard last about 43, 64 and 90 laps, so 8-20 is what makes a stop pay in
-// a race of 5-10 laps (at 12: 3.6, 5.3 and 7.5 laps). The wire carries tenths in a u8 (at most 25.5).
-export const TYRE_WEAR = [0.5, 1, 2, 3, 5, 8, 12, 20] as const;
+// At Melbourne at 1 the F1's soft, medium and hard last about 43, 64 and 90 laps, so 3-10 is what makes a stop pay in
+// a race of 10-30 laps (at 5: 8.6, 12.8 and 18 laps). Fine steps there, so the menu's presets can set the tyre life
+// to suit the race length at each circuit (lobby.ts). The wire carries tenths in a u8 (at most 25.5).
+export const TYRE_WEAR = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 6, 7, 8, 9, 10, 12, 15, 20] as const;
 export const INVALID_PENALTIES = [0, 1, 2, 3, 5, 10] as const;  // s per invalid race lap
 
 export interface RoomSettings {

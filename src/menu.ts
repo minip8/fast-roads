@@ -62,7 +62,6 @@ export interface RoomView {
   readonly invite: string;              // the link to send others
   readonly circuitName: (id: string) => string;
   now(): number;                        // local clock (s) for net.serverTime / sample
-  tyreLife(wear: number): string;       // about how long our car's dry tyres last here at that wear, in words
 }
 export interface TyreChoice {
   options(): { id: string; name: string; letter: string; colour: string }[];   // the current car's compounds
@@ -115,6 +114,8 @@ export class Menu {
   private pendingAt = 0;
   private armedCircuit = '';            // the circuit card clicked once (the host moving the room)
   private copied = 0;                   // performance.now() of the last copy of the invite link
+  private moreOpen = false;             // the host's weekend: "More options" shown
+  private circuitsOpen = false;         // the host's room tab: every circuit shown, not just the room's
 
   constructor(private readonly host: MenuHost) {
     addEventListener('keydown', (e) => this.onKey(e));
@@ -141,6 +142,7 @@ export class Menu {
     if (e.type === 'settings' && --this.pendingN <= 0) { this.pending = {}; this.pendingN = 0; }
     if (!this.isOpen || this.body.hidden || this.tab !== 'online') return;
     const phaseChanged = e.type === 'session' && (e.before as { phase: string }).phase !== e.session!.phase;
+    if (phaseChanged) this.contentEl.scrollTop = 0;   // the session box, at the top, is what changed
     if (e.type === 'host' || e.type === 'welcome' || phaseChanged) this.build();
     else if (e.type !== 'state' && e.type !== 'contact') this.update();
   }
@@ -148,6 +150,7 @@ export class Menu {
   open() {
     if (this.isOpen) return;
     this.isOpen = true; this.focus = 0; this.armed = null; this.capture = null;
+    this.contentEl.scrollTop = 0;       // (from the top: in a room, the session box)
     this.overlay.classList.remove('hidden');
     this.host.onOpen();
     this.show();                        // also when the page skipped the menu (?autopilot) and it was never shown
@@ -341,6 +344,10 @@ export class Menu {
     this.update();
   }
 
+  // The room tab. In the lobby: the room (code, invite), the session box (Start weekend), the last results and the
+  // lobby's board, the weekend (the host's formats and options; everyone else a summary), the drivers, your car, the
+  // circuit. During a weekend: the session, the times, the drivers, your car, the weekend's summary, the circuit and
+  // the room.
   private buildRoom(r: RoomView) {
     const { host } = this, c = this.contentEl, { net, kit } = r;
     const lobby = net.session.phase === 'lobby', isHost = net.isHost, editable = isHost && lobby;
@@ -390,32 +397,9 @@ export class Menu {
       const se = net.session, s = this.roomSettings(r), st = kit.sessionState(se, s, net.serverTime(r.now()), net.standings[0]?.laps ?? 0);
       sTitle.textContent = kit.sessionTitle(se, s);
       sBig.textContent = st.big ?? ''; sBig.hidden = !st.big; sText.textContent = st.text;
-      sNext.textContent = lobby ? `The weekend: ${kit.weekendSummary(s)}.` : kit.nextSession(se, s);
+      sNext.textContent = kit.nextSession(se, s);   // (in the lobby the weekend itself follows: the host's options or its summary)
     });
     if (lobby && isHost) {
-      const pick = h('div', 'presets');
-      pick.append(h('span', 'plabel', 'Race format'));
-      const seg = h('div', 'seg chips'); pick.append(seg);
-      sess.append(pick);
-      const bts = kit.PRESETS.map((p) => {
-        const bt = button('', p.name);
-        bt.title = p.blurb;
-        bt.addEventListener('click', () => this.setRoom(r, kit.withPreset(this.roomSettings(r), p)));
-        seg.append(bt); return [p, bt] as const;
-      });
-      const custom = h('span', 'pcustom', 'Custom'); seg.append(custom);
-      const current = () => kit.presetOf(this.roomSettings(r));
-      this.items.push({ el: seg, target: () => bts.find(([p]) => p === current())?.[1] ?? bts[0][1],
-        cycle: (dir) => {
-          const k = kit.PRESETS.indexOf(current()!), next = kit.PRESETS[wrapI(k < 0 ? (dir > 0 ? 0 : -1) : k + dir, kit.PRESETS.length)];
-          this.setRoom(r, kit.withPreset(this.roomSettings(r), next));
-          bts.find(([p]) => p === next)?.[1].focus();
-        },
-        update: () => {
-          const p = current();
-          for (const [q, bt] of bts) { bt.classList.toggle('on', q === p); bt.setAttribute('aria-pressed', String(q === p)); }
-          custom.hidden = !!p;
-        } });
       const start = button('mbtn primary start', 'Start weekend');
       const go = () => net.startWeekend();
       start.addEventListener('click', go);
@@ -436,12 +420,6 @@ export class Menu {
       });
     }
 
-    if (!lobby) {   // the session first
-      c.insertBefore(sess, card);
-      const moved = this.items.splice(cardItems, cardEnd - cardItems);
-      this.items.push(...moved);
-    }
-
     // --- times: the session's board or the race's order; the last weekend's results in the lobby
     const times = h('section', 'times'); c.append(times);
     let timesHtml = '';
@@ -450,6 +428,10 @@ export class Menu {
       if (html !== timesHtml) { times.innerHTML = timesHtml = html; }
       times.hidden = !html;
     });
+
+    // --- the weekend: the host's formats and options in the lobby; a summary for everyone else
+    if (editable) this.weekendEditor(r);
+    else if (lobby) this.weekendFacts(r, () => `The weekend · set by ${hostName()}`);
 
     // --- drivers
     const dh = this.heading('Drivers');
@@ -472,78 +454,148 @@ export class Menu {
     // (a car change puts the car back at the start: in a race, or one-shot qualifying's single lap, that is not allowed)
     const locked = () => (net.session.phase === 'race' && net.session.stage !== 'results' ? 'the race'
       : net.session.phase === 'qualifying' && net.session.oneShot ? 'one-shot qualifying' : null);
+    const carNote = h('p', 'mnote carnote'); c.append(carNote);
+    this.extraUpdates.push(() => {
+      const only = this.roomSettings(r).car, during = locked();
+      carNote.textContent = only ? `Everyone in this room races the ${carLabel(only)}${editable ? ' (Cars, under Race weekend, opens it to any car)' : isHost ? ': you chose it' : `: ${hostName()}, the host, chose it`}.`
+        : during ? `Cars cannot be changed during ${during}.` : 'Any car: pick yours.';
+    });
     this.carCards(c, (id) => {
       const only = this.roomSettings(r).car, during = locked();
       if (only && only !== id) return `This room races the ${carLabel(only)} only`;
       return during ? `Cars cannot be changed during ${during}` : null;
-    });
-    const carNote = h('p', 'mnote'); c.append(carNote);
-    this.extraUpdates.push(() => {
-      const only = this.roomSettings(r).car, during = locked();
-      carNote.textContent = only ? `The host has set this room to the ${carLabel(only)} only.` : during ? `Cars cannot be changed during ${during}.` : '';
-    });
+    }, 'Your best here in race conditions');
     if (host.net.tyre) this.tyreRow(host.net.tyre);
 
-    // --- the weekend's settings
-    const wh = h('div', 'mh-row'); c.append(wh);
-    this.heading('Weekend options', wh);
-    const why = h('span', 'mnote'); wh.append(why);
-    this.extraUpdates.push(() => {
-      why.textContent = editable ? 'Changes reach everyone at once.' : !isHost ? `${hostName()} (the host) sets these.` : 'They can change in the lobby, after the weekend.';
-    });
-    for (const [g, label] of kit.FIELD_GROUPS) {
-      c.append(h('h4', 'mh2', label));
-      const rows = h('div', 'menu-settings'); c.append(rows);
-      for (const f of kit.ROOM_FIELDS) if (f.group === g) this.roomRow(r, f, rows, editable);
-    }
+    if (!lobby) this.weekendFacts(r, () => 'The weekend');
 
-    // --- the circuit
+    // --- the circuit: the room's, and (the host, in the lobby) the others behind "Change circuit"
     const head = h('div', 'mh-row'); c.append(head);
     this.heading('Circuit', head);
     if (editable) {
+      const toggle = button('link', this.circuitsOpen ? 'Hide the other circuits' : 'Change circuit…');
+      const flip = () => { this.circuitsOpen = !this.circuitsOpen; this.build(); };
+      toggle.addEventListener('click', flip);
+      head.append(toggle);
+      this.items.push({ el: toggle, run: flip });
       this.circuitCards(head, (info) => info.id === this.roomSettings(r).circuit, (info, bt, best) => {
         if (info.id === this.roomSettings(r).circuit) return;
         if (this.armedCircuit !== info.id) { this.arm('circuit'); this.armedCircuit = info.id; best.textContent = 'Click again: everyone moves here'; return; }
         this.armed = null; bt.classList.add('loading'); best.textContent = 'Moving the room…';
-        this.setRoom(r, { circuit: info.id });
-      }, () => false);
-      c.append(h('p', 'mnote', 'Another circuit moves everyone in the room there: each game reloads onto it, and the board starts again.'));
+        this.setRoom(r, kit.withCircuit(this.roomSettings(r), info.id));
+      }, () => false, (info) => this.circuitsOpen || info.id === net.settings.circuit);
+      if (this.circuitsOpen) c.append(h('p', 'mnote', 'Another circuit moves everyone in the room there: each game reloads onto it, and the board starts again.'));
     } else {
       this.circuitCards(head, () => true, () => {}, () => true, (info) => info.id === net.settings.circuit);
       c.append(h('p', 'mnote', isHost ? 'The circuit can change in the lobby, after the weekend.' : `${hostName()} (the host) chooses the circuit.`));
     }
+
+    if (!lobby) {   // during a weekend the session comes first, the invite last
+      c.append(card);
+      const moved = this.items.splice(cardItems, cardEnd - cardItems);
+      this.items.push(...moved);
+    }
   }
 
-  // A weekend setting: buttons, or − value + for numbers with many steps. Read-only for everyone but the host in the
-  // lobby (still a stop for ↑ ↓, so the page can be read with the keys).
+  // The host's weekend in the lobby: a card for each format (what it is, what it sets here), the options that matter
+  // most, and the rest behind "More options", in groups.
+  private weekendEditor(r: RoomView) {
+    const c = this.contentEl, kit = r.kit;
+    const box = h('section', 'wkbox'); c.append(box);
+    const head = h('div', 'mh-row');
+    head.append(h('h2', 'mh', 'Race weekend'), h('span', 'mnote', 'Choose a format, change anything you like. Everyone sees it at once.'));
+    box.append(head);
+    const grid = h('div', 'cards presets'); box.append(grid);
+    const apply = (p: (typeof kit.PRESETS)[number]) => this.setRoom(r, kit.withPreset(this.roomSettings(r), p));
+    const cards = kit.PRESETS.map((p) => {
+      const bt = button('card pcard');
+      const name = h('b', 'cname', p.name), tag = h('em', 'ptag', 'Changed'), blurb = h('span', 'cblurb', p.blurb), sum = h('span', 'cfacts');
+      bt.append(name, tag, blurb, sum);
+      bt.addEventListener('click', () => apply(p));
+      grid.append(bt);
+      return { p, bt, sum, tag };
+    });
+    const custom = h('p', 'mnote pnote'); box.append(custom);
+    const exact = () => kit.presetOf(this.roomSettings(r)), near = () => exact() ?? kit.closestPreset(this.roomSettings(r));
+    this.items.push({ el: grid, target: () => cards.find((k) => k.p === near())!.bt,
+      run: () => apply(near()),
+      cycle: (dir) => {
+        const ps = kit.PRESETS, next = ps[wrapI(ps.indexOf(near()) + dir, ps.length)];
+        apply(next);
+        cards.find((x) => x.p === next)!.bt.focus();
+      },
+      update: () => {
+        const s = this.roomSettings(r), e = exact(), nr = near();
+        for (const k of cards) {
+          k.bt.classList.toggle('sel', k.p === e); k.bt.classList.toggle('near', !e && k.p === nr);
+          k.bt.setAttribute('aria-pressed', String(k.p === e));
+          k.tag.hidden = !!e || k.p !== nr;
+          k.sum.textContent = kit.presetSummary(k.p, s);
+        }
+        custom.textContent = e ? '' : `Custom: ${nr.name} with changes. Choose ${nr.name} again to go back to its options.`;
+      } });
+
+    const main = h('div', 'menu-settings wkrows'); box.append(main);
+    for (const f of kit.ROOM_FIELDS) if (f.group === 'main') this.roomRow(r, f, main, true);
+
+    const more = button('mbtn more');
+    const moreBox = h('div', 'moreopts');
+    const flip = () => { this.moreOpen = !this.moreOpen; this.update(); };
+    more.addEventListener('click', flip);
+    box.append(more, moreBox);
+    this.items.push({ el: more, run: flip, update: () => {
+      more.textContent = this.moreOpen ? 'Fewer options' : 'More options: practice, tyres and pit stops, rules';
+      more.setAttribute('aria-expanded', String(this.moreOpen));
+      moreBox.hidden = !this.moreOpen;
+    } });
+    for (const [g, label] of kit.FIELD_GROUPS) {
+      if (g === 'main') continue;
+      moreBox.append(h('h4', 'mh2', label));
+      const rows = h('div', 'menu-settings wkrows'); moreBox.append(rows);
+      for (const f of kit.ROOM_FIELDS) if (f.group === g) this.roomRow(r, f, rows, true);
+    }
+  }
+
+  // The weekend as plain text: for everyone but the host in the lobby, and for all during the weekend.
+  private weekendFacts(r: RoomView, title: () => string) {
+    const c = this.contentEl;
+    const head = this.heading(title());
+    const dl = h('dl', 'ref facts'); c.append(dl);
+    let html = '';
+    this.extraUpdates.push(() => {
+      head.textContent = title();
+      const next = r.kit.weekendFacts(this.roomSettings(r)).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
+      if (next !== html) dl.innerHTML = html = next;
+    });
+  }
+
+  // A weekend setting for the host in the lobby: buttons, or − value + for numbers with many steps.
   private roomRow(r: RoomView, f: RoomField, parent: HTMLElement, editable: boolean) {
     const kit = r.kit;
     const row = h('div', 'mrow'); row.tabIndex = -1;
     const hint = h('small', '', f.hint);
     const lab = h('div', 'mlabel'); lab.append(h('span', '', f.label), hint);
     row.append(lab);
-    // (tyre wear: what the setting means in laps here, for the car we drive)
-    if (f.key === 'tyreWear') this.extraUpdates.push(() => { hint.textContent = `${f.hint} ${r.tyreLife(this.roomSettings(r).tyreWear)}`.trim(); });
+    if (f.detail) { const d = f.detail; this.extraUpdates.push(() => { hint.textContent = `${f.hint} ${d(this.roomSettings(r))}`; }); }
     const cur = () => this.roomSettings(r)[f.key];
     const set = (v: RoomValue) => { if (editable && v !== cur()) this.setRoom(r, { [f.key]: v } as Partial<RoomSettings>); };
     const cycle = (dir: number) => set(kit.stepOption(f, cur(), dir, this.roomSettings(r), f.kind === 'choice'));
     let target: () => HTMLElement, sync: () => void;
     if (f.kind === 'choice') {
-      const seg = h('div', 'seg');
+      const seg = h('div', 'seg wrap');
       const bts = f.options.map(([v, text]) => {
         const bt = button('', text);
         bt.addEventListener('click', () => set(v));
         seg.append(bt); return [v, bt] as const;
       });
       row.append(seg);
-      target = () => (editable ? bts.find(([v]) => v === cur())?.[1] ?? row : row);
+      target = () => bts.find(([v]) => v === cur())?.[1] ?? row;
       sync = () => {
         const s = this.roomSettings(r);
         for (const [v, bt] of bts) {
           const on = v === s[f.key];
           bt.classList.toggle('on', on); bt.setAttribute('aria-pressed', String(on));
-          bt.disabled = !editable || (!!f.allowed && !f.allowed(v, s));
-          bt.tabIndex = editable ? 0 : -1;
+          bt.disabled = !!f.allowed && !f.allowed(v, s);
         }
       };
     } else {
@@ -553,16 +605,15 @@ export class Menu {
       wrap.append(minus, out, plus); row.append(wrap);
       target = () => row;
       sync = () => {
-        const v = cur();
-        out.textContent = kit.optionLabel(f, v);
-        minus.hidden = plus.hidden = !editable;
-        minus.disabled = kit.stepOption(f, v, -1, this.roomSettings(r)) === v;
-        plus.disabled = kit.stepOption(f, v, 1, this.roomSettings(r)) === v;
+        const v = cur(), s = this.roomSettings(r);
+        out.textContent = f.shown ? f.shown(s) : kit.optionLabel(f, v);
+        minus.disabled = kit.stepOption(f, v, -1, s) === v;
+        plus.disabled = kit.stepOption(f, v, 1, s) === v;
       };
     }
     parent.append(row);
-    this.items.push({ el: row, target, cycle: editable ? cycle : undefined, run: editable ? () => cycle(1) : () => {},
-      update: () => { sync(); row.classList.toggle('dim', !!f.applies && !f.applies(this.roomSettings(r))); row.classList.toggle('ro', !editable); } });
+    this.items.push({ el: row, target, cycle, run: () => cycle(1),
+      update: () => { sync(); row.classList.toggle('dim', !!f.applies && !f.applies(this.roomSettings(r))); } });
   }
 
   // Starting tyres: Auto, then the current car's compounds (rebuilt when the car changes; hidden with one compound).
@@ -708,9 +759,10 @@ export class Menu {
   }
 
   // A card for each car. locked(id): why that car cannot be chosen now (null: it can).
-  private carCards(parent: HTMLElement, locked: (id: CarId) => string | null) {
+  // bestLabel: what the best lap shown is (in a room, the race-conditions best).
+  private carCards(parent: HTMLElement, locked: (id: CarId) => string | null, bestLabel = 'Best here') {
     const { host } = this;
-    const cars = h('div', 'cards cars'); parent.append(cars);
+    const cars = h('div', 'cards cars' + (bestLabel === 'Best here' ? '' : ' inroom')); parent.append(cars);
     for (const spec of Object.values(CARS)) {
       const bt = button('card car-card');
       const name = h('b', 'cname', spec.name), blurb = h('span', 'cblurb', spec.blurb);
@@ -725,7 +777,7 @@ export class Menu {
         bt.classList.toggle('sel', on); bt.setAttribute('aria-pressed', String(on));
         bt.classList.toggle('locked', !on && !!why); bt.title = !on && why ? why : '';
         const t = host.bestLap(host.loadedTrack, spec.id);
-        best.innerHTML = t != null ? `Best here <b class="num">${fmtTime(t)}</b>` : 'No lap here yet';
+        best.innerHTML = t != null ? `${bestLabel} <b class="num">${fmtTime(t)}</b>` : 'No lap here yet';
       } });
     }
   }
@@ -973,7 +1025,10 @@ function resultsTable(title: string, rows: ResultRow[], kind: 'race' | 'board', 
     ? '<th class="p">Pos</th><th>Driver</th><th>Laps</th><th>Time</th><th class="w">Best</th><th class="w">Stops</th><th class="w">Pen.</th>'
     : '<th class="p">Pos</th><th>Driver</th><th>Best</th><th>Gap</th><th class="w">Laps</th>';
   const body = rows.map((r) => {
-    const who = `<td class="d"><b>${esc(r.name)}</b><small>${esc(r.car)}</small></td>`;
+    // (on a phone the columns marked w are hidden: the best lap, stops and penalty go under the name instead)
+    const mob = kind === 'race' ? [r.best !== fmtTime(null) ? `best ${r.best}` : '', r.pits !== '0' ? `${r.pits} ${r.pits === '1' ? 'stop' : 'stops'}` : '', r.penalty ? `pen. ${r.penalty}` : '']
+      .filter(Boolean).map((t) => ` · ${esc(t)}`).join('') : '';
+    const who = `<td class="d"><b>${esc(r.name)}</b><small>${esc(r.car)}${mob ? `<span class="mob">${mob}</span>` : ''}</small></td>`;
     const cls = (r.player && r.player === self ? 'self' : '') + (r.out ? ' out' : '');
     return `<tr class="${cls}"><td class="p">${r.pos}</td>${who}` + (kind === 'race'
       ? `<td>${r.laps}</td><td class="t">${r.time}</td><td class="w">${r.best}</td><td class="w">${r.pits}</td><td class="w">${r.penalty}</td>`

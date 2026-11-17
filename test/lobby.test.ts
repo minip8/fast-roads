@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
-  boardRows, closedText, FIELD_GROUPS, joinErrorText, nextSession, optionLabel, presetOf, PRESETS, raceRows, ROOM_FIELDS, RoomLog,
-  sessionState, sessionTitle, stepOption, weekendSummary, withPreset,
+  boardRows, closedText, closestPreset, DEFAULT_PRESET, FIELD_GROUPS, joinErrorText, newRoomSettings, nextSession, optionLabel, presetOf, PRESETS,
+  presetSummary, raceRows, ROOM_FIELDS, RoomLog, sessionState, sessionTitle, stepOption, tyreLaps, tyreLifeShort, weekendFacts, weekendSummary,
+  withCircuit, withPreset,
 } from '../src/lobby';
-import { defaultSettings, ERROR, normaliseSettings, type NetClient, type NetEvent, type RoomSettings, SETTING_RANGES, type SessionInfo } from '../src/net';
+import {
+  defaultSettings, ERROR, normaliseSettings, type NetClient, type NetEvent, type RoomSettings, SETTING_RANGES, type SessionInfo,
+  TYRE_WEAR,
+} from '../src/net';
+import { decodeMessage, encodeMessage } from '../src/net/protocol';
+import { TRACKS, type TrackId } from '../src/tracks';
 import { lobbySession } from '../src/net/race';
 import { CODE_ALPHABET, CODE_LENGTH, clearSeat, inviteUrl, loadSeat, newRoomCode, parseInvite, saveSeat, validRoom } from '../src/netPrefs';
 
@@ -115,19 +121,82 @@ describe('the weekend settings as menu controls', () => {
 });
 
 describe('presets', () => {
-  it('are valid settings, each its own preset, and the default room is one', () => {
+  const CIRCUITS = Object.keys(TRACKS) as TrackId[];
+  const KEYS = (Object.keys(defaultSettings('melbourne')) as (keyof RoomSettings)[]).filter((k) => k !== 'circuit' && k !== 'car');
+  it('set every option but the circuit and the car, and survive the relay (normaliseSettings and the wire) at every circuit', () => {
     for (const p of PRESETS) {
-      const s = withPreset(defaultSettings('monza'), p);
-      expect(normaliseSettings(s)).toEqual(s);
-      expect(s.circuit).toBe('monza');
-      expect(presetOf(s)).toBe(p);
+      expect([...Object.keys(p.settings), 'tyreWear'].sort()).toEqual([...KEYS].sort());
+      for (const id of CIRCUITS) {
+        const s = withPreset({ ...defaultSettings(id), car: 'lcgt3' }, p);
+        expect(normaliseSettings(s)).toEqual(s);
+        expect(s.circuit).toBe(id);
+        expect(s.car).toBe('lcgt3');
+        expect(presetOf(s)).toBe(p);
+        const m = decodeMessage(encodeMessage({ type: 'settings', settings: s }));
+        expect(m.ok && m.msg.type === 'settings' && m.msg.settings).toEqual(s);
+      }
     }
-    expect(presetOf(defaultSettings('melbourne'))?.id).toBe('short');
-    expect(presetOf({ ...defaultSettings('melbourne'), raceLaps: 7 })).toBeNull();
     expect(new Set(PRESETS.map((p) => p.name)).size).toBe(PRESETS.length);
+    for (const p of PRESETS) expect(p.blurb.length).toBeLessThan(70);
   });
-  it('keep the allowed car', () => {
-    expect(withPreset({ ...defaultSettings('monza'), car: 'lcgt3' }, PRESETS[0]).car).toBe('lcgt3');
+  it('wear the tyres so the race wants the stops they make every car stop, at every circuit', () => {
+    // (life of the race tyre as a share of the race: README's numbers through a stint model, lobby.ts presets)
+    const bounds: Record<number, [number, number]> = { 0: [1.15, 1.75], 1: [0.5, 0.85], 2: [0.35, 0.6] };
+    for (const p of PRESETS) for (const id of CIRCUITS) for (const car of ['lcf1', 'lcgt3', 'drift']) {
+      const s = withPreset({ ...defaultSettings(id), car }, p), N = s.raceLaps, k = s.pitStops;
+      const [lo, hi] = bounds[k];
+      const slick = tyreLaps(p.tyre, s.tyreWear, id);
+      expect(slick / N, `${p.id} at ${id}`).toBeGreaterThanOrEqual(lo);
+      expect(slick / N, `${p.id} at ${id}`).toBeLessThanOrEqual(hi);
+      const one = tyreLaps('allweather', s.tyreWear, id);   // the drift car's one tyre: enough sets for the stops, not fewer
+      expect(one * (k + 1)).toBeGreaterThan(N);
+      if (k > 0) expect(one).toBeLessThan(N * 1.25);   // and they do not last the race
+      if (car === 'drift') expect(tyreLifeShort(s)).toMatch(/^Tyres ~/);
+    }
+    // a sprint has no stop and tyres that just last; a Grand Prix one stop, an endurance race two
+    expect(PRESETS.map((p) => [p.id, p.settings.raceLaps, p.settings.pitStops])).toEqual(
+      [['quick', 5, 0], ['sprint', 8, 0], ['gp', 15, 1], ['endurance', 25, 2], ['wet', 10, 0]]);
+    expect(tyreLaps('soft', 1, 'melbourne')).toBeCloseTo(43, 6);
+  });
+  it('say in a line what they set here', () => {
+    const s = defaultSettings('melbourne');
+    expect(PRESETS.map((p) => presetSummary(p, s))).toEqual([
+      'random grid · 5 laps · no stops · softs ~7 laps · dry',
+      'one-shot qualifying · 8 laps · no stops · softs ~11 laps · dry',
+      '10 min practice · 10 min qualifying · 15 laps · 1 stop · softs ~10 laps · dry',
+      '15 min practice · 15 min qualifying · 25 laps · 2 stops · softs ~11 laps · dry',
+      '10 min practice · 10 min qualifying · 10 laps · no stops · wets ~14 laps · wet',
+    ]);
+    expect(presetSummary(PRESETS[2], { ...s, car: 'drift' })).toContain('tyres ~13 laps');
+  });
+  it('make a new room: the default format, everyone in the host car', () => {
+    const s = newRoomSettings(defaultSettings('monza'), 'lcgt3');
+    expect(s.car).toBe('lcgt3');
+    expect(presetOf(s)).toBe(DEFAULT_PRESET);
+    expect(normaliseSettings(s)).toEqual(s);
+    expect(ROOM_FIELDS.find((f) => f.key === 'car')!.options.map(([v]) => v)).toEqual(['lcf1', 'lcgt3', 'drift', '']);
+    for (const p of PRESETS) expect(withPreset(s, p).car).toBe('lcgt3');   // a format keeps the car
+  });
+  it('know when they were changed, and follow the room to another circuit', () => {
+    const gp = PRESETS.find((p) => p.id === 'gp')!, s = withPreset(defaultSettings('melbourne'), gp);
+    const custom = { ...s, raceLaps: 20 };
+    expect(presetOf(custom)).toBeNull();
+    expect(closestPreset(custom)).toBe(gp);
+    expect(weekendFacts(custom)[0]).toEqual(['Format', 'Custom (based on Grand Prix)']);
+    const monaco = withCircuit(s, 'monaco');
+    expect(presetOf(monaco)).toBe(gp);
+    expect(monaco.tyreWear).toBeGreaterThan(s.tyreWear);   // shorter laps: more wear a km for the same laps
+    expect(withCircuit(custom, 'monaco').tyreWear).toBe(custom.tyreWear);
+  });
+  it('show the tyre wear as tyre life, more life on +', () => {
+    const f = ROOM_FIELDS.find((x) => x.key === 'tyreWear')!, s = withPreset(defaultSettings('melbourne'), PRESETS[2]);
+    expect(f.shown!(s)).toBe('Softs ~10 laps');
+    expect(stepOption(f, 4.5, 1, s)).toBe(4);
+    expect(stepOption(f, 4.5, -1, s)).toBe(5);
+    expect(stepOption(f, 4.2, 1, s)).toBe(4);     // between steps: the next one that way
+    expect(stepOption(f, 4.2, -1, s)).toBe(4.5);
+    expect(f.detail!(s)).toContain('mediums 14, hards 20');
+    for (const v of TYRE_WEAR) expect(Math.round(v * 10) / 10).toBe(v);   // tenths on the wire
   });
 });
 
@@ -135,11 +204,12 @@ describe('the session in words', () => {
   const s = { ...defaultSettings('melbourne'), practice: 2 };
   const se = (o: Partial<SessionInfo>): SessionInfo => ({ ...lobbySession(0), ...o });
   it('says what is on, how long is left and what is next', () => {
-    expect(weekendSummary(s)).toBe('2 × 10 min practice · 10 min qualifying · 5-lap race');
-    expect(weekendSummary({ ...s, practice: 0, qualifying: 'oneShot', pitStops: 1, weather: 'random', car: 'drift', collisions: false })).toBe(
-      'one-shot qualifying · 5-lap race · 1 pit stop · random weather · no collisions · Drift car only');
+    expect(weekendSummary(s)).toBe('2 × 10 min practice · 10 min qualifying · 5 laps · no stops · softs ~45 laps · dry · any car');
+    expect(weekendSummary({ ...s, practice: 0, qualifying: 'oneShot', pitStops: 1, weather: 'random', car: 'drift', collisions: false, invalidPenalty: 5 })).toBe(
+      'one-shot qualifying · 5 laps · 1 stop · tyres ~60 laps · random · no collisions · 5 s a lap off track · Drift car only');
     expect(sessionTitle(lobbySession(0), s)).toBe('Lobby');
-    expect(nextSession(lobbySession(0), s)).toBe('First: Practice 1');
+    expect(nextSession(lobbySession(0), s)).toBe('Custom weekend · first: Practice 1');
+    expect(nextSession(lobbySession(0), withPreset(s, PRESETS[1]))).toBe('Sprint · first: Qualifying');
     const p1 = se({ phase: 'practice', index: 1, start: 100, end: 700 });
     expect(sessionTitle(p1, s)).toBe('Practice 1 of 2');
     expect(sessionState(p1, s, 125.2)).toEqual({ big: '9:35', text: 'left in the session' });

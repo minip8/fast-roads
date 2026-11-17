@@ -243,24 +243,45 @@ Cloudflare, below; it runs no physics). The menu's **Online** tab:
 - The relay's address is a detail: by default the page's own host on port 8787, or `VITE_RELAY_URL` set when the game
   was built. **Change** shows the field (it is shown anyway when a link or you set another one).
 
-In a room, the **Room** tab has the room code in large letters with **Copy invite link** (and **Share…** where the
-browser can), the session (what is on, the time or laps left, what comes next), the drivers (host, car, on track /
-in the menu / no signal, grid slot in a race), the times (the session's board, the race order, and after the race
-its results: positions, time or gap, best lap, stops, penalties, DNF / out of time; the last qualifying too), your
-car (not to be changed during the race or one-shot qualifying, where a change would put it back at the start; and
-starting tyres: Auto, the weather's choice, or one compound for every session), the weekend's options and the
-circuit. **Leave room** (click twice) leaves.
+In a room, the **Room** tab opens at the top: the room code in large letters with **Copy invite link** (and
+**Share…** where the browser can), the session (what is on, the time or laps left, what comes next; the host's
+**Start weekend**), the times (the session's board, the race order, and after the race its results: positions, time
+or gap, best lap, stops, penalties, DNF / out of time, which a phone shows under each name; the last qualifying too),
+the weekend, the drivers (host, car, on track / in the menu / no signal, grid slot in a race), your car (its best lap
+here in race conditions; not to be changed during the race or one-shot qualifying, where a change would put it back
+at the start; and starting tyres: Auto, the weather's choice, or one compound for every session) and the circuit.
+During a weekend the session comes first and the invite last. **Leave room** (click twice) leaves.
 
-The host picks a **race format** (Quick race: straight to a random grid, 5 laps; Short weekend: 10 min practice,
-10 min qualifying, 5 laps; Full weekend: two practices, 15 min qualifying, 20 laps with a pit stop and tyre wear,
-any weather) and presses **Start weekend**; or sets each option, each explained in a line: practice sessions and
-length, qualifying (none, timed, one shot) and length, race laps, starting grid (qualifying, random, reversed, join
-order), mandatory pit stops, tyre wear, collisions, track limits penalty, time to finish after the winner, allowed
-cars, weather. The tyre wear row says what the rate means here: about how many laps your car's soft, medium and
-hard last at this circuit. Everyone else sees the same options read-only, changing as the host changes them. During a weekend
-the host can end the session now or abort the weekend (each click twice). Choosing another circuit (click twice)
-moves the whole room there: every game reloads onto it and comes back into the room. A room that allows one car
-switches you to it. When the race ends the menu opens on its results.
+**The weekend.** The host picks a format, each a card saying what it sets at this circuit, and presses **Start
+weekend**:
+
+| Format | Sessions | Race | Tyres (at Melbourne) | Rules |
+| :-- | :-- | :-- | :-- | :-- |
+| Quick race | none: a random grid | 5 laps, no stops | softs last ~7 laps | dry, 1 min to finish |
+| Sprint (a new room's) | one-shot qualifying | 8 laps, no stops | softs ~11 laps | dry, 2 s a lap off track |
+| Grand Prix | 10 min practice, 10 min qualifying | 15 laps, 1 mandatory stop | softs ~10, mediums ~14, hards ~20 | dry, 5 s a lap off track |
+| Endurance | 15 min practice, 15 min qualifying | 25 laps, 2 mandatory stops | softs ~11 laps | dry, 5 s, 5 min to finish |
+| Wet race | 10 min practice, 10 min qualifying | 10 laps, no stops | wets ~14 laps | wet from the start, 3 min to finish |
+
+A format sets every option. The tyre wear follows the race length at each circuit (a format keeps its tyre life in
+laps when the room moves): the race tyre lasts about 1.4 races where no stop is required (the softs just last), about
+two thirds of the race with one stop and under half with two, so the stops a format asks for are also the ones worth
+making (a stop costs about 20-24 s at Melbourne). Under the formats are the options that matter most (**Cars**,
+race length, qualifying: none, timed or one shot; weather), and **More options** has the rest, in groups: practice
+sessions and length, qualifying length, starting grid (qualifying, random, reversed, join order); tyre life (shown
+as how many laps the tyres last here, − and + in steps of the wear rate) and mandatory pit stops; collisions, track
+limits penalty, time to finish after the winner. Each is explained in a line. A change marks the format it came from
+as changed (choose it again to go back). Everyone else sees the weekend as a few lines of text, changing as the host
+changes it.
+
+**Same car.** A room races one car unless the host opens it up: a new room is set to its creator's car, and the
+**Cars** option is everyone in the F1 2026, the GT3 or the drift car, or any car. Everyone is switched to the room's
+car when they join and when the host changes it, with a message saying why (car changes are locked during a
+weekend anyway).
+
+During a weekend the host can end the session now or abort the weekend (each click twice). **Change circuit…**
+shows every circuit; choosing another (click twice) moves the whole room there: every game reloads onto it and
+comes back into the room. When the race ends the menu opens on its results.
 
 A link with `?room=CODE` (and `&server=ws://host:port` for another relay) joins that room on load, and the page's
 address shows it while you are in a room. The tab keeps your seat (sessionStorage), so a reload, or the room moving
@@ -291,7 +312,8 @@ The host's settings (circuit, car, practice and qualifying sessions, race laps, 
 tyre wear, weather, collisions, penalties) are set in the lobby; the relay times each session. In the car
 (docs/net.md, **Race weekends in the game**, has every rule):
 
-- **Conditions.** Every room runs with tyre wear (the room's rate: 0.5-20, as fast as the F1's tyres wear; each car's
+- **Conditions.** Every room runs with tyre wear (the room's rate: 0.5-20, as fast as the F1's tyres wear, which the
+  formats set from the race length; each car's
   is scaled so a rate means about the same number of laps in every car: at 12 an F1 soft lasts about 4 laps of
   Melbourne, a medium 5, a hard 7-8) and the relay's weather, rain and a track that gets wet and dries. Laps in a
   room keep best times of their own, never the time trial's.

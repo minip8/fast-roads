@@ -154,9 +154,12 @@ export async function main() {
   labels.id = 'netLabels';
   $('hud').before(labels);   // under the HUD: a tag passes behind a panel, as the car it names does
   const serverFor = (fromLink = '') => fromLink || loadNetPrefs().server || defaultServer();
-  const followRoomCar = (net: NetClient) => {   // a room that allows one car: switch to it
+  const followRoomCar = (net: NetClient) => {   // a room that allows one car: switch to it, and say why
     const only = net.settings.car;
-    if (only && only in CARS && only !== settings.car) setSetting('car', only as CarId);
+    if (!only || !(only in CARS) || only === settings.car) return;
+    setSetting('car', only as CarId);
+    const name = CARS[only as CarId].name;
+    hud.showMsg(`${name}<small>Room ${net.room} races the ${name}: ${net.isHost ? 'you chose it' : 'the host chose it'}</small>`, 4);
   };
   const startNet = (mod: NetModule, net: NetClient, server: string) => {
     clearInterval(bootKeep);
@@ -212,6 +215,9 @@ export async function main() {
       return;
     }
     startNet(mod, r.net, server);
+    // A room we opened: everyone in our car, in the default format (lobby.ts newRoomSettings; set here rather than in
+    // the relay's defaults, which cannot know the circuit's length the format's tyre wear follows from).
+    if (mode === 'create' && r.net.isHost && r.net.session.phase === 'lobby') r.net.setSettings(mod.lobby.newRoomSettings(r.net.settings, session.car.spec.id));
   };
   // Every room event, in order (after Multiplayer has handled it).
   const onNetEvent = (e: NetEvent) => {
@@ -260,15 +266,7 @@ export async function main() {
       if (!netRt) return null;
       const { mp, mod, server, log } = netRt;
       return { net: mp.net, kit: mod.lobby, log, server, invite: inviteUrl(mp.net.room, server), circuitName: (id) => (id in TRACKS ? TRACKS[id as TrackId].name : id),
-        now: () => performance.now() / 1000,
-        tyreLife: (wear) => {
-          const w = mp.weekend, ids = (['soft', 'medium', 'hard', 'allweather'] as const).filter((id) => session.car.compounds.some((c) => c.id === id));
-          const laps = ids.map((id) => [id, w.tyreLife(id, wear)] as const).filter((x): x is readonly [typeof x[0], number] => x[1] != null);
-          if (!laps.length) return '';
-          const fmt = (n: number) => (n >= 20 ? `${Math.round(n / 5) * 5}` : n >= 3 ? `${Math.round(n)}` : n.toFixed(1));
-          const each = laps.map(([id, n]) => `${id === 'allweather' ? 'a set' : id} ${fmt(n)} ${fmt(n) === '1' ? 'lap' : 'laps'}`);
-          return `Your ${session.car.spec.name}'s tyres here last about: ${each.join(', ')}.`;
-        } };
+        now: () => performance.now() / 1000 };
     },
     tyre: {
       options: () => session.car.compounds.map((c) => ({ id: c.id, name: c.name, letter: c.letter, colour: c.colour })),

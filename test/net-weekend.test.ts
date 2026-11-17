@@ -185,9 +185,9 @@ describe('settings', () => {
     b.c.setSettings({ raceLaps: 3 });
     w.run(0.3);
     expect(lastError(b)).toMatchObject({ code: ERROR.notHost });
-    a.c.setSettings({ raceLaps: 500, practice: 9, practiceMinutes: 0, tyreWear: 2.4, invalidPenalty: 6, finishSecs: 5, qualifying: 'none', grid: 'reversed' });
+    a.c.setSettings({ raceLaps: 500, practice: 9, practiceMinutes: 0, tyreWear: 2.6, invalidPenalty: 6, finishSecs: 5, qualifying: 'none', grid: 'reversed' });
     w.run(0.3);
-    expect(b.c.settings).toMatchObject({ raceLaps: 99, practice: 3, practiceMinutes: 1, tyreWear: 2, invalidPenalty: 5, finishSecs: 30, grid: 'joinOrder' });
+    expect(b.c.settings).toMatchObject({ raceLaps: 99, practice: 3, practiceMinutes: 1, tyreWear: 2.5, invalidPenalty: 5, finishSecs: 30, grid: 'joinOrder' });
     expect(a.c.settings).toEqual(b.c.settings);
     a.c.setSettings({ circuit: 'nurburg' });
     a.c.setSettings({ car: 'tank' });

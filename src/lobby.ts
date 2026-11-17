@@ -4,21 +4,24 @@ import {
   type Phase, QUALIFYING, type RemoteSample, type RoomSettings, type SessionInfo, SETTING_RANGES, type Standing, STATE_FLAG, TYRE_WEAR,
   WEATHER_KINDS,
 } from './net';
+import { TRACKS, type TrackId } from './tracks';
 import { fmtTime } from './util';
 
 export { normaliseSettings } from './net';
 
 // ============================================================================
 // What the menu shows of a multiplayer room, without the DOM: the weekend settings as menu controls (built from
-// src/net/race.ts's lists and ranges, so they cannot drift from what the relay takes), presets, the plain-words
-// lines about the session under way, the results tables, the players' states, and RoomLog (what the menu keeps of
+// src/net/race.ts's lists and ranges, so they cannot drift from what the relay takes), presets (types of weekend that
+// set every option, the tyre wear from the race length and the circuit), tyre life in laps, the weekend and the
+// session under way in plain words, the results tables, the players' states, and RoomLog (what the menu keeps of
 // the room between events: the last qualifying's times). Loaded with netGame.ts (only in a room, so a
 // single-player page never downloads src/net); menu.ts reads it through MenuHost.net.room().
 // ============================================================================
 export type RoomKey = Exclude<keyof RoomSettings, 'circuit'>;
 export type RoomValue = RoomSettings[RoomKey];
-export type FieldGroup = 'sessions' | 'rules' | 'cars';
-export const FIELD_GROUPS: [FieldGroup, string][] = [['sessions', 'Sessions'], ['rules', 'Race rules'], ['cars', 'Cars and weather']];
+// The host's options: the `main` ones always shown under the formats, the others behind "More options", by group.
+export type FieldGroup = 'main' | 'sessions' | 'tyres' | 'rules';
+export const FIELD_GROUPS: [FieldGroup, string][] = [['main', 'The race'], ['sessions', 'Practice and qualifying'], ['tyres', 'Tyres and pit stops'], ['rules', 'Rules']];
 
 export interface RoomField {
   key: RoomKey;
@@ -30,6 +33,8 @@ export interface RoomField {
   applies?: (s: RoomSettings) => boolean;              // false: it has no effect as the other settings are (dimmed)
   allowed?: (v: RoomValue, s: RoomSettings) => boolean;   // an option that cannot be chosen as the others are
   format?: (v: number) => string;                      // steppers: a value as text (also one between the options)
+  shown?: (s: RoomSettings) => string;                 // steppers: the value as shown, when it depends on the others
+  detail?: (s: RoomSettings) => string;                // a line under the hint that depends on the settings
 }
 const stepper = (vals: number[], range: readonly [number, number], format: (v: number) => string) =>
   ({ kind: 'step' as const, format, options: within(vals, range).map((v) => [v, format(v)] as const) });
@@ -46,29 +51,68 @@ const GRID_TEXT: Record<RoomSettings['grid'], string> = { qualifying: 'Qualifyin
 const WEATHER_TEXT: Record<RoomSettings['weather'], string> = { dry: 'Dry', damp: 'Damp', wet: 'Wet', changeable: 'Changeable', random: 'Random' };
 const carName = (id: string) => (id in CARS ? CARS[id as CarId].name : id);
 
+// ---------------------------------------------------------------------------- tyre life
+// About how many laps a fresh set lasts: the F1's at Melbourne (5.278 km) at wear rate 1, per km (README, Race
+// conditions; weekend.ts tyreLife uses the same numbers). Every car's wear is scaled to about the F1's
+// (CarInfo.race.wearScale), so a rate means about the same laps in each; the drift car has one all-weather tyre.
+const MELBOURNE_KM = 5.278;
+export type LifeTyre = 'soft' | 'medium' | 'hard' | 'wet' | 'allweather';
+const TYRE_LAPS: Record<LifeTyre, number> = { soft: 43, medium: 64, hard: 90, wet: 64, allweather: 60 };
+const circuitKm = (circuit: string) => (circuit in TRACKS ? TRACKS[circuit as TrackId].lengthKm : MELBOURNE_KM);
+export function tyreLaps(tyre: LifeTyre, wear: number, circuit: string): number {
+  return (TYRE_LAPS[tyre] * MELBOURNE_KM) / (circuitKm(circuit) * wear);
+}
+export const fmtLaps = (v: number) => (v >= 20 ? `${Math.round(v / 5) * 5}` : v >= 3 ? `${Math.round(v)}` : v.toFixed(1));
+// The tyres a room's settings are about: the drift car's one tyre, wets in the wet, else the slicks.
+const oneTyre = (s: RoomSettings) => !!s.car && s.car in CARS && CARS[s.car as CarId].physics === 'rapier';
+function mainTyre(s: RoomSettings): [LifeTyre, string] {
+  if (oneTyre(s)) return ['allweather', 'Tyres'];
+  return s.weather === 'wet' ? ['wet', 'Wets'] : ['soft', 'Softs'];
+}
+// "Softs ~7 laps": what the race is run on, at the settings' wear and circuit.
+export function tyreLifeShort(s: RoomSettings, wear = s.tyreWear): string {
+  const [t, name] = mainTyre(s);
+  return `${name} ~${fmtLaps(tyreLaps(t, wear, s.circuit))} laps`;
+}
+// Every slick (or the one tyre) here, in a line.
+export function tyreLifeLong(s: RoomSettings, wear = s.tyreWear): string {
+  const at = circuit(s.circuit);
+  if (oneTyre(s)) return `A set lasts about ${fmtLaps(tyreLaps('allweather', wear, s.circuit))} laps of ${at}.`;
+  const l = (t: LifeTyre) => fmtLaps(tyreLaps(t, wear, s.circuit));
+  return `Softs last about ${l('soft')} laps of ${at}, mediums ${l('medium')}, hards ${l('hard')}; rain tyres about as mediums.`;
+}
+const circuit = (id: string) => (id in TRACKS ? TRACKS[id as TrackId].name : id);
+
 export const ROOM_FIELDS: readonly RoomField[] = [
+  { key: 'car', label: 'Cars', group: 'main', kind: 'choice', hint: 'Everyone races the same car, or each driver picks their own.',
+    options: [...NET_CARS.map((id) => [id, carName(id)] as const), ['', 'Any car']] },
+  { key: 'raceLaps', label: 'Race length', group: 'main', hint: 'Laps from the lights going out.',
+    ...stepper(LAPS, SETTING_RANGES.raceLaps, (v) => n(v, 'lap')) },
+  { key: 'qualifying', label: 'Qualifying', group: 'main', kind: 'choice',
+    hint: 'Timed: the best lap in the time sets the grid. One shot: a single flying lap each, no traffic.',
+    options: QUALIFYING.map((v) => [v, QUALIFYING_TEXT[v]] as const) },
+  { key: 'weather', label: 'Weather', group: 'main', kind: 'choice',
+    hint: 'Damp and wet start with water on the track, changeable brings showers, random picks one.',
+    options: WEATHER_KINDS.map((v) => [v, WEATHER_TEXT[v]] as const) },
   { key: 'practice', label: 'Practice sessions', group: 'sessions', kind: 'choice',
-    hint: 'Free running first, to learn the circuit and try the tyres.',
+    hint: 'Free running before qualifying, to learn the circuit and try the tyres.',
     options: within([0, 1, 2, 3], SETTING_RANGES.practice).map((v) => [v, v ? String(v) : 'None'] as const) },
   { key: 'practiceMinutes', label: 'Practice length', group: 'sessions', hint: 'Each practice session.',
     ...stepper(MINUTES, SETTING_RANGES.practiceMinutes, mins), applies: (s) => s.practice > 0 },
-  { key: 'qualifying', label: 'Qualifying', group: 'sessions', kind: 'choice',
-    hint: 'Timed: your best lap in the time sets the grid. One shot: a single flying lap each, no traffic.',
-    options: QUALIFYING.map((v) => [v, QUALIFYING_TEXT[v]] as const) },
   { key: 'qualifyingMinutes', label: 'Qualifying length', group: 'sessions',
     hint: 'Timed qualifying. A lap begun before the flag still counts.',
     ...stepper(MINUTES, SETTING_RANGES.qualifyingMinutes, mins), applies: (s) => s.qualifying === 'timed' },
-  { key: 'raceLaps', label: 'Race length', group: 'sessions', hint: 'Laps from the lights going out.',
-    ...stepper(LAPS, SETTING_RANGES.raceLaps, (v) => n(v, 'lap')) },
   { key: 'grid', label: 'Starting grid', group: 'sessions', kind: 'choice',
     hint: 'Who starts where. Qualifying and reversed need a qualifying session.',
     options: GRID_ORDERS.map((v) => [v, GRID_TEXT[v]] as const),
     allowed: (v, s) => s.qualifying !== 'none' || (v !== 'qualifying' && v !== 'reversed') },
-  { key: 'pitStops', label: 'Mandatory pit stops', group: 'rules', kind: 'choice',
+  // (most life first, so + means longer-lasting tyres)
+  { key: 'tyreWear', label: 'Tyre life', group: 'tyres', kind: 'step', hint: 'Shorter-lived tyres make pit stops and tyre choice matter.',
+    format: (v) => `×${v} wear`, options: [...TYRE_WEAR].reverse().map((v) => [v, `×${v} wear`] as const),
+    shown: (s) => tyreLifeShort(s), detail: (s) => `${tyreLifeLong(s)} Wear ×${s.tyreWear} (×1 is real).` },
+  { key: 'pitStops', label: 'Mandatory pit stops', group: 'tyres', kind: 'choice',
     hint: 'Stops every car must make in the race. A missed one costs 60 s.',
     options: within([0, 1, 2, 3], SETTING_RANGES.pitStops).map((v) => [v, v ? String(v) : 'None'] as const) },
-  { key: 'tyreWear', label: 'Tyre wear', group: 'rules', kind: 'choice', hint: '×1 is normal. Higher wears the tyres out sooner, so stops matter.',
-    options: TYRE_WEAR.map((v) => [v, `×${v}`] as const) },
   { key: 'collisions', label: 'Collisions in the race', group: 'rules', kind: 'choice',
     hint: 'Off: cars pass through each other. Practice and timed qualifying always collide.',
     options: [[true, 'On'], [false, 'Off']] },
@@ -76,64 +120,123 @@ export const ROOM_FIELDS: readonly RoomField[] = [
     options: INVALID_PENALTIES.map((v) => [v, v ? `${v} s` : 'None'] as const) },
   { key: 'finishSecs', label: 'Time to finish', group: 'rules', hint: 'How long the others have after the winner crosses the line.',
     ...stepper(FINISH_SECS, SETTING_RANGES.finishSecs, fmtSecs) },
-  { key: 'car', label: 'Allowed cars', group: 'cars', kind: 'choice', hint: 'Any car, or everyone in the same one.',
-    options: [['', 'Any'], ...NET_CARS.map((id) => [id, carName(id)] as const)] },
-  { key: 'weather', label: 'Weather', group: 'cars', kind: 'choice',
-    hint: 'Damp and wet start with water on the track, changeable brings showers, random picks one.',
-    options: WEATHER_KINDS.map((v) => [v, WEATHER_TEXT[v]] as const) },
 ];
 
 // The option shown for a value (a value between the options, which the relay can hold, shows as itself).
 export function optionLabel(f: RoomField, v: RoomValue): string {
   return f.options.find(([o]) => o === v)?.[1] ?? (f.format && typeof v === 'number' ? f.format(v) : String(v));
 }
-// The next option from v in direction dir, skipping options not allowed: round from the last to the first with
-// `wrap` (buttons), else stopping at the ends (steppers); v itself if there is none.
+// The next option from v in direction dir (in the options' order), skipping options not allowed: round from the last
+// to the first with `wrap` (buttons), else stopping at the ends (steppers); v itself if there is none.
 export function stepOption(f: RoomField, v: RoomValue, dir: number, s: RoomSettings, wrap = false): RoomValue {
   const ok = f.options.filter(([o]) => !f.allowed || f.allowed(o, s)).map(([o]) => o);
   const k = ok.indexOf(v);
   if (k >= 0) return ok[wrap ? (((k + dir) % ok.length) + ok.length) % ok.length : Math.max(0, Math.min(ok.length - 1, k + dir))];
   if (typeof v === 'number') {   // between options: the nearest one that way
-    const nums = ok as number[];
-    const next = dir > 0 ? nums.find((o) => o > v) : [...nums].reverse().find((o) => o < v);
+    const nums = ok as number[], up = nums[0] < nums[nums.length - 1];
+    const after = (o: number) => (up ? o > v : o < v);
+    const next = dir > 0 ? nums.find(after) : [...nums].reverse().find((o) => !after(o));
     return next ?? v;
   }
   return ok[0] ?? v;
 }
 
 // ---------------------------------------------------------------------------- presets
-export interface Preset { id: string; name: string; blurb: string; settings: Omit<RoomSettings, 'circuit' | 'car'> }
+// A type of weekend: every option but the circuit and the allowed car. The tyre wear is not fixed but follows from
+// `life`: the race tyre (softs, or wets for a wet race) lasting that share of the race at this circuit, as the
+// strategy wants it (a crude stint model of README's wear and lap-time numbers, a stop costing ~22 s): about 1.4
+// races with no stop to make (the softs just last), 0.65 for one stop, 0.45 for two.
+export interface Preset {
+  id: string; name: string; blurb: string;
+  settings: Omit<RoomSettings, 'circuit' | 'car' | 'tyreWear'>;
+  tyre: 'soft' | 'wet';
+  life: number;
+}
+const BASE = { practice: 0, practiceMinutes: 10, qualifying: 'none', qualifyingMinutes: 10, grid: 'qualifying', pitStops: 0, weather: 'dry',
+  collisions: true, invalidPenalty: 0, finishSecs: 120 } as const;
 export const PRESETS: readonly Preset[] = [
-  { id: 'quick', name: 'Quick race', blurb: 'Straight to a random grid, 5 laps.',
-    settings: { practice: 0, practiceMinutes: 10, qualifying: 'none', qualifyingMinutes: 10, raceLaps: 5, grid: 'random', pitStops: 0,
-      tyreWear: 1, weather: 'dry', collisions: true, invalidPenalty: 0, finishSecs: 120 } },
-  { id: 'short', name: 'Short weekend', blurb: '10 min practice, 10 min qualifying, 5 laps.',
-    settings: { practice: 1, practiceMinutes: 10, qualifying: 'timed', qualifyingMinutes: 10, raceLaps: 5, grid: 'qualifying', pitStops: 0,
-      tyreWear: 1, weather: 'dry', collisions: true, invalidPenalty: 0, finishSecs: 120 } },
-  { id: 'full', name: 'Full weekend', blurb: 'Two practices, 15 min qualifying, 20 laps with a pit stop, any weather.',
-    settings: { practice: 2, practiceMinutes: 15, qualifying: 'timed', qualifyingMinutes: 15, raceLaps: 20, grid: 'qualifying', pitStops: 1,
-      tyreWear: 2, weather: 'random', collisions: true, invalidPenalty: 5, finishSecs: 180 } },
+  { id: 'quick', name: 'Quick race', blurb: 'Straight onto a random grid: a short race, no stops.', tyre: 'soft', life: 1.4,
+    settings: { ...BASE, raceLaps: 5, grid: 'random', finishSecs: 60 } },
+  { id: 'sprint', name: 'Sprint', blurb: 'One flying lap each sets the grid, then a flat-out race.', tyre: 'soft', life: 1.4,
+    settings: { ...BASE, qualifying: 'oneShot', raceLaps: 8, invalidPenalty: 2, finishSecs: 90 } },
+  { id: 'gp', name: 'Grand Prix', blurb: 'The full weekend: practice, qualifying, and a race with a pit stop.', tyre: 'soft', life: 0.65,
+    settings: { ...BASE, practice: 1, qualifying: 'timed', raceLaps: 15, pitStops: 1, invalidPenalty: 5 } },
+  { id: 'endurance', name: 'Endurance', blurb: 'A long race on tyres that wear: two stops to plan.', tyre: 'soft', life: 0.45,
+    settings: { ...BASE, practice: 1, practiceMinutes: 15, qualifying: 'timed', qualifyingMinutes: 15, raceLaps: 25, pitStops: 2, invalidPenalty: 5, finishSecs: 300 } },
+  { id: 'wet', name: 'Wet race', blurb: 'Rain from the start: practice, qualifying and a race on wets.', tyre: 'wet', life: 1.4,
+    settings: { ...BASE, practice: 1, qualifying: 'timed', raceLaps: 10, weather: 'wet', finishSecs: 180 } },
 ];
+// A new room's format (the game sets it, with the host's car, when it creates a room).
+export const DEFAULT_PRESET = PRESETS[1];
+
+// The preset's wear at a circuit: the allowed step nearest what makes its tyre last `life` races.
+export function presetWear(p: Preset, circuitId: string): number {
+  const want = (TYRE_LAPS[p.tyre] * MELBOURNE_KM) / (circuitKm(circuitId) * p.life * p.settings.raceLaps);
+  return TYRE_WEAR.reduce((a, b) => (Math.abs(Math.log(b / want)) < Math.abs(Math.log(a / want)) ? b : a));
+}
+export const withPreset = (s: RoomSettings, p: Preset): RoomSettings => normaliseSettings({ ...s, ...p.settings, tyreWear: presetWear(p, s.circuit) });
+const PRESET_KEYS = Object.keys(PRESETS[0].settings) as (keyof Preset['settings'])[];
+const matches = (p: Preset, s: RoomSettings) => PRESET_KEYS.filter((k) => p.settings[k] === s[k]).length + (s.tyreWear === presetWear(p, s.circuit) ? 1 : 0);
 // The preset the settings are (circuit and car aside), or null: custom.
 export function presetOf(s: RoomSettings): Preset | null {
-  return PRESETS.find((p) => (Object.keys(p.settings) as (keyof Preset['settings'])[]).every((k) => p.settings[k] === s[k])) ?? null;
+  return PRESETS.find((p) => matches(p, s) === PRESET_KEYS.length + 1) ?? null;
 }
-export const withPreset = (s: RoomSettings, p: Preset): RoomSettings => normaliseSettings({ ...s, ...p.settings });
+// The preset custom settings are nearest (the one they were most likely made from).
+export function closestPreset(s: RoomSettings): Preset {
+  return PRESETS.reduce((a, b) => (matches(b, s) > matches(a, s) ? b : a));
+}
+// The settings at another circuit: a preset stays that preset (its tyre wear for the new circuit's length).
+export function withCircuit(s: RoomSettings, circuitId: string): RoomSettings {
+  const p = presetOf(s);
+  return normaliseSettings({ ...s, circuit: circuitId, ...(p ? { tyreWear: presetWear(p, circuitId) } : {}) });
+}
+// A new room's settings: the default format, everyone in the host's car.
+export const newRoomSettings = (s: RoomSettings, car: string): RoomSettings => withPreset({ ...s, car }, DEFAULT_PRESET);
 
-// One line: what the weekend is.
-export function weekendSummary(s: RoomSettings): string {
+// ---------------------------------------------------------------------------- the weekend, in words
+const QUALI_SHORT: Record<RoomSettings['qualifying'], string> = { none: '', timed: 'qualifying', oneShot: 'one-shot qualifying' };
+const GRID_SHORT: Record<RoomSettings['grid'], string> = { qualifying: 'grid by qualifying', random: 'random grid', reversed: 'reversed grid', joinOrder: 'grid in join order' };
+const stopsText = (k: number) => (k ? n(k, 'stop') : 'no stops');
+// One compact line: what the weekend is ("10 min practice · 10 min qualifying · 15 laps · 1 stop · softs ~10 laps · dry").
+export function weekendSummary(s: RoomSettings, extras = true): string {
   const parts: string[] = [];
   if (s.practice) parts.push(`${s.practice > 1 ? `${s.practice} × ` : ''}${s.practiceMinutes} min practice`);
-  if (s.qualifying === 'timed') parts.push(`${s.qualifyingMinutes} min qualifying`);
-  else if (s.qualifying === 'oneShot') parts.push('one-shot qualifying');
-  parts.push(`${s.raceLaps}-lap race`);
-  if (s.pitStops) parts.push(n(s.pitStops, 'pit stop'));
-  if (s.tyreWear !== 1) parts.push(`tyre wear ×${s.tyreWear}`);
-  if (s.weather !== 'dry') parts.push(`${WEATHER_TEXT[s.weather].toLowerCase()} weather`);
-  if (!s.collisions) parts.push('no collisions');
-  if (s.invalidPenalty) parts.push(`${s.invalidPenalty} s per lap cut`);
-  if (s.car) parts.push(`${carName(s.car)} only`);
+  if (s.qualifying === 'timed') parts.push(`${s.qualifyingMinutes} min ${QUALI_SHORT.timed}`);
+  else if (s.qualifying === 'oneShot') parts.push(QUALI_SHORT.oneShot);
+  else parts.push(GRID_SHORT[s.grid]);
+  parts.push(n(s.raceLaps, 'lap'), stopsText(s.pitStops), tyreLifeShort(s).toLowerCase(), WEATHER_TEXT[s.weather].toLowerCase());
+  if (extras) {
+    if (!s.collisions) parts.push('no collisions');
+    if (s.invalidPenalty) parts.push(`${s.invalidPenalty} s a lap off track`);
+    parts.push(s.car ? `${carName(s.car)} only` : 'any car');
+  }
   return parts.join(' · ');
+}
+// What a preset makes of these settings, in that line (its own options, the room's circuit and car).
+export const presetSummary = (p: Preset, s: RoomSettings) => weekendSummary(withPreset(s, p), false);
+
+const WEATHER_LONG: Record<RoomSettings['weather'], string> = {
+  dry: 'Dry', damp: 'Damp: water on the track at the start', wet: 'Wet: rain from the start', changeable: 'Changeable: showers come and go',
+  random: 'Random: one of dry, damp, wet or changeable',
+};
+// The whole weekend as label / text pairs, for those who cannot change it (and the host during a weekend).
+export function weekendFacts(s: RoomSettings): [string, string][] {
+  const p = presetOf(s);
+  const sessions = [
+    s.practice ? `${s.practice > 1 ? `${s.practice} × ` : ''}${s.practiceMinutes} min practice` : '',
+    s.qualifying === 'timed' ? `${s.qualifyingMinutes} min qualifying` : s.qualifying === 'oneShot' ? 'one-shot qualifying (one flying lap each)' : '',
+    `the race`,
+  ].filter(Boolean).join(', then ');
+  return [
+    ['Format', p ? p.name : `Custom (based on ${closestPreset(s).name})`],
+    ['Cars', s.car ? `Everyone in the ${carName(s.car)}` : 'Any car: each driver picks'],
+    ['Sessions', sessions[0].toUpperCase() + sessions.slice(1)],
+    ['Race', `${n(s.raceLaps, 'lap')}, ${GRID_SHORT[s.grid]}`],
+    ['Tyres', `${s.pitStops ? `${n(s.pitStops, 'mandatory pit stop')}. ` : 'No mandatory stops. '}${tyreLifeLong(s)}`],
+    ['Weather', WEATHER_LONG[s.weather]],
+    ['Rules', [s.collisions ? 'Collisions on' : 'No collisions in the race', s.invalidPenalty ? `${s.invalidPenalty} s for each lap off the track` : 'no track limits penalty',
+      `${fmtSecs(s.finishSecs)} to finish after the winner`].join(' · ')],
+  ];
 }
 
 // ---------------------------------------------------------------------------- the session, in words
@@ -173,7 +276,7 @@ export function sessionState(se: SessionInfo, s: RoomSettings, t: number, leader
 
 export function nextSession(se: SessionInfo, s: RoomSettings): string {
   switch (se.phase) {
-    case 'lobby': return `First: ${firstSession(s)}`;
+    case 'lobby': return `${presetOf(s)?.name ?? 'Custom weekend'} · first: ${firstSession(s)}`;
     case 'practice': return se.index < s.practice ? `Next: Practice ${se.index + 1}` : s.qualifying !== 'none' ? 'Next: Qualifying' : `Next: the race, ${n(s.raceLaps, 'lap')}`;
     case 'qualifying': return `Next: the race, ${n(s.raceLaps, 'lap')}`;
     case 'race': return se.stage === 'results' ? 'Next: back to the lobby' : 'Then: the results, and back to the lobby';
