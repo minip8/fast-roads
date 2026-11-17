@@ -12,11 +12,12 @@ import { GhostCar } from './ghostCar';
 import { Hud } from './hud';
 import { Input, MOUSE_DEADZONE, MOUSE_RANGE, PAD_DEADZONE } from './input';
 import { bindKey, copyBindings, DEFAULT_BINDINGS, keyLabel, keysFor, loadBindings, MENU_KEY, saveBindings, type Action } from './keys';
-import { Menu, type NetStatus } from './menu';
+import { Menu, type MenuHost, type NetStatus } from './menu';
 import { RearMirror } from './mirror';
 import type { Multiplayer } from './multiplayer';
-import type { NetClient } from './net';
-import { defaultServer, loadNetPrefs, randomName, roomFromUrl, roomUrl, saveNetPrefs, type NetPrefs } from './netPrefs';
+import type { NetClient, NetEvent } from './net';
+import type { Joined } from './netGame';
+import { clearSeat, defaultServer, inviteUrl, loadNetPrefs, loadSeat, parseInvite, randomName, roomFromUrl, roomUrl, saveNetPrefs, saveSeat } from './netPrefs';
 import { DEFAULT_SETTINGS, loadSettings, nextOption, saveSettings, SETTING_KEYS, type SettingKey, type Settings } from './settings';
 import { Session } from './sim';
 import { buildStage } from './stage';
@@ -50,7 +51,10 @@ export interface GameHook {
 }
 type NetModule = typeof import('./netGame');
 // Multiplayer while in a room (netGame.ts, loaded only then): the glue, the other cars drawn, the board.
-interface NetRuntime { mp: Multiplayer; view: InstanceType<NetModule['RemoteCars']>; board: InstanceType<NetModule['NetHud']> }
+interface NetRuntime {
+  mp: Multiplayer; view: InstanceType<NetModule['RemoteCars']>; board: InstanceType<NetModule['NetHud']>;
+  mod: NetModule; server: string; log: InstanceType<NetModule['lobby']['RoomLog']>;   // (for the menu's room tab)
+}
 declare global { interface Window { __game?: GameHook } }
 
 export async function main() {
@@ -59,18 +63,24 @@ export async function main() {
   // The circuit is chosen before anything is built; changing it reloads the page (see applySetting.track).
   const settings = loadSettings();
   // A room in the link (?room=CODE): joined before the circuit is built, since the room's circuit is the one to build.
+  // It only joins (never creates it: a room that has closed offers to open it again); this tab's seat
+  // (rejoin token, sessionStorage) comes back as the same player after a reload or a circuit change.
   const link = roomFromUrl(params);
-  let booted: { mod: NetModule; net: NetClient; server: string } | null = null, bootError = '';
+  let booted: { mod: NetModule; net: NetClient; server: string } | null = null, bootError: NetStatus | null = null, bootKeep = 0;
   if (link) {
-    const prefs = loadNetPrefs(), server = link.server || prefs.server || defaultServer(), name = prefs.name || randomName();
+    const prefs = loadNetPrefs(), server = link.server || prefs.server || defaultServer(), name = netName();
     $('loadState').textContent = `Joining room ${link.room}…`;
     const mod = await import('./netGame').catch(() => null);
-    const r = mod ? await mod.connect({ server, room: link.room, name, car: settings.car, circuit: settings.track }) : { ok: false as const, error: 'Multiplayer failed to load' };
+    const r: Joined = mod ? await mod.connect({ server, room: link.room, name, car: settings.car, circuit: settings.track, mode: 'join', token: loadSeat(link.room, server) ?? undefined })
+      : { ok: false, code: -1, text: 'Multiplayer failed to load.', offer: 'reload' };
     if (r.ok && mod) {
       if (r.net.circuit !== settings.track && r.net.circuit in TRACKS) { settings.track = r.net.circuit as TrackId; saveSettings(settings); }
       booted = { mod, net: r.net, server };
-      saveNetPrefs({ ...prefs, room: link.room, name });
-    } else bootError = `Room ${link.room}: ${r.ok ? '' : r.error}`;
+      // keep the link alive while the circuit is built (the relay drops a client it has not heard from in 10 s); the
+      // events wait in the client for Multiplayer
+      const net = r.net;
+      bootKeep = window.setInterval(() => net.update(performance.now() / 1000), 250);   // (cleared by startNet)
+    } else if (!r.ok) bootError = { state: 'error', text: r.text, offer: r.offer, room: link.room };
   }
   const def = TRACKS[settings.track];
   $('loadState').textContent = `Building ${def.name}…`;
@@ -119,46 +129,132 @@ export async function main() {
   // Game state
   // The autopilot is a development/testing tool: only ?autopilot in the URL (or the __game test hook) turns it on.
   let started = params.has('autopilot'), paused = false, autoOn = params.has('autopilot');
-  let acc = 0, last = performance.now();
+  let acc = 0, last = performance.now(), menuTick = 0;
   session.onReset = () => cam.reset();
 
   const restart = () => { session.restart(); hud.showMsg('Flying lap<small>Starts at the line</small>', 1.5); };
 
   // ---------------- Multiplayer ----------------
+  // Entering a room (create, join, a link, a retry), leaving it, and what the room's events mean for the page: a
+  // circuit change reloads onto it with this tab's seat, a car the room requires is switched to, the race's results
+  // open the menu. Everything in the car itself is Multiplayer's (netGame.ts).
   let netRt: NetRuntime | null = null;
-  let netStatus: NetStatus = bootError ? { state: 'error', text: bootError } : { state: 'off', text: '' };
+  let netStatus: NetStatus = bootError ?? { state: 'off', text: '' };
+  // what Try again does: the last attempt (a create stays a create), or rejoining the room last in
+  let lastAttempt: (() => void) | null = link ? () => { void enterRoom('join', link.room, serverFor(link.server)); } : null;
+  // CONNECT (in-car side): the starting compound the menu's room tab offers. Held here until Multiplayer takes it
+  // (e.g. `netRt.mp.startCompound = id`), which fits it when a session puts the car on track.
+  let startTyre: string | null = null;
   const labels = document.createElement('div');
   labels.id = 'netLabels';
   $('hud').before(labels);   // under the HUD: a tag passes behind a panel, as the car it names does
-  const startNet = (mod: NetModule, net: NetClient, server: string) => {
-    netRt = { mp: new mod.Multiplayer(net, session), view: new mod.RemoteCars(scene, labels), board: new mod.NetHud($('leftCol')) };
-    history.replaceState(null, '', roomUrl(net.room, server));
-    menu.rebuild();
+  const serverFor = (fromLink = '') => fromLink || loadNetPrefs().server || defaultServer();
+  const followRoomCar = (net: NetClient) => {   // a room that allows one car: switch to it
+    const only = net.settings.car;
+    if (only && only in CARS && only !== settings.car) setSetting('car', only as CarId);
   };
-  const stopNet = (text: string, error = false) => {
+  const startNet = (mod: NetModule, net: NetClient, server: string) => {
+    clearInterval(bootKeep);
+    netRt = { mp: new mod.Multiplayer(net, session), view: new mod.RemoteCars(scene, labels), board: new mod.NetHud($('leftCol')), mod, server, log: new mod.lobby.RoomLog(net) };
+    netStatus = { state: 'joined', text: '' };
+    lastAttempt = () => { void enterRoom('join', net.room, server); };
+    saveSeat({ room: net.room, server, token: net.token });
+    history.replaceState(null, '', roomUrl(net.room, server));
+    followRoomCar(net);
+    menu.showTab('online');
+  };
+  const stopNet = (status: NetStatus) => {
     if (!netRt) return;
     netRt.mp.close(); netRt.view.dispose(); netRt.board.dispose(); netRt = null;
     session.proxies.length = 0;
-    netStatus = { state: error ? 'error' : 'off', text };
+    netStatus = status;
     history.replaceState(null, '', roomUrl(null));
     menu.rebuild();
   };
-  const joinRoom = async (p: NetPrefs) => {
+  // The connection ended. fatal: the relay's last fatal error (code), if it sent one.
+  const netClosed = (reason: string, fatal: { code: number; message: string } | null) => {
+    if (!netRt) return;
+    const room = netRt.mp.net.room;
+    stopNet({ state: 'error', text: netRt.mod.lobby.closedText(room, reason, fatal), offer: 'retry', room });
+    if (!menu.isOpen) menu.open();
+  };
+  // Into a room: join it (with this tab's seat, if it has one there), or create one (a made-up code, or `room`).
+  const enterRoom = async (mode: 'join' | 'create', room: string | null, server: string) => {
     if (netRt || netStatus.state === 'connecting') return;
-    saveNetPrefs(p);
-    netStatus = { state: 'connecting', text: `Joining room ${p.room}…` }; menu.refresh();
+    const name = netName();
+    lastAttempt = () => { void enterRoom(mode, room, server); };
+    netStatus = { state: 'connecting', text: mode === 'create' ? (room ? `Opening room ${room}…` : 'Opening a room…') : `Joining room ${room}…` };
+    menu.refresh();
     const mod = await import('./netGame').catch(() => null);
-    const r = mod ? await mod.connect({ server: p.server, room: p.room, name: p.name, car: session.car.spec.id, circuit: def.id }) : { ok: false as const, error: 'Multiplayer failed to load' };
-    if (!r.ok || !mod) { netStatus = { state: 'error', text: r.ok ? '' : r.error }; menu.refresh(); return; }
+    const o = { server, name, car: session.car.spec.id, circuit: def.id };
+    const r: Joined = !mod ? { ok: false, code: -1, text: 'Multiplayer failed to load.', offer: 'reload' }
+      : mode === 'create' ? await mod.createRoom(o, room ?? undefined, room ? 1 : 5)
+      : await mod.connect({ ...o, room: room!, mode, token: loadSeat(room!, server) ?? undefined });
+    if (!r.ok || !mod) { netStatus = { state: 'error', text: r.ok ? '' : r.text, offer: r.ok ? undefined : r.offer, room: room ?? undefined }; menu.refresh(); return; }
     if (r.net.circuit !== def.id && r.net.circuit in TRACKS) {
       // the room is at another circuit, and the circuit is built once: load the page there, back into the room
-      netStatus = { state: 'connecting', text: `Room ${p.room} is at ${TRACKS[r.net.circuit as TrackId].name}: loading it…` }; menu.refresh();
-      r.net.close();
+      netStatus = { state: 'connecting', text: `Room ${r.net.room} is at ${TRACKS[r.net.circuit as TrackId].name}: loading it…` }; menu.refresh();
+      saveSeat({ room: r.net.room, server, token: r.net.token });
+      r.net.close('reload');
       settings.track = r.net.circuit as TrackId; saveSettings(settings);
-      location.href = roomUrl(p.room, p.server);
+      location.href = roomUrl(r.net.room, server);
       return;
     }
-    startNet(mod, r.net, p.server);
+    startNet(mod, r.net, server);
+  };
+  // Every room event, in order (after Multiplayer has handled it).
+  const onNetEvent = (e: NetEvent) => {
+    if (!netRt) return;
+    const { net } = netRt.mp;
+    netRt.log.feed(e);
+    if (e.type === 'settings') {
+      if (e.circuitChanged && e.settings.circuit in TRACKS) {
+        // the host moved the room: reload onto the circuit and come back with the same seat
+        const id = e.settings.circuit as TrackId;
+        saveSeat({ room: net.room, server: netRt.server, token: net.token });
+        netStatus = { state: 'connecting', text: `The room is moving to ${TRACKS[id].name}: loading it…` };
+        settings.track = id; saveSettings(settings);
+        menu.refresh();
+        netRt.mp.close('reload');
+        location.href = roomUrl(net.room, netRt.server);
+        return;
+      }
+      followRoomCar(net);
+    }
+    // the race is over: its results, in the menu's room tab
+    if (e.type === 'session' && e.session.phase === 'race' && e.session.stage === 'results' && e.before.stage !== 'results') {
+      if (!menu.isOpen) menu.open();
+      menu.showTab('online');
+    }
+    menu.roomEvent(e);
+  };
+  const netHost: MenuHost['net'] = {
+    status: () => netStatus,
+    prefs: () => loadNetPrefs(),
+    setPrefs: (p) => saveNetPrefs({ ...loadNetPrefs(), ...p }),
+    create: (room) => { void enterRoom('create', room ?? null, serverFor()); },
+    join: (text) => {
+      const inv = parseInvite(text);
+      if (inv) void enterRoom('join', inv.room, serverFor(inv.server));
+    },
+    retry: () => lastAttempt?.(),
+    dismiss: () => { netStatus = { state: 'off', text: '' }; lastAttempt = null; history.replaceState(null, '', roomUrl(null)); menu.rebuild(); },
+    leave: () => {
+      const room = netRt?.mp.net.room ?? '';
+      clearSeat(); lastAttempt = null;
+      stopNet({ state: 'off', text: `You left room ${room}.` });
+    },
+    room: () => {
+      if (!netRt) return null;
+      const { mp, mod, server, log } = netRt;
+      return { net: mp.net, kit: mod.lobby, log, server, invite: inviteUrl(mp.net.room, server), circuitName: (id) => (id in TRACKS ? TRACKS[id as TrackId].name : id),
+        now: () => performance.now() / 1000 };
+    },
+    tyre: {
+      options: () => session.car.compounds.map((c) => ({ id: c.id, name: c.name, letter: c.letter, colour: c.colour })),
+      get: () => (startTyre && session.car.compounds.some((c) => c.id === startTyre) ? startTyre : session.car.compounds[0]?.id ?? ''),
+      set: (id) => { startTyre = id; },
+    },
   };
 
   // ---------------- Settings ----------------
@@ -233,16 +329,7 @@ export async function main() {
     settings, setSetting, cycleSetting, restart, bestLap,
     loadedTrack: def.id,
     started: () => started,
-    net: {
-      status: () => {
-        if (!netRt) return netStatus;
-        const n = netRt.mp.net.players.size;
-        return { state: 'joined', text: `In room ${netRt.mp.net.room} at ${def.name}, ${n} driver${n === 1 ? '' : 's'}. Share this page's address to invite others.` };
-      },
-      prefs: () => { const p = loadNetPrefs(); return { server: p.server || defaultServer(), room: p.room, name: p.name || randomName() }; },
-      join: (p) => { void joinRoom(p); },
-      leave: () => stopNet('Left the room'),
-    },
+    net: netHost,
     resetSettings: () => {
       for (const k of SETTING_KEYS) if (k !== 'car' && k !== 'track' && settings[k] !== DEFAULT_SETTINGS[k]) setSetting(k, DEFAULT_SETTINGS[k]);
     },
@@ -266,6 +353,7 @@ export async function main() {
   if (started) { menu.isOpen = false; $('overlay').classList.add('hidden'); hud.hidden = false; }   // ?autopilot skips the menu
   else menu.show();
   if (booted) startNet(booted.mod, booted.net, booted.server);
+  else if (bootError) menu.showTab('online');   // the link's room could not be entered: say why, and offer what to do
 
   // ---------------- Test hook ----------------
   // Run the simulation headless (no rendering), e.g. __game.simulate(90, true)
@@ -316,12 +404,15 @@ export async function main() {
     const fdt = Math.min((now - last) / 1000, 0.1); last = now;
     const nowS = now / 1000, running = started && !paused;
     if (netRt) {
-      let fatal = '';
+      let fatal: { code: number; message: string } | null = null;
       for (const e of netRt.mp.update(nowS, !running)) {
-        if (e.type === 'error' && e.fatal) fatal = e.message;
-        if (e.type === 'closed') { stopNet(fatal || `Disconnected (${e.reason})`, true); break; }
+        if (e.type === 'error' && e.fatal) fatal = { code: e.code, message: e.message };
+        if (e.type === 'closed') { netClosed(e.reason, fatal); break; }
+        onNetEvent(e);
+        if (!netRt) break;   // (left: the page is reloading onto another circuit)
       }
       if (netRt) for (const n of netRt.mp.takeNotices()) netRt.board.notice(n);
+      if (netRt && menu.isOpen && now - menuTick > 250) { menuTick = now; menu.refresh(); }   // the room tab's clocks
     }
 
     const padMenu = input.pollMenuPad();   // every frame, so a button held when the menu opens doesn't count
@@ -369,9 +460,22 @@ export async function main() {
   setInterval(() => {
     const t = performance.now();
     if (!netRt || t - last < 500) return;
-    for (const e of netRt.mp.update(t / 1000, true)) if (e.type === 'closed') { stopNet(`Disconnected (${e.reason})`, true); return; }
+    for (const e of netRt.mp.update(t / 1000, true)) {
+      if (e.type === 'closed') { netClosed(e.reason, null); return; }
+      onNetEvent(e);
+      if (!netRt) return;
+    }
     netRt.mp.idle(t / 1000);
   }, 1000);
+}
+
+// The player's name in rooms: the saved one, or one made up (and saved) the first time.
+function netName(): string {
+  const p = loadNetPrefs();
+  if (p.name.trim()) return p.name.trim();
+  const name = randomName();
+  saveNetPrefs({ ...p, name });
+  return name;
 }
 
 // The ?opponents value: a count of the player's car (none given: one), or car ids separated by commas (unknown ids

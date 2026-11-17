@@ -4,14 +4,19 @@ import { $ } from './dom';
 import { ACTION_KEYS, ACTIONS, keyLabel, MENU_KEY, type Action, type Bindings, type Slot } from './keys';
 import { SECTIONS, SETTING_DEFS, SETTING_KEYS, optionText, type SettingKey, type SettingSection, type Settings } from './settings';
 import { TRACKS, type TrackId } from './tracks';
-import { cleanRoom, validRoom, validServer, type NetPrefs } from './netPrefs';
+import type { JoinOffer, ResultRow, RoomField, RoomLog, RoomValue } from './lobby';
+import type { NetClient, RoomSettings } from './net';
+import { defaultServer, parseInvite, validServer, type NetPrefs } from './netPrefs';
 import { clamp, fmtTime, wrapI } from './util';
 
 // ============================================================================
-// Main / pause menu. A header with the main action (Drive, or Resume and Restart lap), then three tabs: Race (car and
-// circuit cards), Settings (one section at a time) and Controls (steering devices, key bindings, mouse and gamepad).
+// Main / pause menu. A header with the main action (Drive, or Resume and Restart lap), then four tabs: Time trial
+// (car and circuit cards), Online (create or join a room; in a room, the tab is the room: invite, session, drivers,
+// results, your car, the weekend's settings, the circuit), Settings (one section at a time) and Controls (steering
+// devices, key bindings, mouse and gamepad). In a room the Time trial tab is gone: the room decides the circuit.
 // Mouse, keyboard (↑ ↓ move, ← → change, Enter select, Esc back) or gamepad (d-pad, A, B, LB / RB tabs).
-// It talks to the game only through MenuHost.
+// It talks to the game only through MenuHost; the room's own module (lobby.ts) and its NetClient come through
+// MenuHost.net.room(), so the menu itself imports no networking code (types only).
 // ============================================================================
 export interface MenuHost {
   readonly settings: Readonly<Settings>;
@@ -28,19 +33,44 @@ export interface MenuHost {
   resetBestTimes(): void;               // the current car at the current circuit
   onOpen(): void;
   onClose(): void;
-  readonly net: {                       // multiplayer (the Race tab's Multiplayer section)
-    status(): NetStatus;
-    prefs(): NetPrefs;                  // what the fields start with
-    join(p: NetPrefs): void;
-    leave(): void;
-  };
+  readonly net: NetHost;                // multiplayer (the Online tab)
 }
-// off: not in a room (text: why it was left, if it was); connecting; joined; error (text: what went wrong).
-export interface NetStatus { state: 'off' | 'connecting' | 'joined' | 'error'; text: string }
 
-type Tab = 'race' | 'settings' | 'controls';
-const TABS: [Tab, string][] = [['race', 'Race'], ['settings', 'Settings'], ['controls', 'Controls']];
-type Armed = 'best' | 'settings' | 'keys';
+// ---------------- Multiplayer, as the menu sees it ----------------
+// off: not in a room (text: why it was left, if it was); connecting; joined; error (text: what went wrong, offer:
+// the one thing to do about it, room: the room it was about).
+export interface NetStatus { state: 'off' | 'connecting' | 'joined' | 'error'; text: string; offer?: JoinOffer; room?: string }
+export interface NetHost {
+  status(): NetStatus;
+  prefs(): NetPrefs;                    // name and relay (server: '' = the default) as saved
+  setPrefs(p: Partial<NetPrefs>): void; // saved as typed
+  create(room?: string): void;          // open a room (a made-up code, or this one: the link of a room that closed)
+  join(invite: string): void;           // a room code or an invite link
+  retry(): void;                        // the last room tried again (rejoining with this tab's seat)
+  dismiss(): void;                      // forget the error (and a room link that failed)
+  leave(): void;
+  room(): RoomView | null;              // joined: the room, read straight from its NetClient
+  // The starting tyre for the room's sessions (null: none to choose). CONNECT: the in-car side applies it.
+  readonly tyre: TyreChoice | null;
+}
+export interface RoomView {
+  readonly net: NetClient;              // players, host, isHost, settings, session, standings, board (read only here)
+  readonly kit: LobbyKit;               // src/lobby.ts, loaded with the networking code
+  readonly log: RoomLog;                // what the menu keeps between events (the last qualifying)
+  readonly server: string;              // the relay
+  readonly invite: string;              // the link to send others
+  readonly circuitName: (id: string) => string;
+  now(): number;                        // local clock (s) for net.serverTime / sample
+}
+export interface TyreChoice {
+  options(): { id: string; name: string; letter: string; colour: string }[];   // the current car's compounds
+  get(): string;
+  set(id: string): void;
+}
+type LobbyKit = typeof import('./lobby');
+
+type Tab = 'race' | 'online' | 'settings' | 'controls';
+type Armed = 'best' | 'settings' | 'keys' | 'leave' | 'skip' | 'abort' | 'circuit';
 
 // One stop for ↑ ↓. cycle: what ← → do on it; update: bring it in line with the settings after a change.
 interface MenuItem { el: HTMLElement; target?: () => HTMLElement; run?: () => void; cycle?: (dir: number) => void; update?: () => void }
@@ -74,6 +104,15 @@ export class Menu {
   private armTimer = 0;
   private capture: { action: Action; slot: Slot } | null = null;   // waiting for the key to bind
   private extraUpdates: (() => void)[] = [];   // updates of elements that are not stops for ↑ ↓
+  private relayOpen = false;            // the relay address field shown (it is, too, when the address is not the default)
+  private joinText = '';                // what the Join field holds (kept across rebuilds)
+  // The host's settings changes not yet echoed by the relay: shown at once, and merged into the next change (the
+  // relay takes the settings whole). Dropped once every change sent has come back, or after 2 s.
+  private pending: Partial<RoomSettings> = {};
+  private pendingN = 0;
+  private pendingAt = 0;
+  private armedCircuit = '';            // the circuit card clicked once (the host moving the room)
+  private copied = 0;                   // performance.now() of the last copy of the invite link
 
   constructor(private readonly host: MenuHost) {
     addEventListener('keydown', (e) => this.onKey(e));
@@ -91,6 +130,18 @@ export class Menu {
   show() { $('loadState').hidden = true; this.body.hidden = false; this.build(); }
   refresh() { if (this.isOpen && !this.body.hidden) this.update(); }
   rebuild() { if (this.isOpen && !this.body.hidden) this.build(); }
+  // Switch to a tab (e.g. the room's, on joining), rebuilding if the menu is showing.
+  showTab(t: 'race' | 'online') { this.tab = t; this.focus = 0; this.contentEl.scrollTop = 0; this.rebuild(); }
+
+  // A room event (main.ts passes them all): the host's settings coming back, and what changes the room tab's
+  // structure (the host role, a session starting or ending) rebuilds it; the rest only updates.
+  roomEvent(e: { type: string; session?: { phase: string }; before?: unknown }) {
+    if (e.type === 'settings' && --this.pendingN <= 0) { this.pending = {}; this.pendingN = 0; }
+    if (!this.isOpen || this.body.hidden || this.tab !== 'online') return;
+    const phaseChanged = e.type === 'session' && (e.before as { phase: string }).phase !== e.session!.phase;
+    if (e.type === 'host' || e.type === 'welcome' || phaseChanged) this.build();
+    else if (e.type !== 'state' && e.type !== 'contact') this.update();
+  }
 
   open() {
     if (this.isOpen) return;
@@ -128,74 +179,429 @@ export class Menu {
     this.contentEl.innerHTML = '';
     this.contentEl.dataset.tab = this.tab;
     if (this.tab === 'race') this.buildRace();
+    else if (this.tab === 'online') { const room = this.host.net.room(); if (room) this.buildRoom(room); else this.buildWayIn(); }
     else if (this.tab === 'settings') this.buildSettings();
     else this.buildControls();
     this.update();
     this.focus = clamp(this.focus, 0, this.items.length - 1);
     if (hadFocus) {
-      while (this.focus > 0 && this.items[this.focus].el.hidden) this.focus--;
+      while (this.focus > 0 && !this.shown(this.items[this.focus])) this.focus--;
       this.target(this.items[this.focus]).focus({ preventScroll: true });
     }
   }
 
   private update() {
-    const { host } = this, car = CARS[host.settings.car], track = TRACKS[host.loadedTrack], net = host.net.status();
+    const { host } = this, car = CARS[host.settings.car], track = TRACKS[host.loadedTrack], room = host.net.room();
     $('menuPaused').hidden = !host.started();
-    $('menuSub').textContent = `${net.state === 'joined' ? 'Online hot laps' : 'Time trial'} · ${car.name} at ${track.name}`;
+    $('menuSub').textContent = room
+      ? `Room ${room.net.room} · ${room.kit.sessionTitle(room.net.session, room.net.settings)} · ${car.name} at ${track.name}`
+      : `Time trial · ${car.name} at ${track.name}`;
     for (const it of this.items) it.update?.();
     for (const u of this.extraUpdates) u();
   }
 
-  // ---------------- Multiplayer (Race tab) ----------------
+  // Whether an item is on screen (not hidden itself or inside something hidden): ↑ ↓ skip the others.
+  private shown(it: MenuItem) { return it.el.isConnected && !it.el.closest('[hidden]'); }
 
-  // Server, room and name, Join / Leave, and the connection state. A room at another circuit reloads the game there.
-  private buildNet() {
-    const { host } = this, c = this.contentEl, prefs = host.net.prefs();
-    this.heading('Multiplayer');
-    const box = h('div', 'netbox'); c.append(box);
-    const field = (label: string, value: string, attrs: Record<string, string>) => {
-      const wrap = h('label', 'nfield'), input = h('input');
-      input.type = 'text'; input.value = value; input.spellcheck = false; input.autocomplete = 'off';
-      for (const [k, v] of Object.entries(attrs)) input.setAttribute(k, v);
-      wrap.append(h('span', '', label), input);
-      box.append(wrap);
-      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); act(); } });
-      input.addEventListener('input', () => this.update());
-      this.items.push({ el: input });
-      return input;
+  private tabs(): [Tab, string][] {
+    const inRoom = !!this.host.net.room();
+    return [...(inRoom ? [] : [['race', 'Time trial'] as [Tab, string]]), ['online', inRoom ? 'Room' : 'Online'], ['settings', 'Settings'], ['controls', 'Controls']];
+  }
+
+  // ---------------- Online tab: the way in ----------------
+
+  // A text field as a stop for ↑ ↓ (Enter: `enter`). Typing updates the menu (buttons enabled, hints).
+  private textField(parent: HTMLElement, value: string, attrs: Record<string, string>, enter?: () => void) {
+    const input = h('input');
+    input.type = 'text'; input.value = value; input.spellcheck = false; input.autocomplete = 'off';
+    for (const [k, v] of Object.entries(attrs)) input.setAttribute(k, v);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); enter?.(); } });
+    input.addEventListener('input', () => this.update());
+    parent.append(input);
+    this.items.push({ el: input, run: enter });
+    return input;
+  }
+
+  // Not in a room: your name, Create room, Join room (a code or a link), what went wrong and what to do about it,
+  // and the relay's address (hidden unless opened or not the default).
+  private buildWayIn() {
+    const { host } = this, c = this.contentEl, prefs = host.net.prefs(), track = TRACKS[host.loadedTrack];
+    // what happened, and the one thing to do about it
+    const status = h('div', 'netstatus'), stText = h('p', ''), offers = h('div', 'offers');
+    status.append(stText, offers); c.append(status);
+    const busy = () => host.net.status().state === 'connecting';
+    const offer = (label: () => string, show: (s: NetStatus) => boolean, run: () => void, primary = false) => {
+      const bt = button('mbtn' + (primary ? ' primary' : ''));
+      bt.addEventListener('click', run);
+      offers.append(bt);
+      this.items.push({ el: bt, run, update: () => { const s = host.net.status(); bt.hidden = !show(s); bt.textContent = label(); } });
     };
-    const room = field('Room code', prefs.room, { maxlength: '8', placeholder: 'e.g. ABCD', 'aria-label': 'Room code', autocapitalize: 'characters' });
-    const name = field('Your name', prefs.name, { maxlength: '16', placeholder: 'Name', 'aria-label': 'Your name' });
-    const server = field('Relay', prefs.server, { placeholder: 'ws://host:8787', 'aria-label': 'Relay address' });
-    server.parentElement!.classList.add('wide');
-    const go = button('mbtn primary netgo', 'Join');
-    box.append(go);
-    const status = h('p', 'netstatus'); c.append(status);
-    const wanted = (): NetPrefs | null => {
-      const p = { room: cleanRoom(room.value), name: name.value.trim(), server: server.value.trim() };
-      return validRoom(p.room) && p.name && validServer(p.server) ? p : null;
-    };
-    const act = () => {
-      const st = host.net.status().state;
-      if (st === 'joined') { host.net.leave(); return; }
-      if (st === 'connecting') return;
-      const p = wanted();
-      if (p) { room.value = p.room; host.net.join(p); }
-      this.update();
-    };
-    go.addEventListener('click', act);
-    this.items.push({ el: go, run: act, update: () => {
-      const st = host.net.status(), joined = st.state === 'joined', busy = st.state === 'connecting';
-      go.textContent = joined ? 'Leave' : busy ? 'Joining…' : 'Join';
-      go.classList.toggle('primary', !joined);
-      go.disabled = busy || (!joined && !wanted());
-      for (const f of [room, name, server]) f.disabled = joined || busy;
-      const r = cleanRoom(room.value);
-      status.className = 'netstatus ' + st.state;
-      status.textContent = st.text || (st.state === 'off' ? (r && !validRoom(r) ? 'A room code is 1-8 letters or digits.'
-        : server.value.trim() && !validServer(server.value) ? 'The relay address starts with ws:// or wss://.'
-        : 'Everyone who joins the same room code drives together (the room keeps the circuit it was opened at). Or share the page link with ?room=CODE.') : '');
+    offer(() => 'Reload the page', (s) => s.offer === 'reload', () => location.reload(), true);
+    offer(() => `Open room ${host.net.status().room ?? ''}`, (s) => s.offer === 'create' && !!s.room, () => host.net.create(host.net.status().room), true);
+    offer(() => 'Try again', (s) => s.offer === 'retry', () => host.net.retry());
+    offer(() => 'Back to time trial', (s) => s.state === 'error', () => { host.net.dismiss(); this.setTab('race'); });
+    this.extraUpdates.push(() => {
+      const s = host.net.status();
+      status.className = 'netstatus ' + s.state;
+      status.hidden = !s.text;
+      stText.textContent = s.text;
+      offers.hidden = s.state !== 'error';
+    });
+
+    c.append(h('p', 'mintro', 'Drive with friends: one of you opens a room and sends the others its code or link. Everyone in a room drives the same circuit, and the host can run a race weekend: practice, qualifying and a race.'));
+
+    const nameRow = h('label', 'nrow');
+    nameRow.append(h('span', 'nlabel', 'Your name'));
+    const name = this.textField(nameRow, prefs.name, { maxlength: '16', placeholder: 'Your name', 'aria-label': 'Your name', autocomplete: 'nickname' });
+    name.addEventListener('input', () => host.net.setPrefs({ name: name.value.trim() }));
+    nameRow.append(h('small', 'mnote', 'Shown to the others. Remembered in this browser.'));
+    c.append(nameRow);
+
+    const ways = h('div', 'ways'); c.append(ways);
+    const make = h('section', 'way');
+    make.append(h('h3', '', 'Create a room'), h('p', '', `It opens at ${track.name}. You are the host: you choose the circuit and the race, then invite the others.`));
+    const createBt = button('mbtn primary', 'Create room');
+    const create = () => { if (!busy()) host.net.create(); };
+    createBt.addEventListener('click', create);
+    make.append(createBt);
+    ways.append(make);
+    this.items.push({ el: createBt, run: create, update: () => { createBt.disabled = busy(); } });
+
+    const join = h('section', 'way');
+    join.append(h('h3', '', 'Join a room'), h('p', '', 'Type the code the host gave you, or paste their invite link.'));
+    const jrow = h('div', 'jrow'); join.append(jrow);
+    const go = () => { this.joinText = code.value; if (!busy() && parseInvite(code.value)) host.net.join(code.value); };
+    const code = this.textField(jrow, this.joinText, { placeholder: 'Code or link', 'aria-label': 'Room code or invite link', autocapitalize: 'characters', enterkeyhint: 'go' }, go);
+    code.classList.add('code');
+    code.addEventListener('input', () => { this.joinText = code.value; });
+    const joinBt = button('mbtn', 'Join');
+    joinBt.addEventListener('click', go);
+    jrow.append(joinBt);
+    const hint = h('p', 'hint'); join.append(hint);
+    ways.append(join);
+    this.items.push({ el: joinBt, run: go, update: () => {
+      const typed = code.value.trim();
+      joinBt.disabled = busy() || !parseInvite(typed);
+      hint.textContent = typed && !parseInvite(typed) ? 'A room code is up to 8 letters and digits, like K7QX.' : '';
     } });
+
+    // the relay: an advanced detail
+    const relayRow = h('div', 'relay'); c.append(relayRow);
+    const relayNote = h('span', 'mnote');
+    const change = button('link', 'Change');
+    const openRelay = () => { this.relayOpen = true; this.update(); relay.focus(); };
+    change.addEventListener('click', openRelay);
+    relayRow.append(relayNote, change);
+    const relayField = h('label', 'nrow'); c.append(relayField);
+    relayField.append(h('span', 'nlabel', 'Relay address'));
+    const relay = this.textField(relayField, prefs.server || defaultServer(), { placeholder: defaultServer(), 'aria-label': 'Relay address', inputmode: 'url' });
+    relay.addEventListener('input', () => {
+      const v = relay.value.trim();
+      if (!v || validServer(v)) host.net.setPrefs({ server: v === defaultServer() ? '' : v });
+    });
+    const useDefault = button('link', 'Use the default');
+    const reset = () => { relay.value = defaultServer(); host.net.setPrefs({ server: '' }); this.update(); };
+    useDefault.addEventListener('click', reset);
+    relayField.append(useDefault);
+    const relayHint = h('p', 'hint'); relayField.append(relayHint);
+    this.extraUpdates.push(() => { relayHint.textContent = relay.value.trim() && !validServer(relay.value) ? 'A relay address starts with ws:// or wss://.' : ''; });
+    this.items.push({ el: change, run: openRelay }, { el: useDefault, run: reset, update: () => {
+      const custom = !!host.net.prefs().server, open = this.relayOpen || custom;
+      relayRow.hidden = open; relayField.hidden = !open;
+      useDefault.hidden = !custom;
+      relayNote.textContent = `Relay: ${defaultServer().replace(/^wss?:\/\//, '')} (the default) · `;
+      relay.disabled = busy();
+    } });
+
+    this.heading('How it works');
+    const how = h('ul', 'how'); c.append(how);
+    for (const t of ['In the lobby everyone drives freely, with a board of best laps.',
+      'The host picks a race format and starts the weekend: practice, qualifying and the race, timed for everyone at once.',
+      'After the race the results stay in the lobby until the next weekend starts.',
+      'Your own best laps and ghost are kept in this browser, as in time trial.']) how.append(h('li', '', t));
+  }
+
+  // ---------------- Online tab: in a room ----------------
+
+  // The room's settings as shown: the relay's, with the host's changes still on their way on top.
+  private roomSettings(r: RoomView): RoomSettings {
+    if (this.pendingN > 0 && performance.now() - this.pendingAt > 2000) { this.pending = {}; this.pendingN = 0; }
+    return this.pendingN > 0 ? r.kit.normaliseSettings({ ...r.net.settings, ...this.pending }) : r.net.settings;
+  }
+  private setRoom(r: RoomView, patch: Partial<RoomSettings>) {
+    if (!r.net.isHost || r.net.session.phase !== 'lobby') return;
+    this.pending = { ...this.pending, ...patch }; this.pendingN++; this.pendingAt = performance.now();
+    r.net.setSettings(this.roomSettings(r));
+    this.update();
+  }
+
+  private buildRoom(r: RoomView) {
+    const { host } = this, c = this.contentEl, { net, kit } = r;
+    const lobby = net.session.phase === 'lobby', isHost = net.isHost, editable = isHost && lobby;
+    const hostName = () => net.players.get(net.host)?.name ?? 'the host';
+
+    // --- the room: its code, the invite, leaving (during a weekend, under the session: that matters more then)
+    const cardItems = this.items.length;
+    const card = h('section', 'roomcard'); c.append(card);
+    const codeBox = h('div', 'rcode');
+    codeBox.append(h('span', 'rlabel', 'Room code'), h('b', 'roomcode num', net.room));
+    const meta = h('span', 'rmeta'); codeBox.append(meta);
+    const inv = h('div', 'rinvite');
+    const link = h('input', 'invite num');
+    link.readOnly = true; link.value = r.invite; link.setAttribute('aria-label', 'Invite link');
+    link.addEventListener('focus', () => link.select());
+    const btns = h('div', 'rbtns');
+    const copy = button('mbtn primary copy', 'Copy invite link');
+    copy.addEventListener('click', () => this.copyInvite(link));
+    btns.append(copy);
+    this.items.push({ el: copy, run: () => this.copyInvite(link), update: () => {
+      const done = performance.now() - this.copied < 2000;
+      copy.textContent = done ? 'Link copied' : 'Copy invite link'; copy.classList.toggle('done', done);
+    } });
+    if (typeof navigator.share === 'function') {
+      const share = button('mbtn', 'Share…');
+      const run = () => { navigator.share({ title: 'Fast Roads', text: `Race me in Fast Roads: room ${net.room}`, url: r.invite }).catch(() => {}); };
+      share.addEventListener('click', run);
+      btns.append(share);
+      this.items.push({ el: share, run });
+    }
+    inv.append(btns, link);
+    this.items.push({ el: link });
+    card.append(codeBox, inv);
+    const leave = h('div', 'rleave'); card.append(leave);
+    this.resetLink('leave', 'Leave room', () => host.net.leave(), leave, () => true, 'link', 'Click again to leave the room');
+    const cardEnd = this.items.length;
+    this.extraUpdates.push(() => {
+      const ms = net.rtt > 0 ? ` · ${Math.round(net.rtt * 1000)} ms to the relay` : '';
+      meta.textContent = (isHost ? 'You are the host' : `Host: ${hostName()}`) + ms;
+    });
+
+    // --- the session: what is on, how long is left, what comes next; the host's controls
+    const sess = h('section', 'sessbox'); c.append(sess);
+    const sTitle = h('h3', 'stitle'), line = h('div', 'sline'), sBig = h('b', 'sbig num'), sText = h('span', 'stext'), sNext = h('p', 'snext');
+    line.append(sBig, sText); sess.append(sTitle, line, sNext);
+    this.extraUpdates.push(() => {
+      const se = net.session, s = this.roomSettings(r), st = kit.sessionState(se, s, net.serverTime(r.now()), net.standings[0]?.laps ?? 0);
+      sTitle.textContent = kit.sessionTitle(se, s);
+      sBig.textContent = st.big ?? ''; sBig.hidden = !st.big; sText.textContent = st.text;
+      sNext.textContent = lobby ? `The weekend: ${kit.weekendSummary(s)}.` : kit.nextSession(se, s);
+    });
+    if (lobby && isHost) {
+      const pick = h('div', 'presets');
+      pick.append(h('span', 'plabel', 'Race format'));
+      const seg = h('div', 'seg chips'); pick.append(seg);
+      sess.append(pick);
+      const bts = kit.PRESETS.map((p) => {
+        const bt = button('', p.name);
+        bt.title = p.blurb;
+        bt.addEventListener('click', () => this.setRoom(r, kit.withPreset(this.roomSettings(r), p)));
+        seg.append(bt); return [p, bt] as const;
+      });
+      const custom = h('span', 'pcustom', 'Custom'); seg.append(custom);
+      const current = () => kit.presetOf(this.roomSettings(r));
+      this.items.push({ el: seg, target: () => bts.find(([p]) => p === current())?.[1] ?? bts[0][1],
+        cycle: (dir) => {
+          const k = kit.PRESETS.indexOf(current()!), next = kit.PRESETS[wrapI(k < 0 ? (dir > 0 ? 0 : -1) : k + dir, kit.PRESETS.length)];
+          this.setRoom(r, kit.withPreset(this.roomSettings(r), next));
+          bts.find(([p]) => p === next)?.[1].focus();
+        },
+        update: () => {
+          const p = current();
+          for (const [q, bt] of bts) { bt.classList.toggle('on', q === p); bt.setAttribute('aria-pressed', String(q === p)); }
+          custom.hidden = !!p;
+        } });
+      const start = button('mbtn primary start', 'Start weekend');
+      const go = () => net.startWeekend();
+      start.addEventListener('click', go);
+      sess.append(start);
+      this.items.push({ el: start, run: go });
+    } else if (lobby) {
+      const wait = h('p', 'swait'); sess.append(wait);
+      this.extraUpdates.push(() => { wait.textContent = `Waiting for ${hostName()} to start the weekend.`; });
+    } else if (isHost) {
+      const ctl = h('div', 'sctl'); sess.append(ctl);
+      this.resetLink('skip', kit.skipLabel(net.session), () => net.skipSession(), ctl, () => true, 'mbtn', 'Click again to confirm');
+      this.resetLink('abort', 'Abort the weekend', () => net.abortWeekend(), ctl, () => net.session.stage !== 'results', 'mbtn',
+        'Click again: back to the lobby, no result');
+      this.extraUpdates.push(() => {
+        const skip = ctl.querySelector<HTMLElement>('button');
+        const label = kit.skipLabel(net.session);
+        if (skip) skip.textContent = this.armed === 'skip' ? `Click again to ${label[0].toLowerCase()}${label.slice(1)}` : label;
+      });
+    }
+
+    if (!lobby) {   // the session first
+      c.insertBefore(sess, card);
+      const moved = this.items.splice(cardItems, cardEnd - cardItems);
+      this.items.push(...moved);
+    }
+
+    // --- times: the session's board or the race's order; the last weekend's results in the lobby
+    const times = h('section', 'times'); c.append(times);
+    let timesHtml = '';
+    this.extraUpdates.push(() => {
+      const html = this.timesHtml(r);
+      if (html !== timesHtml) { times.innerHTML = timesHtml = html; }
+      times.hidden = !html;
+    });
+
+    // --- drivers
+    const dh = this.heading('Drivers');
+    const list = h('ul', 'drivers'); c.append(list);
+    let listHtml = '';
+    this.extraUpdates.push(() => {
+      dh.textContent = `Drivers · ${net.players.size} of ${net.maxPlayers}`;
+      const now = r.now(), race = net.session.phase === 'race';
+      const html = [...net.players.values()].map((p) => {
+        const st = kit.playerState(net, p.id, now), slot = race ? net.gridSlot(p.id) : null;
+        const tags = (p.id === net.host ? '<em class="tag host">Host</em>' : '') + (p.id === net.selfId ? '<em class="tag you">You</em>' : '');
+        return `<li class="${p.id === net.selfId ? 'self' : ''} st-${st}"><b>${esc(p.name)}</b>${tags}<span class="dcar">${esc(carLabel(p.car))}</span>`
+          + `<span class="dstate">${[slot != null ? `P${slot + 1} on the grid` : '', st === 'you' ? '' : kit.PLAYER_STATE_TEXT[st]].filter(Boolean).join(' · ')}</span></li>`;
+      }).join('');
+      if (html !== listHtml) list.innerHTML = listHtml = html;
+    });
+
+    // --- your car (and starting tyres)
+    this.heading('Your car');
+    const racing = () => net.session.phase === 'race' && net.session.stage !== 'results';
+    this.carCards(c, (id) => {
+      const only = this.roomSettings(r).car;
+      if (only && only !== id) return `This room races the ${carLabel(only)} only`;
+      return racing() ? 'Cars cannot be changed during the race' : null;
+    });
+    const carNote = h('p', 'mnote'); c.append(carNote);
+    this.extraUpdates.push(() => {
+      const only = this.roomSettings(r).car;
+      carNote.textContent = only ? `The host has set this room to the ${carLabel(only)} only.` : racing() ? 'Cars cannot be changed during the race.' : '';
+    });
+    if (host.net.tyre) this.tyreRow(host.net.tyre);
+
+    // --- the weekend's settings
+    const wh = h('div', 'mh-row'); c.append(wh);
+    this.heading('Weekend options', wh);
+    const why = h('span', 'mnote'); wh.append(why);
+    this.extraUpdates.push(() => {
+      why.textContent = editable ? 'Changes reach everyone at once.' : !isHost ? `${hostName()} (the host) sets these.` : 'They can change in the lobby, after the weekend.';
+    });
+    for (const [g, label] of kit.FIELD_GROUPS) {
+      c.append(h('h4', 'mh2', label));
+      const rows = h('div', 'menu-settings'); c.append(rows);
+      for (const f of kit.ROOM_FIELDS) if (f.group === g) this.roomRow(r, f, rows, editable);
+    }
+
+    // --- the circuit
+    const head = h('div', 'mh-row'); c.append(head);
+    this.heading('Circuit', head);
+    if (editable) {
+      this.circuitCards(head, (info) => info.id === this.roomSettings(r).circuit, (info, bt, best) => {
+        if (info.id === this.roomSettings(r).circuit) return;
+        if (this.armedCircuit !== info.id) { this.arm('circuit'); this.armedCircuit = info.id; best.textContent = 'Click again: everyone moves here'; return; }
+        this.armed = null; bt.classList.add('loading'); best.textContent = 'Moving the room…';
+        this.setRoom(r, { circuit: info.id });
+      }, () => false);
+      c.append(h('p', 'mnote', 'Another circuit moves everyone in the room there: each game reloads onto it, and the board starts again.'));
+    } else {
+      this.circuitCards(head, () => true, () => {}, () => true, (info) => info.id === net.settings.circuit);
+      c.append(h('p', 'mnote', isHost ? 'The circuit can change in the lobby, after the weekend.' : `${hostName()} (the host) chooses the circuit.`));
+    }
+  }
+
+  // A weekend setting: buttons, or − value + for numbers with many steps. Read-only for everyone but the host in the
+  // lobby (still a stop for ↑ ↓, so the page can be read with the keys).
+  private roomRow(r: RoomView, f: RoomField, parent: HTMLElement, editable: boolean) {
+    const kit = r.kit;
+    const row = h('div', 'mrow'); row.tabIndex = -1;
+    const lab = h('div', 'mlabel'); lab.append(h('span', '', f.label), h('small', '', f.hint));
+    row.append(lab);
+    const cur = () => this.roomSettings(r)[f.key];
+    const set = (v: RoomValue) => { if (editable && v !== cur()) this.setRoom(r, { [f.key]: v } as Partial<RoomSettings>); };
+    const cycle = (dir: number) => set(kit.stepOption(f, cur(), dir, this.roomSettings(r), f.kind === 'choice'));
+    let target: () => HTMLElement, sync: () => void;
+    if (f.kind === 'choice') {
+      const seg = h('div', 'seg');
+      const bts = f.options.map(([v, text]) => {
+        const bt = button('', text);
+        bt.addEventListener('click', () => set(v));
+        seg.append(bt); return [v, bt] as const;
+      });
+      row.append(seg);
+      target = () => (editable ? bts.find(([v]) => v === cur())?.[1] ?? row : row);
+      sync = () => {
+        const s = this.roomSettings(r);
+        for (const [v, bt] of bts) {
+          const on = v === s[f.key];
+          bt.classList.toggle('on', on); bt.setAttribute('aria-pressed', String(on));
+          bt.disabled = !editable || (!!f.allowed && !f.allowed(v, s));
+          bt.tabIndex = editable ? 0 : -1;
+        }
+      };
+    } else {
+      const wrap = h('div', 'stepper'), minus = button('', '−'), out = h('output', 'num'), plus = button('', '+');
+      minus.setAttribute('aria-label', `Less: ${f.label}`); plus.setAttribute('aria-label', `More: ${f.label}`);
+      minus.addEventListener('click', () => cycle(-1)); plus.addEventListener('click', () => cycle(1));
+      wrap.append(minus, out, plus); row.append(wrap);
+      target = () => row;
+      sync = () => {
+        const v = cur();
+        out.textContent = kit.optionLabel(f, v);
+        minus.hidden = plus.hidden = !editable;
+        minus.disabled = kit.stepOption(f, v, -1, this.roomSettings(r)) === v;
+        plus.disabled = kit.stepOption(f, v, 1, this.roomSettings(r)) === v;
+      };
+    }
+    parent.append(row);
+    this.items.push({ el: row, target, cycle: editable ? cycle : undefined, run: editable ? () => cycle(1) : () => {},
+      update: () => { sync(); row.classList.toggle('dim', !!f.applies && !f.applies(this.roomSettings(r))); row.classList.toggle('ro', !editable); } });
+  }
+
+  // Starting tyres: the current car's compounds (rebuilt when the car changes; hidden with one compound).
+  private tyreRow(t: TyreChoice) {
+    const { host } = this;
+    const rows = h('div', 'menu-settings tyrerow'); this.contentEl.append(rows);
+    const row = h('div', 'mrow');
+    const lab = h('div', 'mlabel'); lab.append(h('span', '', 'Starting tyres'), h('small', '', 'Fitted when each session puts you on track.'));
+    const seg = h('div', 'seg'); row.append(lab, seg); rows.append(row);
+    let car = '', bts: (readonly [string, HTMLButtonElement])[] = [];
+    const fill = () => {
+      car = host.settings.car; seg.innerHTML = '';
+      bts = t.options().map((o) => {
+        const bt = button('', o.name);
+        bt.style.setProperty('--tc', o.colour);
+        bt.addEventListener('click', () => { t.set(o.id); this.update(); });
+        seg.append(bt); return [o.id, bt] as const;
+      });
+    };
+    this.items.push({ el: row, target: () => bts.find(([id]) => id === t.get())?.[1] ?? bts[0]?.[1] ?? row,
+      cycle: (dir) => { const k = bts.findIndex(([id]) => id === t.get()); if (bts.length) { t.set(bts[wrapI(k + dir, bts.length)][0]); this.update(); } },
+      update: () => {
+        if (car !== host.settings.car) fill();
+        rows.hidden = bts.length < 2;
+        for (const [id, bt] of bts) { bt.classList.toggle('on', id === t.get()); bt.setAttribute('aria-pressed', String(id === t.get())); }
+      } });
+  }
+
+  // The tables for the room tab: the race (order or result), the last qualifying, the session's board.
+  private timesHtml(r: RoomView): string {
+    const { net, kit, log } = r, se = net.session, out: string[] = [];
+    const race = (title: string) => net.standings.length && out.push(resultsTable(title, kit.raceRows(net.standings), 'race', net.selfId));
+    const quali = () => log.qualifying?.length && out.push(resultsTable(log.qualifyingOneShot ? 'Qualifying (one shot)' : 'Qualifying', kit.boardRows(log.qualifying), 'board', net.selfId));
+    const board = (title: string) => net.board.length && out.push(resultsTable(title, kit.boardRows(net.board), 'board', net.selfId));
+    if (se.phase === 'race') { race(se.stage === 'results' ? 'Race results' : 'Race order'); quali(); }
+    else if (se.phase === 'qualifying') board(se.oneShot ? 'Qualifying laps' : 'Qualifying times');
+    else if (se.phase === 'practice') board('Practice times');
+    else {
+      if (net.standingsFinal) race('Last race');
+      quali();
+      board('Best laps in the lobby');
+    }
+    return out.join('');
+  }
+
+  private copyInvite(link: HTMLInputElement) {
+    const done = () => { this.copied = performance.now(); this.update(); setTimeout(() => this.refresh(), 2100); };
+    const fallback = () => { link.focus(); link.select(); try { if (document.execCommand('copy')) done(); } catch { /* the link stays selected */ } };
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(link.value).then(done, fallback);
+    else fallback();
   }
 
   private buildActions() {
@@ -208,23 +614,27 @@ export class Menu {
       this.items.push({ el: bt, run });
     };
     // the main action comes first for ↑ ↓; row-reverse puts it on the right
+    // (in a race the session puts the car on the grid and keeps the laps: no restarting)
+    const racing = host.net.room()?.net.session.phase === 'race';
     if (!host.started()) add('Drive', () => this.close(), true);
     else {
       add('Resume', () => this.close(), true);
-      add('Restart lap', () => { host.restart(); this.close(); });
+      if (!racing) add('Restart lap', () => { host.restart(); this.close(); });
     }
   }
 
   private buildTabs() {
     this.tabsEl.innerHTML = '';
-    const bts = TABS.map(([t, label]) => {
+    const tabs = this.tabs();
+    if (!tabs.some(([t]) => t === this.tab)) this.tab = 'online';   // (in a room there is no Time trial tab)
+    const bts = tabs.map(([t, label]) => {
       const bt = button(t === this.tab ? 'on' : '', label);
       bt.setAttribute('role', 'tab'); bt.setAttribute('aria-selected', String(t === this.tab));
       bt.addEventListener('click', () => this.setTab(t));
       this.tabsEl.append(bt);
       return bt;
     });
-    this.items.push({ el: this.tabsEl, target: () => bts[TABS.findIndex(([t]) => t === this.tab)], cycle: (dir) => this.switchTab(dir) });
+    this.items.push({ el: this.tabsEl, target: () => bts[tabs.findIndex(([t]) => t === this.tab)], cycle: (dir) => this.switchTab(dir) });
   }
 
   private setTab(t: Tab) {
@@ -233,59 +643,85 @@ export class Menu {
     this.focus = this.items.findIndex((it) => it.el === this.tabsEl);
     this.build();
   }
-  private switchTab(dir: number) { this.setTab(TABS[wrapI(TABS.findIndex(([t]) => t === this.tab) + dir, TABS.length)][0]); }
+  private switchTab(dir: number) { const tabs = this.tabs(); this.setTab(tabs[wrapI(tabs.findIndex(([t]) => t === this.tab) + dir, tabs.length)][0]); }
 
   private heading(text: string, parent: HTMLElement = this.contentEl) {
     const el = h('h2', 'mh', text); parent.append(el); return el;
   }
 
-  // A reset link that needs two clicks within 3 s.
-  private resetLink(kind: Armed, label: string, run: () => void, parent: HTMLElement, visible: () => boolean = () => true) {
-    const bt = button('link', label);
+  // Something that needs a second click within 3 s.
+  private arm(kind: Armed) {
+    this.armed = kind; clearTimeout(this.armTimer);
+    this.armTimer = window.setTimeout(() => { this.armed = null; this.armedCircuit = ''; this.refresh(); }, 3000);
+  }
+
+  // A reset link (or, with cls, a button) that needs two clicks within 3 s.
+  private resetLink(kind: Armed, label: string, run: () => void, parent: HTMLElement, visible: () => boolean = () => true, cls = 'link',
+    armedLabel = 'Click again to confirm') {
+    const bt = button(cls, label);
     const click = () => {
-      if (this.armed !== kind) {
-        this.armed = kind; clearTimeout(this.armTimer);
-        this.armTimer = window.setTimeout(() => { this.armed = null; this.refresh(); }, 3000);
-      } else { this.armed = null; run(); }
+      if (this.armed !== kind) this.arm(kind);
+      else { this.armed = null; run(); }
       this.update();
     };
     bt.addEventListener('click', click);
     parent.append(bt);
     this.items.push({ el: bt, run: click, update: () => {
       const armed = this.armed === kind;
-      bt.textContent = armed ? 'Click again to confirm' : label;
+      bt.textContent = armed ? armedLabel : label;
       bt.classList.toggle('armed', armed);
       bt.hidden = !visible() && !armed;
     } });
   }
 
-  // ---------------- Race tab ----------------
+  // ---------------- Time trial tab ----------------
 
   private buildRace() {
     const { host } = this, c = this.contentEl;
     this.heading('Car');
-    const cars = h('div', 'cards cars'); c.append(cars);
+    this.carCards(c, () => null);
+    const head = h('div', 'mh-row'); c.append(head);
+    this.heading('Circuit', head);
+    this.circuitCards(head, (info) => info.id === host.settings.track, (info, bt, best) => {
+      if (info.id === host.settings.track) return;
+      bt.classList.add('loading'); best.textContent = 'Loading…';
+      host.setSetting('track', info.id);
+    }, () => false);
+    const foot = h('div', 'mfoot'); c.append(foot);
+    foot.append(h('span', '', 'Choosing another circuit reloads the game.'));
+    this.resetLink('best', 'Reset best times for this car here', () => host.resetBestTimes(), foot,
+      () => host.bestLap(host.loadedTrack, host.settings.car) != null);
+  }
+
+  // A card for each car. locked(id): why that car cannot be chosen now (null: it can).
+  private carCards(parent: HTMLElement, locked: (id: CarId) => string | null) {
+    const { host } = this;
+    const cars = h('div', 'cards cars'); parent.append(cars);
     for (const spec of Object.values(CARS)) {
       const bt = button('card car-card');
       const name = h('b', 'cname', spec.name), blurb = h('span', 'cblurb', spec.blurb);
       const facts = h('span', 'cfacts', `${Math.round(spec.powerKw * 1.341).toLocaleString('en')} hp · ${Math.round(spec.mass).toLocaleString('en')} kg`);
       const best = h('span', 'cbest');
       bt.append(name, blurb, facts, best);
-      bt.addEventListener('click', () => host.setSetting('car', spec.id));
+      const pick = () => { if (!locked(spec.id)) host.setSetting('car', spec.id); };
+      bt.addEventListener('click', pick);
       cars.append(bt);
-      this.items.push({ el: bt, run: () => host.setSetting('car', spec.id), cycle: (dir) => this.step(dir), update: () => {
-        const on = host.settings.car === spec.id;
+      this.items.push({ el: bt, run: pick, cycle: (dir) => this.step(dir), update: () => {
+        const on = host.settings.car === spec.id, why = locked(spec.id);
         bt.classList.toggle('sel', on); bt.setAttribute('aria-pressed', String(on));
+        bt.classList.toggle('locked', !on && !!why); bt.title = !on && why ? why : '';
         const t = host.bestLap(host.loadedTrack, spec.id);
         best.innerHTML = t != null ? `Best here <b class="num">${fmtTime(t)}</b>` : 'No lap here yet';
       } });
     }
+  }
 
-    this.buildNet();
-
-    const head = h('div', 'mh-row'); c.append(head);
-    this.heading('Circuit', head);
-    const circuits = allCircuits();
+  // A card for each circuit (a search box in `head` once there are enough). sel: the chosen one; locked: dimmed and
+  // not choosable. With `only`, just the cards it lets through.
+  private circuitCards(head: HTMLElement, sel: (info: CircuitInfo) => boolean, pick: (info: CircuitInfo, bt: HTMLElement, best: HTMLElement) => void,
+    locked: (info: CircuitInfo) => boolean, only?: (info: CircuitInfo) => boolean) {
+    const { host } = this, c = this.contentEl;
+    const circuits = allCircuits().filter((i) => !only || only(i));
     const grid = h('div', 'cards circuits');
     const cards: [CircuitInfo, HTMLElement][] = [];
     if (circuits.length >= SEARCH_FROM) {
@@ -305,17 +741,13 @@ export class Menu {
       const name = h('b', 'cname', info.name), place = h('span', 'cblurb', info.place), best = h('span', 'cbest');
       const length = `${info.lengthKm.toFixed(2)} km`;
       text.append(name, place, best); bt.append(text);
-      const pick = () => {
-        if (info.id === host.settings.track || host.net.status().state === 'joined') return;   // in a room, the room's circuit
-        bt.classList.add('loading'); best.textContent = 'Loading…';
-        host.setSetting('track', info.id);
-      };
-      bt.addEventListener('click', pick);
+      const run = () => { if (!locked(info)) pick(info, bt, best); };
+      bt.addEventListener('click', run);
       grid.append(bt); cards.push([info, bt]);
-      this.items.push({ el: bt, run: pick, cycle: (dir) => this.step(dir), update: () => {
-        const on = host.settings.track === info.id;
+      this.items.push({ el: bt, run, cycle: (dir) => this.step(dir), update: () => {
+        const on = sel(info);
         bt.classList.toggle('sel', on); bt.setAttribute('aria-pressed', String(on));
-        bt.classList.toggle('locked', !on && host.net.status().state === 'joined');
+        bt.classList.toggle('locked', !on && locked(info));
         const t = host.bestLap(info.id, host.settings.car);
         if (!bt.classList.contains('loading')) best.innerHTML = length + (t != null ? ` · Best <b class="num">${fmtTime(t)}</b>` : '');
       } });
@@ -327,20 +759,12 @@ export class Menu {
       note.textContent = shown ? '' : 'No circuit matches that search.';
     };
     filter();
-    const foot = h('div', 'mfoot'); c.append(foot);
-    const footNote = h('span', '', '');
-    foot.append(footNote);
-    this.extraUpdates.push(() => {
-      footNote.textContent = host.net.status().state === 'joined' ? 'The room decides the circuit: leave it to choose another.' : 'Choosing another circuit reloads the game.';
-    });
-    this.resetLink('best', 'Reset best times for this car here', () => host.resetBestTimes(), foot,
-      () => host.bestLap(host.loadedTrack, host.settings.car) != null);
   }
 
   // ← → on a card: the next visible item.
   private step(dir: number) {
     let k = this.focus;
-    do { k = wrapI(k + dir, this.items.length); } while (this.items[k].el.hidden && k !== this.focus);
+    do { k = wrapI(k + dir, this.items.length); } while (!this.shown(this.items[k]) && k !== this.focus);
     this.focus = k; this.target(this.items[k]).focus();
   }
 
@@ -494,7 +918,7 @@ export class Menu {
       // the first press only shows where the focus is
       if (hasFocus) {
         let k = this.focus;
-        do { k = wrapI(k + nav, this.items.length); } while (this.items[k].el.hidden && k !== this.focus);
+        do { k = wrapI(k + nav, this.items.length); } while (!this.shown(this.items[k]) && k !== this.focus);
         this.focus = k;
       }
       const t = this.target(this.items[this.focus]);
@@ -523,4 +947,22 @@ export class Menu {
     if (code === 'Escape' && this.host.started() && !repeat) { this.close(); return true; }
     return false;
   }
+}
+
+const esc = (t: string) => t.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
+const carLabel = (id: string) => (id in CARS ? CARS[id as CarId].name : id);
+
+// A results table (lobby.ts rows): a race's (laps, time or gap, best, stops, penalty) or a board's (best, gap, laps).
+function resultsTable(title: string, rows: ResultRow[], kind: 'race' | 'board', self: number): string {
+  const head = kind === 'race'
+    ? '<th class="p">Pos</th><th>Driver</th><th>Laps</th><th>Time</th><th class="w">Best</th><th class="w">Stops</th><th class="w">Pen.</th>'
+    : '<th class="p">Pos</th><th>Driver</th><th>Best</th><th>Gap</th><th class="w">Laps</th>';
+  const body = rows.map((r) => {
+    const who = `<td class="d"><b>${esc(r.name)}</b><small>${esc(r.car)}</small></td>`;
+    const cls = (r.player && r.player === self ? 'self' : '') + (r.out ? ' out' : '');
+    return `<tr class="${cls}"><td class="p">${r.pos}</td>${who}` + (kind === 'race'
+      ? `<td>${r.laps}</td><td class="t">${r.time}</td><td class="w">${r.best}</td><td class="w">${r.pits}</td><td class="w">${r.penalty}</td>`
+      : `<td class="t">${r.best}</td><td>${r.pos === '1' ? '' : r.time}</td><td class="w">${r.laps}</td>`) + '</tr>';
+  }).join('');
+  return `<h2 class="mh">${esc(title)}</h2><table class="rtable num"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
 }

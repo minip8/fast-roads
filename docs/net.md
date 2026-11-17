@@ -343,11 +343,14 @@ dynamic import, so a single-player page never downloads `src/net`.
 | `sampleAt(id, now, out)` | for drawing; the game draws other cars at `now - DT`, where the player's own car is drawn (interpolated a tick behind) |
 | `takeNotices()` | joins, leaves, car changes, best laps, non-fatal errors, as text for the HUD |
 
-Protocol 2 status: `Multiplayer` and the game still use only the lobby (rooms joined with the default `'either'`,
-laps sent without `at`, so their crossing is the moment `sendLap` runs, within a tick of the real one; byte 42 of
-the state left 0). Wiring the game to rooms created explicitly, rejoining with the token, the host's settings and
-the weekend (grid placement, holding cars until `goAt`, pit reports, weather, standings) is still to do, from
-**Race weekends** and the client API above.
+Protocol 2 status: the menu side is wired (`main.ts`, `menu.ts`, `lobby.ts`): rooms are created (`mode: 'create'`,
+a code the game makes, another on `roomTaken`) or joined (`mode: 'join'`; a `?room=` link never creates), the token
+is kept in the tab's sessionStorage and sent on every rejoin (a reload, a circuit change), a `settings` event with
+`circuitChanged` reloads onto the circuit, and the host's settings, start, skip and abort, the session, the drivers
+and the standings are in the menu's room tab. `Multiplayer` itself still drives the lobby's way (laps sent without
+`at`, so their crossing is the moment `sendLap` runs, within a tick of the real one; byte 42 of the state left 0):
+the weekend in the car (grid placement, holding cars until `goAt`, pit reports, weather, the race HUD) is still to
+do, from **Race weekends** and the client API above.
 
 Our car: the state after every tick (velocity and pedals zeroed while paused, so nobody extrapolates a parked car
 down the road), the epoch bumped and `restart` sent whenever the Session puts the car at the start spot
@@ -805,8 +808,8 @@ Nothing here has been run against a real account (the tests and checks above are
    deployed relay, which the build reads when the environment has none. Without Git: `VITE_RELAY_URL=wss://... npm run build`
    and `npx wrangler pages deploy dist --project-name <project>`. The repository root has no wrangler config, so
    Pages does not mistake the relay's (`server/cf/`) for its own.
-4. **Play.** On the site, Race tab -> Multiplayer: a room code, a name, Join (the relay field defaults to
-   `VITE_RELAY_URL`), or share `https://<project>.pages.dev/?room=CODE`.
+4. **Play.** On the site, the Online tab: Create room, then Copy invite link (`https://<project>.pages.dev/?room=CODE`)
+   for the others, who open it or type the code under Join room (the relay defaults to `VITE_RELAY_URL`).
 
 What stays open until it runs on Cloudflare: the deployed clock's resolution and the real paths' asymmetry
 (**Clock**); whether open sockets keep working past the daily request allowance; how long an empty object takes to

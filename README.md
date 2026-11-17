@@ -32,13 +32,14 @@ only: the grip is the physics' own business.
 
 ## Main menu
 
-The game opens on a menu with **Drive** at the top right and three tabs:
+The game opens on a menu with **Drive** at the top right and four tabs:
 
-- **Race**: a card for each car (what it is, power, weight, your best lap at this circuit), **Multiplayer** (below),
-  and a card for each circuit (its outline with the start/finish line, place, length, your best lap there in the
-  chosen car). With seven or more circuits a search box filters them. Choosing another circuit reloads the game onto
-  it (not while in a room: the room decides). **Reset best times** clears the chosen car's at this circuit, and its
-  ghost (click twice to confirm).
+- **Time trial**: a card for each car (what it is, power, weight, your best lap at this circuit) and a card for each
+  circuit (its outline with the start/finish line, place, length, your best lap there in the chosen car). With seven
+  or more circuits a search box filters them. Choosing another circuit reloads the game onto it. **Reset best
+  times** clears the chosen car's at this circuit, and its ghost (click twice to confirm).
+- **Online**: create or join a multiplayer room (**Multiplayer**, below). In a room this tab becomes **Room** and the
+  Time trial tab goes away: the room decides the circuit.
 - **Settings**, in five sections:
   - *Driving*: gears (automatic / manual), traction control, countersteer assist (drift car), ghost car (shown / hidden).
   - *Camera*: camera, field of view (−15° to +20° on every camera), widen the view with speed, camera shake on kerbs
@@ -225,16 +226,43 @@ intermediates from about 0.65–0.7 (standing water from 0.71).
 
 ## Multiplayer
 
-Hot laps together: everyone in a room drives the same circuit at once, each with the game's flying start and
-restarts, and the room keeps a board of best laps. There are no grid starts or race rules yet.
+Everyone in a room drives the same circuit at once. Until the host starts a weekend the room is a lobby: hot laps
+with the game's flying start and restarts, and a board of best laps. A weekend is the practice sessions, qualifying
+and race the host chose, timed by the relay for everyone at once, then the lobby again with the results.
 
 Someone runs the relay (`npm run server`, a small Node WebSocket server on port 8787, or the same relay on
-Cloudflare, below; it runs no physics). In the
-menu's Race tab, **Multiplayer** takes a room code (1-8 letters or digits), your name and the relay's address
-(by default the page's own host on port 8787, or `VITE_RELAY_URL` set when the game was built); **Join** enters the
-room and **Leave** leaves it. The first player in a room sets its circuit; joining a room at another circuit
-reloads the game there. A link with `?room=CODE` (and `&server=ws://host:port` for another relay) joins on load,
-and the page's address shows it while you are in a room, so it can be shared.
+Cloudflare, below; it runs no physics). The menu's **Online** tab:
+
+- **Your name**, asked once and remembered in the browser (a made-up "Driver 123" until you choose one).
+- **Create room** opens a room at the circuit you are on, with a short code of its own (four letters and digits
+  that cannot be misread: no 0/O, 1/I/L and so on), and makes you its host.
+- **Join room** takes the code, or a whole invite link pasted in. If it cannot, it says why: no such room (with
+  **Open room CODE** to start it again), the room is full, the relay cannot be reached, or the game is older than
+  the relay (**Reload the page**).
+- The relay's address is a detail: by default the page's own host on port 8787, or `VITE_RELAY_URL` set when the game
+  was built. **Change** shows the field (it is shown anyway when a link or you set another one).
+
+In a room, the **Room** tab has the room code in large letters with **Copy invite link** (and **Share…** where the
+browser can), the session (what is on, the time or laps left, what comes next), the drivers (host, car, on track /
+in the menu / no signal, grid slot in a race), the times (the session's board, the race order, and after the race
+its results: positions, time or gap, best lap, stops, penalties, DNF / out of time; the last qualifying too), your
+car (and starting tyres), the weekend's options and the circuit. **Leave room** (click twice) leaves.
+
+The host picks a **race format** (Quick race: straight to a random grid, 5 laps; Short weekend: 10 min practice,
+10 min qualifying, 5 laps; Full weekend: two practices, 15 min qualifying, 20 laps with a pit stop and tyre wear,
+any weather) and presses **Start weekend**; or sets each option, each explained in a line: practice sessions and
+length, qualifying (none, timed, one shot) and length, race laps, starting grid (qualifying, random, reversed, join
+order), mandatory pit stops, tyre wear, collisions, track limits penalty, time to finish after the winner, allowed
+cars, weather. Everyone else sees the same options read-only, changing as the host changes them. During a weekend
+the host can end the session now or abort the weekend (each click twice). Choosing another circuit (click twice)
+moves the whole room there: every game reloads onto it and comes back into the room. A room that allows one car
+switches you to it. When the race ends the menu opens on its results.
+
+A link with `?room=CODE` (and `&server=ws://host:port` for another relay) joins that room on load, and the page's
+address shows it while you are in a room. The tab keeps your seat (sessionStorage), so a reload, or the room moving
+to another circuit, brings you back as the same player, still host if you were. A link to a room that has closed
+offers to open it again or go back to time trial. If the connection drops, the menu says so and offers
+**Try again**.
 
 - Your computer simulates only your car; everyone else's comes over the network, a little in the past, extrapolated
   to the present. Each player's car has a name tag over it and a coloured dot on the track map.

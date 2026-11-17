@@ -205,19 +205,121 @@ p.mnote:not(:empty) { margin: 8px 2px; }
   border-radius: 8px; padding: 6px 10px; width: min(240px, 100%); }
 .search::placeholder { color: var(--muted); }
 
-/* multiplayer: room, name and relay fields, Join / Leave */
-.netbox { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; background: rgba(255,255,255,.025); border-radius: 11px; padding: 10px; }
-.nfield { display: flex; flex-direction: column; gap: 4px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); flex: 1 1 120px; min-width: 0; }
-.nfield.wide { flex: 2 1 200px; }
-.nfield input { appearance: none; font: inherit; font-size: 14px; letter-spacing: normal; text-transform: none; color: var(--text); background: rgba(255,255,255,.07);
-  border: 1px solid rgba(255,255,255,.1); border-radius: 8px; padding: 8px 10px; width: 100%; }
-.nfield input:disabled { opacity: .55; }
-.nfield input::placeholder { color: var(--muted); }
-.netbox .netgo { padding: 9px 22px; }
-.netbox .netgo:disabled { opacity: .45; cursor: default; }
-.netstatus { font-size: 12px; color: var(--muted); margin: 8px 2px 0; min-height: 15px; }
-.netstatus.joined { color: var(--green); } .netstatus.error { color: var(--red); } .netstatus.connecting { color: var(--text); }
-.circuit-card.locked { opacity: .45; cursor: default; }
+/* Online tab (menu.ts): the way in (name, Create room, Join room, the relay) and a room (invite, session, times,
+   drivers, the weekend's options) */
+.mintro { color: #c9cfd6; font-size: 14px; line-height: 1.45; margin: 6px 2px 14px; max-width: 64ch; }
+.nrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 0 2px 14px; }
+.nrow[hidden], .relay[hidden], .offers[hidden] { display: none; }
+.nlabel { font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); min-width: 92px; }
+.nrow .mnote { flex-basis: 100%; }
+#menu input[type=text], .invite { appearance: none; font: inherit; font-size: 15px; color: var(--text); background: rgba(255,255,255,.07);
+  border: 1px solid rgba(255,255,255,.12); border-radius: 8px; padding: 9px 11px; min-width: 0; flex: 1 1 200px; max-width: 360px; min-height: 42px; }
+#menu input[type=text]:disabled { opacity: .55; }
+#menu input::placeholder { color: var(--muted); }
+#menu input.code { text-transform: uppercase; letter-spacing: .12em; font-weight: 700; }
+#menu input.code:placeholder-shown { text-transform: none; letter-spacing: normal; font-weight: 400; }
+.ways { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+.way { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 14px 16px 16px;
+  display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.way h3 { margin: 0; font-size: 18px; }
+.way p { margin: 0 0 4px; color: #c9cfd6; font-size: 13px; line-height: 1.45; flex: 1; }
+.jrow { display: flex; gap: 8px; width: 100%; }
+.jrow input { max-width: none !important; }
+.mbtn:disabled { opacity: .45; cursor: default; }
+/* what happened (an error, joining, having left), at the top of the tab, with what to do about it */
+.netstatus { margin: 4px 0 12px; padding: 11px 14px; border-radius: 11px; background: rgba(255,255,255,.05); border-left: 4px solid var(--muted); }
+.netstatus[hidden] { display: none; }
+.netstatus p { font-size: 14px; color: #dfe3e8; margin: 0; line-height: 1.45; }
+.netstatus.error { background: rgba(255,77,77,.1); border-left-color: var(--red); }
+.netstatus.connecting { border-left-color: var(--accent); }
+.netstatus.connecting p::before { content: ''; display: inline-block; vertical-align: -2px; width: 12px; height: 12px; margin-right: 8px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,.18); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+.hint { margin: 0; font-size: 12px; color: #ff8a80; flex-basis: 100%; }
+.hint:empty { display: none; }
+.offers { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.offers .mbtn[hidden] { display: none; }
+.relay { margin: 12px 2px 0; display: flex; gap: 4px; align-items: baseline; flex-wrap: wrap; }
+.relay + .nrow { margin-top: 12px; }
+.how { margin: 0; padding: 0 0 0 20px; color: #c9cfd6; font-size: 13px; line-height: 1.6; }
+
+.roomcard { display: grid; grid-template-columns: auto 1fr; grid-template-areas: "code invite" "leave leave"; gap: 10px 22px; align-items: center;
+  background: rgba(255,106,19,.08); border: 1px solid rgba(255,106,19,.35); border-radius: 14px; padding: 14px 18px; margin-top: 4px; }
+.rcode { grid-area: code; display: flex; flex-direction: column; gap: 2px; }
+.rlabel { font-size: 11px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+.roomcode { font-size: 44px; line-height: 1.05; letter-spacing: .14em; font-weight: 800; color: var(--text); user-select: all; }
+.rmeta { font-size: 12px; color: var(--muted); }
+.rinvite { grid-area: invite; display: flex; flex-direction: column; gap: 8px; min-width: 0; align-items: stretch; }
+.rbtns { display: flex; gap: 8px; flex-wrap: wrap; }
+.rbtns .mbtn.primary::after { content: none; }
+.rbtns .copy { padding: 11px 22px; }
+.rbtns .copy.done { background: var(--green); }
+#menu .invite { flex: none; max-width: none; font-size: 12px; color: #c9cfd6; padding: 7px 10px; min-height: 0; text-overflow: ellipsis; }
+.rleave { grid-area: leave; display: flex; justify-content: flex-end; font-size: 13px; margin-top: -4px; }
+.sessbox + .roomcard { margin-top: 10px; }
+.sessbox { margin-top: 10px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 14px; padding: 14px 18px 16px; }
+.stitle { margin: 0; font-size: 13px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
+.sline { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 4px 0 2px; }
+.sbig { font-size: 34px; font-weight: 800; line-height: 1.1; }
+.sbig[hidden] { display: none; }
+.stext { font-size: 15px; color: #dfe3e8; }
+.snext { margin: 2px 0 0; font-size: 13px; color: var(--muted); line-height: 1.45; }
+.presets { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 14px; }
+.plabel { font-size: 12px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.presets .seg.chips { margin: 0; flex-wrap: wrap; overflow: visible; }
+.pcustom { padding: 7px 14px; font-size: 14px; border-radius: 6px; color: var(--text); background: rgba(255,255,255,.18); font-weight: 600; }
+.pcustom[hidden] { display: none; }
+.sessbox .start { margin-top: 12px; }
+.swait { margin: 10px 0 0; font-size: 14px; color: #dfe3e8; }
+.sctl { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.sctl .mbtn.armed { background: var(--red); color: #111; }
+.sctl .mbtn[hidden] { display: none; }
+.times .mh { margin-top: 18px; }
+.rtable { width: 100%; border-collapse: collapse; font-size: 13px; background: rgba(255,255,255,.025); border-radius: 11px; overflow: hidden; }
+.rtable th { text-align: left; font-family: system-ui, sans-serif; font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--muted); padding: 7px 8px; }
+.rtable td { padding: 6px 8px; border-top: 1px solid rgba(255,255,255,.05); white-space: nowrap; }
+.rtable .p { width: 34px; text-align: right; color: var(--muted); }
+.rtable td.d { font-family: system-ui, sans-serif; white-space: normal; width: 34%; }
+.rtable td.d small { display: block; font-size: 11px; color: var(--muted); }
+.rtable td.t { font-weight: 600; }
+.rtable tr.self td { background: rgba(255,106,19,.1); }
+.rtable tr.self td.d b { color: var(--accent); }
+.rtable tr.out td { color: var(--muted); }
+.drivers { list-style: none; margin: 0; padding: 4px; background: rgba(255,255,255,.025); border-radius: 11px; }
+.drivers li { display: grid; grid-template-columns: auto auto 1fr auto; align-items: baseline; gap: 4px 8px; padding: 8px 10px; font-size: 14px; }
+.drivers li + li { box-shadow: 0 -1px 0 rgba(255,255,255,.04); }
+.drivers li b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drivers li.self b { color: var(--accent); }
+.drivers .tag { grid-column: 2; font-style: normal; font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+  padding: 1px 6px; border-radius: 4px; background: rgba(255,255,255,.12); color: var(--text); }
+.drivers .tag.host { background: var(--accent); color: #111; }
+.drivers .tag + .tag { grid-column: 2; }
+.drivers li:has(.tag + .tag) { grid-template-columns: auto auto auto 1fr auto; }
+.drivers li:has(.tag + .tag) .tag + .tag { grid-column: 3; }
+.dcar { color: var(--muted); font-size: 13px; }
+.dstate { grid-column: -2; font-size: 12px; color: var(--muted); text-align: right; }
+.drivers li.st-driving .dstate { color: var(--green); }
+.drivers li.st-noSignal .dstate { color: #ff8a80; }
+.mh2 { margin: 14px 2px 6px; font-size: 13px; font-weight: 600; color: #dfe3e8; }
+.stepper { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.stepper button { appearance: none; border: 0; width: 36px; height: 34px; border-radius: 7px; background: rgba(255,255,255,.09); color: var(--text);
+  font: inherit; font-size: 18px; font-weight: 700; cursor: pointer; }
+.stepper button:hover:not(:disabled) { background: rgba(255,255,255,.16); }
+.stepper button:disabled { opacity: .35; cursor: default; }
+.stepper button[hidden] { display: none; }
+.stepper output { min-width: 72px; text-align: center; font-size: 14px; font-weight: 600; }
+.mrow.ro .seg button:not(.on) { display: none; }       /* read-only: just the value */
+.mrow.ro .seg button.on { cursor: default; background: transparent; color: var(--text); font-weight: 600; padding-right: 2px; }
+.mrow.ro .seg { background: transparent; }
+.mrow.ro .stepper output { text-align: right; min-width: 0; }
+.mrow.ro { flex-wrap: nowrap !important; }                /* read-only: the value stays beside its label */
+.mrow.ro .mlabel { flex: 1; }
+.mrow.ro .seg, .mrow.ro .stepper { margin-left: auto; flex-shrink: 0; }
+.seg button:disabled:not(.on) { opacity: .35; cursor: default; }
+.tyrerow { margin-top: 8px; }
+.tyrerow[hidden] { display: none; }
+.tyrerow .seg button { box-shadow: inset 3px 0 0 var(--tc, transparent); }
+.card.locked { opacity: .45; cursor: default; }
 
 /* car and circuit cards */
 .cards { display: grid; gap: 8px; }
@@ -286,7 +388,9 @@ kbd { font: inherit; font-weight: 700; color: var(--text); background: rgba(255,
 
 /* keyboard focus: the whole row for settings (← → change it), the button itself otherwise */
 #menu button:focus, #menu input:focus { outline: none; }
-#menu button:focus-visible, #menu input:focus-visible, .mrow:has(:focus-visible), .seg.tabs:has(:focus-visible), .seg.chips:has(:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
+#menu button:focus-visible, #menu input:focus-visible, .mrow:has(:focus-visible), .mrow:focus-visible, .seg.tabs:has(:focus-visible), .seg.chips:has(:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
+.mrow:focus { outline: none; }
+.mrow:focus-visible { outline: 2px solid var(--accent); }
 #menu .mrow :focus-visible, #menu .seg button:focus-visible { outline: none; }
 #menu .keycap:focus-visible { outline: 2px solid var(--text); outline-offset: 1px; }
 #menu .seg.tabs:has(:focus-visible) button.on, #menu .seg.chips:has(:focus-visible) button.on { box-shadow: inset 0 0 0 2px var(--accent); }
@@ -305,6 +409,13 @@ kbd { font: inherit; font-weight: 700; color: var(--text); background: rgba(255,
   .mrow .seg, .slider { margin-left: auto; }
   .menu-hint { display: none; }
   .cards.circuits { grid-template-columns: 1fr; }
+  .roomcard { grid-template-columns: 1fr; grid-template-areas: "code" "invite" "leave"; padding: 12px 14px; }
+  .roomcode { font-size: 38px; }
+  .rbtns .mbtn { flex: 1; }
+  .sessbox { padding: 12px 14px 14px; }
+  .sessbox .start { width: 100%; }
+  .rtable .w { display: none; }
+  .nlabel { min-width: 0; }
 }
 @media (max-height: 560px) {
   #overlay { padding: 8px; }

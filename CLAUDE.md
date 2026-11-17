@@ -241,11 +241,26 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
 - `catalog.ts`: what the menu shows about each circuit (`circuitInfo`: place, length and an SVG outline from the
   centreline CSV), from `TRACKS` alone; optional `country` / `lengthKm` on a `TrackDef` are used if present
 - `menu.ts`: `Menu`, which talks to `main.ts` only through the `MenuHost` callbacks. A header with the main action
-  (Drive, or Resume and Restart lap) and three tabs: Race (car and circuit cards, a circuit search from seven
-  circuits), Settings (one section at a time) and Controls (the `controls` section's rows, key bindings, mouse and
-  gamepad reference). `build()` makes the current tab's elements; a settings change only runs each item's
-  `update()`, so a slider being dragged is not replaced. Keyboard: ↑ ↓ move through the items, ← → change the one
-  focused (`cycle`), Enter selects; gamepad buttons arrive through `Menu.press` (`Input.pollMenuPad`)
+  (Drive, or Resume and Restart lap; no Restart lap in a race) and four tabs: Time trial (car and circuit cards, a
+  circuit search from seven circuits), Online (not in a room: name, Create room, Join room with a code or link, the
+  relay hidden behind Change, a status banner with the one thing to do about an error; in a room the tab is Room and
+  Time trial goes away), Settings (one section at a time) and Controls (the `controls` section's rows, key bindings,
+  mouse and gamepad reference). `build()` makes the current tab's elements; a settings change only runs each item's
+  `update()`, so a slider being dragged or a field being typed in is not replaced (lists that nobody interacts with,
+  the drivers and results tables, are re-rendered in `update()` only when their HTML changes). ↑ ↓ skip items inside
+  anything hidden (`shown`). Keyboard: ↑ ↓ move through the items (text fields too: ↑ ↓ leave them), ← → change the
+  one focused (`cycle`), Enter selects; gamepad buttons arrive through `Menu.press` (`Input.pollMenuPad`). The room
+  tab reads the room through `MenuHost.net.room()` (`RoomView`: the `NetClient`, `lobby.ts` as `kit`, `RoomLog`), so
+  menu.ts imports only types from `src/net`; `main.ts` passes every room event to `Menu.roomEvent` (host or phase
+  changes rebuild the tab, the rest update it) and refreshes it 4 times a second for the clocks. The host's settings
+  changes show at once (`pending`, merged into the next change since the relay takes them whole) until echoed.
+- `lobby.ts` (loaded with `netGame.ts`, never by a single-player page): the room tab without the DOM. `ROOM_FIELDS`
+  (every `RoomSettings` key but the circuit as a menu control: label, plain-words hint, group, buttons or a stepper,
+  options built from `src/net/race.ts`'s lists and ranges, `applies` / `allowed`), `PRESETS` (Quick race, Short
+  weekend = the relay's defaults, Full weekend) with `presetOf` / `withPreset`, `weekendSummary`, `sessionTitle` /
+  `sessionState` / `nextSession` / `skipLabel`, `raceRows` / `boardRows` (results tables), `playerState`, `RoomLog`
+  (keeps the last qualifying board, which the race's start resets, until the next weekend), `joinErrorText` /
+  `closedText`. Tests: `test/lobby.test.ts` (with `netPrefs.ts`'s codes, invite links and seat).
 - `hud.ts`, `minimap.ts`: in-game HUD (`Hud.update` runs every frame but writes only text/classes/styles that
   changed; its setters apply the HUD settings, `setKeys` writes the key help from the bindings); `dom.ts`: `$`
   element lookup; `tyreHud.ts`: the HUD's tyre widget (`tyreBand`: carcass temperature against the compound's
@@ -283,15 +298,25 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
     translucent, wheels and cockpit posed from the state), name tags (`#netLabels`, DOM, before `#hud` in the page so a tag passes behind the HUD's panels), minimap dots (`MapDot`).
     `netHud.ts` `NetHud`: the board and notice feed in `#leftCol` under the timing panel. `netGame.ts`: what main.ts
     imports dynamically (`connect`, waits for the welcome), so `src/net` is not in a single-player page's download.
-    `netPrefs.ts` (static, no net code): `fastroads.net` in localStorage (server, room, name), the default relay
-    (`VITE_RELAY_URL` at build time: `.env.production` holds the deployed relay's address, and a variable in the build
-    environment wins over it; else the page's host on port 8787), the `?room=CODE&server=` link.
-  - `main.ts`: a `?room=` link joins before the circuit is built, and the welcome's circuit is the one built; a menu
-    join to a room at another circuit saves that circuit and reloads into `?room=`. In a room, every frame runs
+    `netGame.ts` also has `createRoom` (a made-up code, `mode: 'create'`, another code on `roomTaken`) and re-exports
+    `lobby.ts` as `lobby`. `netPrefs.ts` (static, no net code): `fastroads.net` in localStorage (server, room, name),
+    the default relay (`VITE_RELAY_URL` at build time: `.env.production` holds the deployed relay's address, and a
+    variable in the build environment wins over it; else the page's host on port 8787), the `?room=CODE&server=`
+    link, `inviteUrl` (the clean link to send), `newRoomCode` (4 of `CODE_ALPHABET`, no look-alike characters),
+    `parseInvite` (the Join field: a code or a link), and the tab's seat (`loadSeat` / `saveSeat` / `clearSeat`: room,
+    relay and rejoin token in sessionStorage).
+  - `main.ts`: a `?room=` link joins (`mode: 'join'`, with the tab's seat token) before the circuit is built, and
+    the welcome's circuit is the one built (the link is kept alive while it builds); a link to a room that is gone
+    leaves the menu on the Online tab offering to open it again. Create and join from the menu (`enterRoom`); a room
+    at another circuit, or the host's `settings` event with `circuitChanged`, saves the seat and the circuit and
+    reloads into `?room=`, so the player comes back as itself (host role included). `onNetEvent` runs for every room
+    event: `RoomLog`, the circuit move, a room's one allowed car switched to, the race's results opening the menu,
+    then `Menu.roomEvent`. A dropped connection (`netClosed`: replaced by another tab, the relay shutting down, a
+    timeout) opens the menu with Try again (the seat is kept; Leave clears it). In a room, every frame runs
     `mp.update`, the ticks go through `mp.tick` (`tickAt = now - (acc - DT)`), paused frames call `mp.idle`, a 1 s
-    timer keeps the link alive while a hidden tab gets no frames, and other cars are drawn at `now - DT`. While joined
-    the menu's circuit cards are locked (the room decides). The menu's Race tab has the Multiplayer section
-    (`MenuHost.net`).
+    timer keeps the link alive while a hidden tab gets no frames, and other cars are drawn at `now - DT`.
+    `MenuHost.net` (`NetHost` in menu.ts) is the menu's whole view of multiplayer; its `tyre` (the starting compound)
+    is held in main.ts until the in-car side takes it (marked CONNECT).
 - **RL environment** (`src/ai/`, `ai/`, `docs/ai-env.md`, which the trainer is written from: keep it exact):
   - `src/ai/env.ts` `RaceEnv`: reset/step over a `Session` per circuit (the last `cacheSessions` kept). A step holds
     the action for `120 / actionHz` ticks of `stepPhysics`, without `Session.tick`'s restarts (a stuck or flipped
