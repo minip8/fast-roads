@@ -62,6 +62,12 @@ describe('the pit request', () => {
     const w = a.mp.weekend;
     expect(w.pitHelp).toMatch(/pit lane on the (left|right)/);   // the first session of the weekend explains pit stops
     expect(w.pitGuide).toBeNull();
+    // a stop owed: suggested with two laps to go (Melbourne's box is before the line: the last lap still has one)
+    expect(w.boxPastLine).toBe(false);
+    expect(w.pitAdvice).toBeNull();
+    w.raceLaps = 1;
+    expect(w.pitAdvice).toBe('1 stop owed');
+    w.raceLaps = 0;
     // after the line: the request on, the guidance counts down to the entry
     expect(w.togglePitRequest()).toBe(true);
     const g0 = w.pitGuide;

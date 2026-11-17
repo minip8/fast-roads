@@ -489,7 +489,11 @@ line). Without it, a brake key pressed fully from 80 km/h stops a GT3 in the 12 
 before its middle (`test/pit-request.test.ts`). `weekend.pitGuide` is the HUD's step: `entry` (m to the lane's
 start, its side), `lane` (m to the box, the limiter), `box` (under 40 m), `service` (s left), `go`, or `through`
 (in the lane without the request). `weekend.pitAdvice` (a race we are racing in, no request): why to stop now, a
-required stop owed with no more laps to go than stops owed + 1, tyres wrong for the track, or a tyre 75% worn. The
+required stop owed with no more laps left to make one in than stops owed + 1, tyres wrong for the track, or a tyre
+75% worn. Where the box is past the start/finish line (`weekend.boxPastLine`: the lane runs across the line, or
+starts after it) the last lap's crossing in the lane is the finish, so no stop can be made on the last lap: the
+advice comes a lap earlier, the lap before the last is told PIT THIS LAP while a required stop is owed, and the
+final lap's message does not say "pit this lap". The
 first session of a weekend (not one-shot qualifying) and the first request show `weekend.pitHelp` for 12 s, a
 one-line explanation of pit stops. The autopilot never
 enters it (it drives the centreline; in a room it treats the lane as road, so a car put in it, out of the box or

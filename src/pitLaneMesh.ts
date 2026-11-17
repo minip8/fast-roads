@@ -130,7 +130,7 @@ export class PitLaneMesh {
   }
 
   // The gantry over the box at lane sample k (its start): posts either side of the lane, a lit BOX sign over it facing
-  // the cars coming, 4.2 m up (seen from every camera, over the cars ahead).
+  // the cars coming, 4.4 m up (seen from every camera, over the cars ahead).
   private boxGantry(k: number) {
     const tr = this.tr, L = this.lane, i = wrapI(L.k0 + k, tr.N), kk = Math.max(0, Math.min(L.n - 1, k));
     const tex = canvasTex(512, 128, (g, w, h) => {
@@ -140,16 +140,16 @@ export class PitLaneMesh {
     }, { repeat: false });
     const face = this.mat(new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }));
     const metal = this.mat(new THREE.MeshStandardMaterial({ color: 0x2a2e35, roughness: 0.6, metalness: 0.5 }));
-    const a = L.inner[kk] - 0.4, b = L.outer[kk] + 0.3, mid = (a + b) / 2, span = b - a, top = 4.2;
+    const a = L.inner[kk] - 0.4, b = L.outer[kk] + 0.3, mid = (a + b) / 2, span = b - a, top = 4.4;
     const g = new THREE.Group(), o = mid * L.side;
     g.position.set(tr.X[i] + tr.NX[i] * o, 0, tr.Z[i] + tr.NZ[i] * o);
     g.rotation.y = Math.atan2(tr.TX[i], tr.TZ[i]) + Math.PI;
-    const post = new THREE.BoxGeometry(0.15, top, 0.15), beam = new THREE.BoxGeometry(span, 0.2, 0.2), sign = new THREE.PlaneGeometry(Math.min(span - 0.3, 3.6), 0.9);
+    const post = new THREE.BoxGeometry(0.15, top, 0.15), beam = new THREE.BoxGeometry(span, 0.2, 0.2), sign = new THREE.PlaneGeometry(Math.min(span - 0.2, 4.4), 1.1);
     this.owned.push(post, beam, sign);
     for (const x of [-span / 2, span / 2]) { const p = new THREE.Mesh(post, metal); p.position.set(x, top / 2, 0); g.add(p); }
     const bm = new THREE.Mesh(beam, metal); bm.position.y = top; g.add(bm);
-    const f = new THREE.Mesh(sign, face); f.position.set(0, top - 0.5, 0.12); g.add(f);
-    const back = new THREE.Mesh(sign, metal); back.position.set(0, top - 0.5, 0.11); back.rotation.y = Math.PI; g.add(back);
+    const f = new THREE.Mesh(sign, face); f.position.set(0, top - 0.6, 0.12); g.add(f);
+    const back = new THREE.Mesh(sign, metal); back.position.set(0, top - 0.6, 0.11); back.rotation.y = Math.PI; g.add(back);
     this.group.add(g);
   }
 

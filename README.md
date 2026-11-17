@@ -349,9 +349,9 @@ tyre wear, weather, collisions, penalties) are set in the lobby; the relay times
 - **HUD.** The start lights and, under them, your position, lap and the gaps to the cars ahead and behind (practice
   and qualifying: the session and its clock); the board becomes a timing tower (gaps to the leader, tyres, PIT);
   over the dash the pit panel (BOX THIS LAP while the request is on, NEXT TYRES, pit stops made of those required);
-  low in the middle the pit guidance;
+  under the race strip the pit guidance;
   messages for lights out (with the pit stops to make), the final lap ("pit this lap" while a required stop is still
-  owed), the flag, penalties and rain. In a race the timing panel counts the race's
+  owed; where the box is past the line, a stop on the last lap is too late: PIT THIS LAP comes a lap earlier), the flag, penalties and rain. In a race the timing panel counts the race's
   laps (ON THE GRID, LAP 2/5, FINISHED), its BEST is your best lap of this race, and the delta to your best lap and
   the list of laps are hidden. On a phone the timing panel gives way to the tower in a race.
 

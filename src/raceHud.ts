@@ -6,8 +6,8 @@ import { COMPOUND_LETTER, sessionName } from './weekend';
 // The race weekend's HUD (weekend.ts has the state): the start lights over the top of the screen, a strip under them
 // (the race: position, lap and the gaps to the cars ahead and behind; practice and qualifying: the session and its
 // clock, our place on the board), and a pit panel over the dash (pit lane and limiter, the service under way, the
-// tyres the next stop fits, stops made of those required, a recovery's hold), and the pit guidance (#pitGuide, low in
-// the middle: the pit request's steps from the entry to the box and out, a suggested stop, the one-line explanation of
+// tyres the next stop fits, stops made of those required, a recovery's hold), and the pit guidance (#pitGuide, under
+// the race strip: the pit request's steps from the entry to the box and out, a suggested stop, the one-line explanation of
 // pit stops the first time). In a race #hud gets the class `race`,
 // which hides what a race does not need (the delta to a best lap, the optimal lap, the list of laps). Written only
 // when a text changes.
@@ -42,7 +42,9 @@ export class RaceHud {
     this.top.append(this.lights, this.info);
     this.pit = document.createElement('div'); this.pit.id = 'racePit'; this.pit.className = 'panel';
     this.guide = document.createElement('div'); this.guide.id = 'pitGuide';
-    hud.append(this.top, this.pit, this.guide);
+    this.top.append(this.guide);
+    this.info.hidden = this.pit.hidden = this.guide.hidden = true;   // (until they have something to show: the lobby has none)
+    hud.append(this.top, this.pit);
   }
 
   update(mp: Multiplayer, now: number, dt: number) {
@@ -62,7 +64,7 @@ export class RaceHud {
     this.set('guide', this.guideHtml(mp));
   }
 
-  dispose() { this.top.remove(); this.pit.remove(); this.guide.remove(); this.hud.classList.remove('race'); }
+  dispose() { this.top.remove(); this.pit.remove(); this.hud.classList.remove('race'); }
 
   // ------------------------------------------------------------------------
   private set(k: 'info' | 'pit' | 'guide', html: string) {
@@ -147,7 +149,7 @@ export class RaceHud {
       switch (g.step) {
         case 'entry':
           cls = g.dist < 400 ? 'now' : '';
-          line = g.dist < 1500 ? `<b>PIT ENTRY ${m(g.dist)}</b><span>${side(g.side)}</span>` : `<b>BOX THIS LAP</b><span>PIT ENTRY IN ${m(g.dist)}</span>`;
+          line = g.dist < 1500 ? `<b>PIT ENTRY ${g.dist < 15 ? 'NOW' : m(g.dist)}</b><span>${side(g.side)}</span>` : `<b>BOX THIS LAP</b><span>PIT ENTRY IN ${m(g.dist)}</span>`;
           if (key) line += `<small>${key} cancel</small>`;
           break;
         case 'lane': cls = 'lane'; line = `<b>${g.limiter ? 'LIMITER ON' : 'PIT LANE'} · ${Math.round(w.lane.limitMs * 3.6)} KM/H</b><span>BOX ${m(g.box)}</span>`; break;

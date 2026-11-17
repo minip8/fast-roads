@@ -362,6 +362,8 @@ export class Weekend {
   private get racing() { return this.phase === 'race' && !this.spectator && !this.finished && !this.lastLapIn && this.stage !== 'results'; }
   // The box serves the car: not once its race is over (the relay would refuse the stop).
   private get serviceAllowed() { return this.phase !== 'race' || this.racing; }
+  // The box is past the start/finish line (the lane runs across it): a stop on a lap is made after the line.
+  get boxPastLine() { const L = this.session.track.L; return (this.lane.sStart + this.lane.box) % L < L / 2; }
   togglePitRequest() { return this.setPitRequest(!this.pitRequest); }
   setPitRequest(on: boolean) {
     this.pitRequest = on;
@@ -396,8 +398,9 @@ export class Weekend {
   get pitAdvice(): string | null {
     if (!this.racing || this.held || this.pitRequest || this.pit.inLane || this.pit.service > 0) return null;
     const me = this.net.standings.find((x) => x.player === this.net.selfId);
-    const owed = this.mandatoryStops - (me?.pits ?? this.pit.stops), left = this.net.settings.raceLaps - this.raceLaps;   // laps to go, this one too
-    if (owed > 0 && left <= owed + 1) return `${owed} stop${owed > 1 ? 's' : ''} owed`;
+    // laps still to go in which a stop can be made, this one too (not the last where the box is past the line)
+    const owed = this.mandatoryStops - (me?.pits ?? this.pit.stops), left = this.net.settings.raceLaps - this.raceLaps - (this.boxPastLine ? 1 : 0);
+    if (owed > 0 && left > 0 && left <= owed + 1) return `${owed} stop${owed > 1 ? 's' : ''} owed`;
     if (this.tyresWrong()) return this.wetness > 0.3 && !this.session.car.compound.rain ? 'Rain tyres needed' : 'Wrong tyres for the track';
     if (this.session.car.tyreWear.some((x) => x >= WORN)) return 'Tyres worn';
     return null;
@@ -405,6 +408,7 @@ export class Weekend {
   // The guidance for the HUD (null: nothing to show).
   get pitGuide(): PitGuide | null {
     const p = this.pit, tr = this.session.track;
+    if (this.held) return null;   // (one-shot qualifying's cars waiting in the lane, or done)
     if (p.service > 0) return { step: 'service', left: p.service, total: p.serviceTotal };
     if (p.inLane) {
       if (p.stopped) return { step: 'go' };
@@ -414,7 +418,8 @@ export class Weekend {
     }
     if (!this.pitRequest || this.held || this.recovering > 0) return null;
     if (p.zone !== 'track' && p.dist < this.lane.len) return { step: 'lane', box: this.lane.box - p.dist, limiter: false };   // (on the way in)
-    const d = ((this.lane.sStart - this.session.car.proj.s) % tr.L + tr.L) % tr.L;
+    // (alongside the entry ramp but not in the lane yet: the entry is here; past the ramp: missed, the next lap's)
+    const d = p.dist < this.lane.limIn ? 0 : ((this.lane.sStart - this.session.car.proj.s) % tr.L + tr.L) % tr.L;
     return { step: 'entry', dist: d, side: this.lane.side };
   }
 
@@ -494,10 +499,12 @@ export class Weekend {
     if (!me) return;
     if (me.laps !== this.raceLaps) {
       this.raceLaps = me.laps;
-      if (me.laps === this.net.settings.raceLaps - 1 && this.stage === 'running' && me.status === 'racing') {
-        const owed = this.mandatoryStops - me.pits;   // (a missed stop costs a minute: say so while there is a lap to make it)
-        this.notify('flag', 'FINAL LAP', owed > 0 ? `Pit this lap: ${owed} stop${owed > 1 ? 's' : ''} still to make` : undefined);
-      }
+      // (a missed stop costs a minute: say so while there is a lap to make it, which is the lap before the last where
+      // the box is past the line: there the last lap's crossing in the lane is the finish)
+      const total = this.net.settings.raceLaps, owed = this.mandatoryStops - me.pits, racing = this.stage === 'running' && me.status === 'racing';
+      const stopText = `${owed} stop${owed > 1 ? 's' : ''} still to make`;
+      if (me.laps === total - 1 && racing) this.notify('flag', 'FINAL LAP', owed > 0 && !this.boxPastLine ? `Pit this lap: ${stopText}` : undefined);
+      else if (me.laps === total - 2 && racing && owed > 0 && this.boxPastLine) this.notify('flag', 'PIT THIS LAP', `${stopText}: the box is past the line, too late on the last lap`);
     }
     if (me.status !== 'racing' && !this.finished) {
       this.finished = true;
