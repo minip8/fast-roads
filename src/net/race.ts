@@ -80,12 +80,12 @@ export interface SessionInfo {
   index: number;                 // practice: 1-3; otherwise 0
   stage: Stage;
   collisions: boolean;           // cars collide in this session
-  oneShot: boolean;              // one-shot qualifying: one flying lap each, all released at goAt, ghosts to each other
+  oneShot: boolean;              // one-shot qualifying: one flying lap each, released one after another (oneShotRelease), ghosts
   start: number;                 // the session (or the lobby) began
   end: number | null;            // the current stage ends (practice / qualifying: the flag; finishing: the deadline;
                                  // the race while running: a safety stop at RelayOptions.maxRaceLapSecs a lap)
   lightsAt: number | null;       // race: the first of the five lights comes on; one a second, all five at lightsAt + 4
-  goAt: number | null;           // race: the lights go out; one-shot: the cars are released at the start spot
+  goAt: number | null;           // race: the lights go out; one-shot: the first car is released (oneShotRelease)
   finishAt: number | null;       // race: the winner's crossing of the line (finishing and results)
   seed: number;                  // u32 of this session (its weather; free for the game's own use)
   grid: number[];                // race: player ids in grid order (slot = index); one-shot: who takes part
@@ -93,6 +93,17 @@ export interface SessionInfo {
 export function lobbySession(start: number): SessionInfo {
   return { phase: 'lobby', index: 0, stage: 'running', collisions: true, oneShot: false, start, end: null,
     lightsAt: null, goAt: null, finishAt: null, seed: 0, grid: [] };
+}
+
+// One-shot qualifying releases its entrants one at a time, in `grid` order, ONE_SHOT_GAP s apart from goAt, so that
+// nobody's lap is driven inside or behind another car's (in identical cars the gap holds round the lap). A fixed
+// constant (not scaled by WEEKEND_SCALE: it is a distance on the road), known to the relay and every client alike, so
+// the release times need nothing on the wire. The relay's session end allows for the last release.
+export const ONE_SHOT_GAP = 20;
+// Relay time player `id` is released in one-shot qualifying (null: not an entrant, or not one-shot).
+export function oneShotRelease(s: Pick<SessionInfo, 'oneShot' | 'goAt' | 'grid'>, id: number): number | null {
+  const k = s.grid.indexOf(id);
+  return !s.oneShot || s.goAt == null || k < 0 ? null : s.goAt + k * ONE_SHOT_GAP;
 }
 
 export const LIGHTS = 5;

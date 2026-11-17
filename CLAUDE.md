@@ -102,9 +102,10 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   the board. About 5 s. `NET_REPORT=1` prints the measurements quoted in docs/net.md.
   `test/race-weekend.test.ts` runs whole race weekends the same way (relay durations shortened, laps driven by
   placing the car before each timing line, about 15 s): qualifying setting the grid, cars held on their slots until
-  lights out, a pit stop, a recovery, the finish and classification, one-shot qualifying, the weather in the physics,
-  a spectator, the timing panel's race laps (`lapState`), a race's best times starting empty, no chequered flag for
-  the winner after its finish. `test/raceGeometry.test.ts` checks the grid, the pit lane and the start gantry's posts
+  lights out, a pit stop, a recovery, the finish and classification,
+  the timing panel's race laps (`lapState`), a race's best times starting empty, no chequered flag for
+  the winner after its finish. `test/oneshot.test.ts`: one-shot qualifying with 2, 3 and 8 entrants (released one at
+  a time from the pit lane; the 8-car test idles the cars waiting, `Room.idle`); both use `test/weekendRoom.ts`. `test/raceGeometry.test.ts` checks the grid, the pit lane and the start gantry's posts
   clear of it at every circuit. `test/pit-loss.test.ts`
   is a tool (`PITLOSS=melbourne`): the time a pit stop costs each car.
 - In the browser, `window.__game` exposes `simulate(seconds, driver, probeSecs)`, `car` (a getter: the car object is
@@ -311,8 +312,8 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
     applied only if our simulation had no contact with that car within the window `W` about a round trip, then that
     proxy is not collided with until `W` after the hit) is in docs/net.md.
   - `weekend.ts` `Weekend` (`Multiplayer.weekend`): the race weekend in the car (docs/net.md **Race weekends in the
-    game**): follows `net.session` (placement at each session: flying start, one-shot's start spot, the grid slot;
-    held until `goAt`; the race's standing lap 1, `Timing.startStanding`), conditions (the room's wear x
+    game**): follows `net.session` (placement at each session: flying start, one-shot's pit-lane spot and its own
+    release (`oneShotRelease`, `ONE_SHOT_GAP` apart), the grid slot; held until then; the race's standing lap 1, `Timing.startStanding`), conditions (the room's wear x
     `CarInfo.race.wearScale`, the relay's weather into `Session.setConditions`), store tags (`.mp`, `.race`: never the
     time trial's bests), the input it overrides (held, recovering, parked, the pit limiter and service), the pit
     lane (box, service `CarInfo.race.pitSecs`, `sendPit`), restarts (`requestRestart`; `Session.autoReset`): a flying

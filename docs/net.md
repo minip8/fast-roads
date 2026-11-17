@@ -233,7 +233,7 @@ room should use `'join'`).
 | `collides(id)` | whether our car and player `id`'s collide in this session: collisions on, neither a spectator. `sample` sets `collidable` false when not |
 | `isSpectator(id = us)`, `gridSlot(id = us)` | in a race: not on the grid (joined after it began); grid slot (0 = pole) or null |
 | `raceStage(now)`, `lightsLit(now)` | `'grid' \| 'lights' \| 'racing' \| 'finishing' \| 'results'` (null outside a race); start lights lit, 0-5 |
-| `held(now)` | our car must be held at its grid slot (a race before lights out) or at the start spot (one-shot qualifying before the release) |
+| `held(now)` | our car must be held at its grid slot (a race before lights out) or in the pits (one-shot qualifying before our own release, `oneShotRelease`) |
 | `timeLeft(now)` | s to the end of the session's current stage (null: none) |
 | `conditions(now, out?)` | `{ rain, wet }` (0..1) now: `weatherAt(weather.keys, serverTime(now) - weather.origin)` |
 | `raceLaps(id = us)` | laps completed in the race (from `standings`) |
@@ -431,9 +431,17 @@ lap of this race), where the ghost car is not drawn (real cars are racing). The 
 (`weekend.startCompound`, set by the menu, or Auto: `autoCompound()`, wets from wetness 0.65, intermediates
 from 0.2 (just past where each starts to be faster), else the medium in a race and the soft otherwise) and the car is put:
 - lobby (joining one: driving on where it is), practice, timed qualifying: the flying start (`Session.restart`).
-- one-shot qualifying, an entrant: at rest at the start spot, held (`net.held`) until `goAt`, then all released
-  together with a flying start (a ghost all session: `collisions` is off). A joiner after the start: a flying start,
-  laps not sent.
+- one-shot qualifying, an entrant: at rest in its own spot in the pit lane (the k-th entrant 8 + 10k m into the
+  limited stretch, closer on a short one), off the racing line, held until its release, `oneShotRelease(session, id)`
+  = `goAt + k x ONE_SHOT_GAP` (20 s; k its place in `grid`, the join order; a constant in `src/net/race.ts`, not on
+  the wire and not scaled by `WEEKEND_SCALE`, so every client and the relay agree). Released, it waits on until no
+  other car outside the pit lane is between 500 m before the start spot and 200 m after it (a car on its lap coming
+  round: we never join in front of it, nor right behind; at most 15 s), then a flying start from the start spot.
+  When its lap is in, it goes back to its spot in the pits, held for the rest of the session. In identical cars 20 s
+  holds round the lap, so nobody drives in another's spray or sight line (a much quicker car can still catch one).
+  A ghost all session (`collisions` is off). A joiner after the start: a flying start, laps not sent. The race strip
+  shows our turn (OUT IN 0:40, OUT NEXT, YOUR LAP, DONE and our place) and who is on track and out next
+  (`weekend.oneShotRunners(now)`, `oneShotIn(now)`).
 - the race, on the grid: first a spawn at the start spot (a fresh car: full battery), then the grid slot
   (`gridSlots`, below) at rest, held until `goAt`. Lap 1 is timed from the tick the lights go out
   (`Timing.startStanding`: the first crossing of the line does not end it; sector 1 includes the run from the grid)
@@ -511,6 +519,7 @@ pits / spectator / paused (parked, or the menu) / finished / ghost (recovering, 
 | `order`, `gapAhead`, `gapBehind`, `aheadId`, `behindId` | the live running order (`RaceEntry`: id, name, car, pos, laps, dist, gap, lapsDown, status, compound, pits, inPits, penalty) |
 | `keepsRunning`, `inRace`, `reason`, `lapState` | |
 | `rain`, `wetness` | the relay's weather now |
+| `oneShotRunners(now)`, `oneShotIn(now)`, `oneShotDone` | one-shot qualifying: each entrant's release and state (waiting, out, done: its lap in), s to our release |
 | `lane` | the pit lane (`PitLane`) |
 
 ## Race weekends
@@ -553,10 +562,13 @@ empty it waits for the next joiner. Only the host sends `settings` (lobby only) 
    each player's first accepted lap after the flag ends their session (their later laps are refused); it ends when
    everyone in the room has had one, or at `end`. The board is its result: a player's best valid lap in any car.
 4. `qualifying`, one-shot (`oneShot`, `collisions` off): `grid` lists who takes part (everyone in the room at the
-   start, by join order); everyone is released together at `goAt = start + oneShotPrep` (10 s), from the start spot
-   (flying), and has one lap: the first lap accepted from it, which must have begun at or after `goAt`, ends its
-   session (an invalid one counts as its lap, with no time). Joiners after the start drive but are not timed. It
-   ends when every entrant still in the room has had its lap, or at `end = goAt + oneShotLimit` (420 s).
+   start, by join order); the first is released at `goAt = start + oneShotPrep` (10 s) and the others one at a
+   time, `ONE_SHOT_GAP` (20 s) apart in `grid` order (`oneShotRelease`: the clients hold their cars until then; the
+   relay does not police it), each from the start spot (flying), with one lap: the first lap accepted from it,
+   which must have begun at or after `goAt`, ends its session (an invalid one counts as its lap, with no time).
+   Joiners after the start drive but are not timed. It ends when every entrant still in the room has had its lap,
+   or at `end = goAt + (n - 1) x ONE_SHOT_GAP + oneShotLimit` (420 s after the last of the n releases: 560 s
+   after `goAt` for 8 entrants).
 5. `race`: the grid is fixed at its start from the players in the room (`grid`, slot = index; order from the
    setting: by qualifying best, its reverse, a shuffle from the room's seeded generator, or join order; players
    without a qualifying time after those with one, in join order). `lightsAt = start + gridSecs` (15 s); the five
@@ -729,7 +741,7 @@ accepted this session (gaps allowed: a refused lap does not use one up); the cro
 future and no more than 10 s in the past of the relay clock, and after the previous accepted crossing; the player
 has been in the room, and since its last accepted lap (arrival), at least the lap time less 1 s; the crossing at
 least the lap time less 1 s after the earliest the lap could have begun (`startRef`: the session's start, in a
-race `goAt`, in one-shot qualifying the release, or the previous crossing, whichever is latest); it sent a car
+race `goAt`, in one-shot qualifying `goAt` (the first release), or the previous crossing, whichever is latest); it sent a car
 state in the last 2 s. A refused claim gets `lapRejected` (not fatal, with the reason) and is neither forwarded nor
 on the board nor counted. Pit stops: the time within 1 s ahead and 10 s behind, at least `pitSpacing` after the
 car's previous stop, and in a race from a car still racing after `goAt`; otherwise `pitRejected`. Accepted laps
@@ -977,8 +989,11 @@ capacity above counts only the object's requests).
   held, a ghost, its lap going on), the timing panel's race laps (`lapState`) and a best lap from an earlier race not
   carried in, the finish and the classification with missed-stop penalties (no chequered flag for the winner after
   its FINISHED), the time trial's
-  best times untouched, leaving back to the time trial; one-shot qualifying (held at the start spot, released
-  together, ghosts, one lap sent), the wet weather in the physics and wets fitted for it, a spectator joining
-  mid-race.
+  best times untouched, leaving back to the time trial.
+- `test/oneshot.test.ts`: one-shot qualifying with two, three and eight entrants in game Sessions: each waiting in
+  its own pit-lane spot, released in the session's order `ONE_SHOT_GAP` apart (never two cars out of the lane at
+  once), a car due out waiting while one on its lap comes past the start spot, one lap sent, back to the pits, the
+  relay's end allowing for the last release, the grid by it; ghosts, the wet weather in the physics and wets fitted
+  for it, a spectator joining mid-race.
 - `test/raceGeometry.test.ts`: the grid (32 slots) and the pit lane at every circuit, the lane's ground and track
   limits only while enabled, the start gantry's pit-side post beyond the lane.

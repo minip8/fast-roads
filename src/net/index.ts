@@ -8,7 +8,7 @@ export {
 } from './protocol';
 export {
   type RoomSettings, defaultSettings, normaliseSettings, SETTING_RANGES, QUALIFYING, type Qualifying, GRID_ORDERS, type GridOrder,
-  TYRE_WEAR, INVALID_PENALTIES, type SessionInfo, type Phase, type Stage, type RaceStage, raceStage, lightsLit, LIGHTS,
+  TYRE_WEAR, INVALID_PENALTIES, type SessionInfo, type Phase, type Stage, type RaceStage, raceStage, lightsLit, LIGHTS, ONE_SHOT_GAP, oneShotRelease,
   type Standing, type StandingStatus, COMPOUND, CAR_REASON,
 } from './race';
 export { WEATHER_KINDS, type WeatherKind, type WeatherKey, type Conditions, weatherAt, weatherKeys, resolveWeather } from './weather';

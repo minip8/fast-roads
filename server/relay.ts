@@ -4,7 +4,7 @@ import {
   MAX_GRID, MAX_NAME_BYTES, MSG, NAME_CHARS, type NetMessage, type PlayerInfo, PROTOCOL_VERSION, STATE_BYTES, stateValid,
   truncUtf8, unwrapTime, type WeatherInfo,
 } from '../src/net/protocol';
-import { defaultSettings, lobbySession, LIGHTS, normaliseSettings, type RoomSettings, type SessionInfo, type Standing } from '../src/net/race';
+import { defaultSettings, lobbySession, LIGHTS, normaliseSettings, ONE_SHOT_GAP, type RoomSettings, type SessionInfo, type Standing } from '../src/net/race';
 import type { Transport } from '../src/net/transport';
 import { MAX_WEATHER_KEYS, MAX_WEATHER_T, resolveWeather, seededRandom, WEATHER_STEP, type WeatherKind, weatherKeys } from '../src/net/weather';
 import { classify, type Entry, gridOrder } from './weekend';
@@ -49,7 +49,7 @@ export interface RelayOptions {
   resultsSecs: number;            // s the race's results stage lasts before the lobby
   overtimeSecs: number;           // s after timed qualifying's flag for laps under way to finish, at most
   oneShotPrep: number;            // s from one-shot qualifying's start to the cars' release
-  oneShotLimit: number;           // s from the release to the session's end, at most
+  oneShotLimit: number;           // s from the last entrant's release (ONE_SHOT_GAP apart) to the session's end, at most
   maxRaceLapSecs: number;         // the race stops at lights out + laps x this, at the latest
   missedStopPenalty: number;      // s added, once the race is over, to a car that made too few pit stops
   hostGrace: number;              // s the host role waits for a host who left to come back (its token)
@@ -466,9 +466,10 @@ export class Relay {
     }
     if (st.qualifying === 'timed') return this.startSession(room, at, { phase: 'qualifying', collisions: true, end: at + st.qualifyingMinutes * this.opt.minute });
     if (st.qualifying === 'oneShot') {
-      const goAt = at + this.opt.oneShotPrep;
-      return this.startSession(room, at, { phase: 'qualifying', collisions: false, oneShot: true, goAt, end: goAt + this.opt.oneShotLimit,
-        grid: this.joinOrder(room) });
+      // released one at a time, ONE_SHOT_GAP apart (race.ts oneShotRelease): the end allows for the last of them
+      const goAt = at + this.opt.oneShotPrep, grid = this.joinOrder(room);
+      return this.startSession(room, at, { phase: 'qualifying', collisions: false, oneShot: true, goAt,
+        end: goAt + Math.max(0, grid.length - 1) * ONE_SHOT_GAP + this.opt.oneShotLimit, grid });
     }
     return this.startRace(room, at);
   }

@@ -4,7 +4,7 @@ import { type LinkConditions, LoopbackNet, type LoopbackPair } from '../src/net/
 import {
   type CarState, decodeMessage, emptyCarState, encodeMessage, ERROR, MSG, type NetMessage, PROTOCOL_VERSION, timeToWire,
 } from '../src/net/protocol';
-import { COMPOUND, defaultSettings, normaliseSettings } from '../src/net/race';
+import { COMPOUND, defaultSettings, normaliseSettings, ONE_SHOT_GAP, oneShotRelease } from '../src/net/race';
 import { emptySample } from '../src/net/remote';
 import { seededRandom } from '../src/net/weather';
 import { Relay, type RelayOptions } from '../server/relay';
@@ -367,7 +367,7 @@ describe('race weekends', () => {
     expect(late.c.standings.map((s) => s.name)).toEqual(['Cat', 'Ann', 'Ben']);
   });
 
-  it('runs one-shot qualifying: one lap each from a common release, ghosts, then the grid by it', () => {
+  it('runs one-shot qualifying: one lap each, released one at a time, ghosts, then the grid by it', () => {
     const w = new World();
     const a = w.join('Ann'), b = w.join('Ben'), c = w.join('Cat');
     w.run(1);
@@ -382,9 +382,15 @@ describe('race weekends', () => {
     expect(a.c.collides(b.c.selfId)).toBe(false);
     expect(a.c.sample(b.c.selfId, w.t, emptySample())!.collidable).toBe(false);
     expect(a.c.held(w.t)).toBe(true);
+    // released in the session's (join) order ONE_SHOT_GAP apart; the session's end allows for the last release
+    expect(s.grid.map((id) => oneShotRelease(s, id))).toEqual([0, 1, 2].map((k) => s.goAt! + k * ONE_SHOT_GAP));
+    expect(oneShotRelease(s, 99)).toBeNull();
+    expect(s.end).toBe(s.goAt! + 2 * ONE_SHOT_GAP + 20);
     const late = w.join('Late');
     w.run(0.5);
     w.until(() => w.st(a) >= s.goAt! + 3.05);
+    const first = [a, b, c].find((e) => e.c.selfId === s.grid[0])!, others = [a, b, c].filter((e) => e !== first);
+    expect([first, ...others, late].map((e) => e.c.held(w.t))).toEqual([false, true, true, false]);
     lap(b, 3); lap(a, 2.9, false); lap(late, 2);
     w.run(0.3);
     expect(lastError(late)).toMatchObject({ code: ERROR.lapRejected });

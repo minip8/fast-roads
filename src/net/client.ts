@@ -4,7 +4,7 @@ import {
   MAX_NAME_BYTES, NAME_CHARS, type NetMessage, type PlayerInfo, PROTOCOL_VERSION, STATE_BYTES, type StateMsg, timeToWire, truncUtf8,
   unwrapTime, type WeatherInfo, type WelcomeMsg,
 } from './protocol';
-import { defaultSettings, lightsLit, lobbySession, raceStage, type RaceStage, type RoomSettings, type SessionInfo, type Standing } from './race';
+import { defaultSettings, lightsLit, lobbySession, oneShotRelease, raceStage, type RaceStage, type RoomSettings, type SessionInfo, type Standing } from './race';
 import { RemoteCar, type RemoteOptions, type RemoteSample } from './remote';
 import type { Transport } from './transport';
 import { type Conditions, weatherAt } from './weather';
@@ -246,10 +246,12 @@ export class NetClient {
   // The race stage and the start lights at local time `now` (null / 0 outside a race).
   raceStage(now: number): RaceStage | null { return raceStage(this.session, this.serverTime(now)); }
   lightsLit(now: number): number { return lightsLit(this.session, this.serverTime(now)); }
-  // Whether our car must be held still (on the grid until the lights go out; one-shot qualifying until release).
+  // Whether our car must be held still (on the grid until the lights go out; one-shot qualifying until our release,
+  // oneShotRelease: an entrant's own time).
   held(now: number): boolean {
     const s = this.session, t = this.serverTime(now);
-    return s.goAt != null && t < s.goAt && (s.phase === 'race' || s.oneShot) && !this.isSpectator();
+    if (s.oneShot && s.phase === 'qualifying') { const r = oneShotRelease(s, this.selfId); return r != null && t < r; }
+    return s.goAt != null && t < s.goAt && s.phase === 'race' && !this.isSpectator();
   }
   // s left in the session's current stage at local time `now` (null: no end).
   timeLeft(now: number): number | null { return this.session.end == null ? null : Math.max(0, this.session.end - this.serverTime(now)); }

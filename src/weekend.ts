@@ -1,6 +1,6 @@
 import type { CompoundId } from './conditions';
 import { DT } from './config';
-import { CAR_REASON, COMPOUND, type NetClient, type NetEvent, type Phase, type RaceStage, type SessionInfo, type Stage, type StandingStatus } from './net';
+import { CAR_REASON, COMPOUND, oneShotRelease, type NetClient, type NetEvent, type Phase, type RaceStage, type SessionInfo, type Stage, type StandingStatus } from './net';
 import { buildPitLane, enablePitLane, gridSlots, laneDist, laneIndex, laneLimit, laneZone, PIT, type GridSlot, type PitLane } from './raceGeometry';
 import type { Session } from './sim';
 import { clearStore } from './timing';
@@ -20,6 +20,11 @@ export const RECOVERY_SECS = 10;      // s a recovered car is held where it was 
 const CONDITIONS_EVERY = 0.5;         // s between conditions updates (wetness moves slowly)
 const ORDER_EVERY = 0.1;              // s between running-order updates
 const GAP_BUCKET = 10;                // m: the running order's timing loops
+// One-shot qualifying: a car due out waits while another car on the track is about to pass the start spot or has just
+// passed it (from CLEAR_BEHIND m before it to CLEAR_AHEAD m after it), so it never joins in front of a car on its lap
+// nor right behind one; at most ONE_SHOT_WAIT s, in case that car has stopped there.
+const CLEAR_BEHIND = 500, CLEAR_AHEAD = 200, ONE_SHOT_WAIT = 15;
+const ordinal = (n: number) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`;
 
 // The relay's compound numbers (race.ts COMPOUND) for ours; the drift car's all-weather tyre has none.
 export const COMPOUND_CODE: Record<CompoundId, number> = {
@@ -80,6 +85,8 @@ export class Weekend {
   aheadId = 0; behindId = 0;
   rain = 0; wetness = 0;              // the relay's weather now (drawn and heard by the game)
   private oneShotGo = false;          // one-shot: released this session
+  private parkPending = false;        // one-shot: lap done, the car goes back to its spot in the pit lane
+  readonly oneShotDone = new Set<number>();   // one-shot: entrants whose lap is in (the relay accepted it)
   private goSim: number | null = null;   // sim time of lights out
   private orderWait = 0;
   private lastPenalty = 0;
@@ -130,9 +137,31 @@ export class Weekend {
       return { text: `LAP ${Math.min(this.raceLaps + 1, this.net.settings.raceLaps)}/${this.net.settings.raceLaps}`, clock: true };
     }
     if (this.finished) return { text: 'SESSION OVER', clock: false };
+    if (this.oneShotEntrant && !this.oneShotGo) return { text: 'IN THE PITS', clock: false };
     return null;
   }
   private get oneShotGhost() { return this.phase === 'qualifying' && this.net.session.oneShot; }
+  private get oneShotEntrant() { return this.oneShotGhost && this.net.session.grid.includes(this.net.selfId); }
+  // One-shot qualifying as the HUD shows it: every entrant in release order, when it goes out (relay time) and where it
+  // is: waiting in the pits, out (on its run-up and lap), or done. Empty outside one-shot qualifying.
+  oneShotRunners(now: number): { id: number; at: number; state: 'waiting' | 'out' | 'done' }[] {
+    const s = this.net.session;
+    if (!this.oneShotGhost) return [];
+    const T = this.net.serverTime(now);
+    return s.grid.filter((id) => id === this.net.selfId || this.net.players.has(id)).map((id) => {
+      const at = oneShotRelease(s, id)!;
+      if (this.oneShotDone.has(id)) return { id, at, state: 'done' as const };
+      if (id === this.net.selfId) return { id, at, state: this.finished ? 'done' as const : this.oneShotGo ? 'out' as const : 'waiting' as const };
+      const r = this.mpSamples.get(id)?.reason;
+      // (a car released is out once it leaves the pit lane: until then, waiting for the start spot to clear)
+      return { id, at, state: T < at || r === CAR_REASON.pits || r == null ? 'waiting' as const : 'out' as const };
+    });
+  }
+  // One-shot: s until our release (0: due, waiting for the start spot to clear; null: not waiting).
+  oneShotIn(now: number): number | null {
+    if (!this.oneShotEntrant || this.oneShotGo || this.finished) return null;
+    return Math.max(0, oneShotRelease(this.net.session, this.net.selfId)! - this.net.serverTime(now));
+  }
   // The compounds our car can fit, the next one in the list (dir -1: the one before), and the set for a start.
   cycleCompound(dir = 1) {
     const cs = this.session.car.compounds, k = cs.findIndex((c) => c.id === this.nextCompound);
@@ -162,7 +191,7 @@ export class Weekend {
   // The player's restart key: a flying start on a fresh set of the next compound, except where a race has no start
   // spot to go back to (a race we are in, one-shot qualifying's lap): there it is a recovery.
   requestRestart() {
-    if (this.held) return;
+    if (this.held) return;   // (one-shot: waiting in the pits, or the lap done)
     if (this.recoveryOnly) this.recover(); else this.flyingStart(this.nextCompound);
   }
   private get recoveryOnly() {
@@ -183,16 +212,42 @@ export class Weekend {
     if (s.stage !== this.stage) this.stageChanged(s);
     this.raceStage = this.net.raceStage(now);
     this.spectator = this.net.isSpectator();
-    // the release: lights out, or one-shot's go
-    if (s.goAt != null && T >= s.goAt && !this.oneShotGo && s.oneShot && this.phase === 'qualifying') {
+    // one-shot: our release, one car at a time (oneShotRelease), from the pit lane to the start spot once it is clear
+    const at = this.oneShotEntrant ? oneShotRelease(s, this.net.selfId) : null;
+    if (at != null && T >= at && !this.oneShotGo && !this.finished && (T >= at + ONE_SHOT_WAIT || this.startSpotClear())) {
       this.oneShotGo = true;
-      if (s.grid.includes(this.net.selfId)) { this.flyingStart(this.nextCompound, 'lap'); this.notify('flag', 'GO', 'One flying lap'); }
+      this.flyingStart(this.nextCompound, 'lap');
+      this.notify('flag', 'GO', 'Your flying lap: it starts at the line');
     }
+  }
+
+  // No other car on the track from CLEAR_BEHIND m before the start spot to CLEAR_AHEAD m after it (cars in the pit
+  // lane, waiting or done, do not count).
+  private startSpotClear(): boolean {
+    const tr = this.session.track, L = tr.L, s0 = this.session.startS;
+    for (const p of this.mpSamples.values()) {
+      projectOnTrack(tr, p.x, p.z, -1, this.proj);
+      if (laneZone(this.lane, tr, this.proj) !== 'track') continue;
+      const d = ((this.proj.s - s0) % L + L) % L;   // m past the start spot, 0..L
+      if (d <= CLEAR_AHEAD || L - d <= CLEAR_BEHIND) return false;
+    }
+    return true;
+  }
+
+  // One-shot: the k-th entrant's spot in the pit lane, at rest facing down the lane, through the limited stretch from
+  // its start (10 m apart, closer if the stretch is short; ghosts, so a full room may overlap).
+  private toPitSpot() {
+    const s = this.net.session, n = Math.max(1, s.grid.length), k = Math.max(0, s.grid.indexOf(this.net.selfId));
+    const L = this.lane, tr = this.session.track, room = L.limOut - L.limIn - 16;
+    const d = L.limIn + 8 + (n > 1 ? k * Math.min(10, room / (n - 1)) : 0), j = Math.round(d / (tr.L / tr.N));
+    this.session.placeCar((L.sStart + d) % tr.L, L.side * (L.inner[j] + L.outer[j]) / 2, 0);
+    Object.assign(this.pit, { service: 0, stopped: true, inLane: true });
   }
 
   // Events Multiplayer passes on (ours included).
   onEvent(e: NetEvent) {
     if (e.type === 'standings') this.standings();
+    if (e.type === 'lap' && this.oneShotGhost && this.net.session.grid.includes(e.player)) this.oneShotDone.add(e.player);
   }
 
   // The input for this tick (held, recovering, parked, the pit limiter and service), before Session.tick.
@@ -200,7 +255,9 @@ export class Weekend {
     this.parked = parked && this.keepsRunning;
     const T = this.net.serverTime(tickAt), s = this.net.session;
     const wasHeld = this.held;
-    this.held = this.net.held(tickAt);
+    if (this.parkPending) { this.parkPending = false; this.toPitSpot(); }
+    // (one-shot: an entrant waits in the pits until its release, and goes back there when its lap is done)
+    this.held = this.oneShotEntrant ? !this.oneShotGo || this.finished : this.net.held(tickAt);
     if (wasHeld && !this.held && s.phase === 'race' && !this.spectator) {
       // lights out: lap 1 is timed from here (from the grid, through the first crossing, to the second)
       this.goSim = this.session.simTime + Math.max(0, Math.min(DT, (s.goAt ?? T) - (T - DT)));
@@ -246,8 +303,8 @@ export class Weekend {
     const s = this.net.session;
     if (this.phase === 'qualifying' && s.oneShot) {
       if (!s.grid.includes(this.net.selfId) || !this.oneShotGo || this.finished) return false;
-      this.finished = true;
-      this.notify('flag', 'Lap done', 'Qualifying over for you: drive on as a ghost');
+      this.finished = true; this.parkPending = true;
+      this.notify('flag', 'Lap done', 'Back in the pits: the others are still out');
       return true;
     }
     if (this.phase === 'qualifying' && s.stage === 'finishing') {
@@ -269,6 +326,7 @@ export class Weekend {
     this.finished = false; this.oneShotGo = false; this.goSim = null; this.recovering = 0; this.raceLaps = 0; this.lastPenalty = 0;
     Object.assign(this.pit, { service: 0, stops: 0, stopped: false, limiter: false });
     this.runners.clear(); this.order = []; this.gapAhead = this.gapBehind = null;
+    this.oneShotDone.clear(); this.parkPending = false;
     // (a race's best times are this race's: the timing panel's BEST is the best lap of this race, not of earlier ones)
     if (s.phase === 'race') clearStore(this.def.storeKey + ses.car.spec.storeKey + '.race');
     ses.setStoreTag(s.phase === 'race' ? '.race' : '.mp');
@@ -295,10 +353,12 @@ export class Weekend {
       this.held = true;
       this.notify('flag', 'RACE', `${this.net.settings.raceLaps} laps · grid slot ${slot + 1}`);
     } else if (s.phase === 'qualifying' && s.oneShot && s.grid.includes(this.net.selfId)) {
+      // in the pit lane, out of everyone's way, until our turn (oneShotRelease)
       ses.car.fitTyres(c, 'lap');
-      ses.placeCar(ses.startS, 0, 0);
+      this.toPitSpot();
       this.held = true;
-      this.notify('flag', 'ONE-SHOT QUALIFYING', 'One flying lap: everyone is released together');
+      const k = s.grid.indexOf(this.net.selfId), at = oneShotRelease(s, this.net.selfId)!;
+      this.notify('flag', 'ONE-SHOT QUALIFYING', `One flying lap each, one car at a time: you go out ${ordinal(k + 1)} of ${s.grid.length}, in ${Math.max(0, Math.round(at - T))} s`);
     } else {
       this.flyingStart(c, 'lap');
       if (s.phase === 'race') this.notify('flag', 'SPECTATING', 'The race started before you joined: drive as a ghost');

@@ -320,7 +320,9 @@ tyre wear, weather, collisions, penalties) are set in the lobby; the relay times
 - **Sessions.** At each session's start the car is put at the flying start on a fresh set (the one you chose for the
   weekend, or Auto, the weather's: wets from a wetness of 0.65, intermediates from 0.2, else softs, mediums for the
   race). One-shot
-  qualifying holds everyone at the start spot and releases them together for one flying lap each. The race: two
+  qualifying: everyone waits in the pit lane and goes out one at a time, 20 s apart in the order they joined, for
+  one flying lap each (the race strip counts down to your turn and names who is on track); a car due out waits
+  while one on its lap comes past the start spot, and a car whose lap is done goes back to the pits. The race: two
   staggered columns behind the line, pole on the inside of the first corner, held until the five red lights go out;
   lap 1 runs from the grid. The chequered flag after the winner; a finished car drives on as a ghost.
 - **Pit lane.** A lane along the pit building, marked in white with boards (PIT IN, the 80 km/h limit, PIT OUT) and a

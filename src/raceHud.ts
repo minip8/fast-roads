@@ -72,8 +72,9 @@ export class RaceHud {
     const left = net.timeLeft(now);
     if (s.phase !== 'race') {
       const row = net.board.findIndex((b) => b.player === net.selfId);
-      const st = s.oneShot && s.goAt != null && net.serverTime(now) < s.goAt ? `GO IN ${clock(s.goAt - net.serverTime(now))}`
-        : s.stage === 'finishing' ? 'LAST LAP' : left != null ? clock(left) : '';
+      const runners = w.oneShotRunners(now);
+      if (runners.length) return this.oneShotHtml(mp, now, runners, row);
+      const st = s.stage === 'finishing' ? 'LAST LAP' : left != null ? clock(left) : '';
       return `<div class="rrow"><span class="rname">${sessionName(s).toUpperCase()}</span><b class="num">${st}</b>`
         + `${row >= 0 ? `<span class="rpos">P${row + 1}</span>` : ''}</div>`;
     }
@@ -95,6 +96,21 @@ export class RaceHud {
       h += `<div class="rrow gaps">${a}${b}</div>`;
     }
     return h;
+  }
+
+  // One-shot qualifying: our turn (out in m:ss, out now, done and our place) and who is on track and next out.
+  private oneShotHtml(mp: Multiplayer, now: number, runners: ReturnType<Multiplayer['weekend']['oneShotRunners']>, row: number): string {
+    const w = mp.weekend, net = mp.net, name = (id: number) => (id === net.selfId ? 'You' : esc(net.players.get(id)?.name ?? '?'));
+    const me = runners.find((r) => r.id === net.selfId), wait = w.oneShotIn(now);
+    const st = !me ? 'NOT TIMED' : me.state === 'done' ? (row >= 0 ? `DONE <span class="rpos">P${row + 1}</span>` : 'DONE')
+      : me.state === 'out' ? 'YOUR LAP' : wait != null && wait > 0 ? `OUT IN <b class="num">${clock(wait)}</b>` : 'OUT NEXT';
+    const k = runners.findIndex((r) => r.id === net.selfId);
+    const out = runners.filter((r) => r.state === 'out').map((r) => name(r.id));
+    const next = runners.find((r) => r.state === 'waiting');
+    const tail = [out.length ? `ON TRACK <b>${out.join(', ')}</b>` : 'TRACK CLEAR',
+      next && next.id !== net.selfId ? `NEXT <b>${name(next.id)}</b>` : ''].filter(Boolean).join(' · ');
+    return `<div class="rrow"><span class="rname">ONE-SHOT${k >= 0 ? ` · ${k + 1}/${runners.length}` : ''}</span><span class="rlap">${st}</span></div>`
+      + `<div class="rrow gaps"><span class="gap">${tail}</span></div>`;
   }
 
   private pitHtml(mp: Multiplayer): string {
