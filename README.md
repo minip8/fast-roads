@@ -186,7 +186,8 @@ The site on Cloudflare Pages and the relay as a Worker with one Durable Object p
 1. Relay: `npx wrangler login`, then `npm run relay:deploy`. It prints the Worker's address,
    `https://fast-roads-relay.<your-subdomain>.workers.dev`; the relay is `wss://fast-roads-relay.<your-subdomain>.workers.dev`.
 2. Site: a Pages project from this repository with build command `npm run build`, output directory `dist`, and the
-   environment variable `VITE_RELAY_URL` set to that `wss://` address (and `NODE_VERSION` 24).
+   environment variable `VITE_RELAY_URL` set to that `wss://` address (and `NODE_VERSION` 24). This repository's
+   own relay address is in `.env.production`, which the build reads, so its deploy needs no variable.
 3. Share `https://<project>.pages.dev/?room=CODE`.
 
 The Free plan allows about 13.7 player-hours a day (each player's 40 car states a second are billed as 2 requests

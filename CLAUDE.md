@@ -249,7 +249,8 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
     `netHud.ts` `NetHud`: the board and notice feed in `#leftCol` under the timing panel. `netGame.ts`: what main.ts
     imports dynamically (`connect`, waits for the welcome), so `src/net` is not in a single-player page's download.
     `netPrefs.ts` (static, no net code): `fastroads.net` in localStorage (server, room, name), the default relay
-    (`VITE_RELAY_URL` at build time, else the page's host on port 8787), the `?room=CODE&server=` link.
+    (`VITE_RELAY_URL` at build time: `.env.production` holds the deployed relay's address, and a variable in the build
+    environment wins over it; else the page's host on port 8787), the `?room=CODE&server=` link.
   - `main.ts`: a `?room=` link joins before the circuit is built, and the welcome's circuit is the one built; a menu
     join to a room at another circuit saves that circuit and reloads into `?room=`. In a room, every frame runs
     `mp.update`, the ticks go through `mp.tick` (`tickAt = now - (acc - DT)`), paused frames call `mp.idle`, a 1 s

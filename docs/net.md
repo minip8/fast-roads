@@ -581,7 +581,9 @@ Nothing here has been run against a real account (the tests and checks above are
    root directory empty; environment variables (Production, and Preview if wanted) `VITE_RELAY_URL` =
    `wss://fast-roads-relay.<subdomain>.workers.dev` and `NODE_VERSION` = `24` (vite 8 and vitest 5 need Node
    22.12+, 24 or 26+). Save and deploy; the site is `https://<project>.pages.dev`. `VITE_RELAY_URL` is read at build
-   time, so changing it needs a new build (retry the deployment). Without Git: `VITE_RELAY_URL=wss://... npm run build`
+   time, so changing it needs a new build (retry the deployment). It must be a build variable: a runtime variable
+   of a Worker (wrangler `vars`) never reaches `vite build`. The repository's `.env.production` sets it to the
+   deployed relay, which the build reads when the environment has none. Without Git: `VITE_RELAY_URL=wss://... npm run build`
    and `npx wrangler pages deploy dist --project-name <project>`. The repository root has no wrangler config, so
    Pages does not mistake the relay's (`server/cf/`) for its own.
 4. **Play.** On the site, Race tab -> Multiplayer: a room code, a name, Join (the relay field defaults to
