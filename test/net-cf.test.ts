@@ -2,15 +2,15 @@ import { performance } from 'node:perf_hooks';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { unstable_startWorker } from 'wrangler';
 import { WebSocket } from 'ws';
-import { NetClient, type NetEvent } from '../src/net/client';
+import { NetClient, type NetClientOptions, type NetEvent } from '../src/net/client';
 import { decodeMessage, emptyCarState, encodeMessage, ERROR, PROTOCOL_VERSION } from '../src/net/protocol';
 import { emptySample } from '../src/net/remote';
 import { relayUrl, WebSocketTransport } from '../src/net/websocket';
 
 // The Cloudflare relay (server/cf/worker.ts: the Worker and one Durable Object per room) run locally by wrangler's
 // own dev server (workerd through Miniflare; offline, no account), driven in real time by NetClients over
-// WebSocketTransport and by raw `ws` sockets. MAX_PLAYERS 3 and MIN_LAP_SECS 1 (vars, as a deployment would set
-// them) so a full room and an accepted lap fit in a short test.
+// WebSocketTransport and by raw `ws` sockets. MAX_PLAYERS 3, MIN_LAP_SECS 1 and WEEKEND_SCALE 0.05 (vars, as a
+// deployment would set them) so a full room, an accepted lap and a weekend's deadlines fit in a short test.
 
 process.env.WRANGLER_SEND_METRICS = 'false';
 let worker: Awaited<ReturnType<typeof unstable_startWorker>>;
@@ -18,7 +18,8 @@ let base = '';
 beforeAll(async () => {
   worker = await unstable_startWorker({
     config: 'server/cf/wrangler.jsonc',
-    bindings: { MAX_PLAYERS: { type: 'plain_text', value: '3' }, MIN_LAP_SECS: { type: 'plain_text', value: '1' } },
+    bindings: { MAX_PLAYERS: { type: 'plain_text', value: '3' }, MIN_LAP_SECS: { type: 'plain_text', value: '1' },
+      WEEKEND_SCALE: { type: 'plain_text', value: '0.05' } },
     dev: { server: { hostname: '127.0.0.1', port: 0 }, inspector: false, watch: false, logLevel: 'error', persist: false },
   });
   const u = await worker.url;
@@ -44,8 +45,8 @@ function clients() {
     }
   }, 5);
   return {
-    add(room: string, name: string, car = 'lcf1', url = relayUrl(base, room)) {
-      const p = { c: new NetClient(new WebSocketTransport(url), { room, name, car, circuit: 'spa', clock: now }), events: [] as NetEvent[], k: all.length };
+    add(room: string, name: string, car = 'lcf1', url = relayUrl(base, room), o: Partial<NetClientOptions> = {}) {
+      const p = { c: new NetClient(new WebSocketTransport(url), { room, name, car, circuit: 'spa', clock: now, ...o }), events: [] as NetEvent[], k: all.length };
       all.push(p);
       return p;
     },
@@ -121,6 +122,46 @@ describe('Cloudflare relay (local workerd)', () => {
     } finally { net.stop(); }
   });
 
+  it('creates and joins rooms explicitly, hands the host role on, and times the sessions on its clock', async () => {
+    const net = clients();
+    try {
+      const host = net.add('CW1', 'Hal', 'lcf1', undefined, { mode: 'create' });
+      await until(() => host.c.status === 'joined');
+      const clash = net.add('CW1', 'Dup', 'lcf1', undefined, { mode: 'create' });
+      const missing = net.add('CWX', 'Lost', 'lcf1', undefined, { mode: 'join' });
+      const guest = net.add('CW1', 'Gus', 'drift', undefined, { mode: 'join' });
+      await until(() => clash.c.status === 'closed' && missing.c.status === 'closed' && guest.c.status === 'joined');
+      expect(clash.events.some((e) => e.type === 'error' && e.code === ERROR.roomTaken)).toBe(true);
+      expect(missing.events.some((e) => e.type === 'error' && e.code === ERROR.noRoom)).toBe(true);
+      expect(host.c.isHost).toBe(true);
+      expect(guest.c.host).toBe(host.c.selfId);
+      // the object the missing room's join reached refused it and holds no room: a create there works
+      const later = net.add('CWX', 'New', 'lcf1', undefined, { mode: 'create' });
+      await until(() => later.c.status === 'joined');
+      expect(later.c.isHost).toBe(true);
+
+      guest.c.setSettings({ raceLaps: 9 });
+      await until(() => guest.events.some((e) => e.type === 'error' && e.code === ERROR.notHost));
+      host.c.setSettings({ practice: 1, practiceMinutes: 1, qualifying: 'none', raceLaps: 2, weather: 'wet' });
+      await until(() => guest.c.settings.raceLaps === 2);
+      host.c.startWeekend();
+      await until(() => guest.c.session.phase === 'practice');
+      const p = guest.c.session;
+      expect(p.end! - p.start).toBeCloseTo(3, 6);   // a settings minute is 3 s at WEEKEND_SCALE 0.05
+      expect(guest.c.weather.kind).toBe('wet');
+      await until(() => guest.c.session.phase === 'race', 6000);   // the object's deadline timer, not a client message
+      expect(guest.c.session.start).toBe(p.end);
+      expect(guest.c.session.grid).toEqual([host.c.selfId, guest.c.selfId]);
+      host.c.skipSession();
+      await until(() => guest.c.session.stage === 'results');
+      expect(guest.c.standingsFinal).toBe(true);
+      await until(() => guest.c.session.phase === 'lobby', 4000);   // the results' 1.5 s
+      expect(guest.c.standings.map((s) => s.status)).toEqual(['outOfTime', 'outOfTime']);
+      host.c.close();
+      await until(() => guest.c.isHost, 3000);   // after the host's grace (0.5 s here)
+    } finally { net.stop(); }
+  }, 20_000);
+
   it('refuses a bad room in the address, a hello for another room, text and garbage', async () => {
     for (const path of ['/room/abc', '/room/TOOLONGXX', '/room/', '/elsewhere']) {
       const s = raw(base + path);
@@ -155,7 +196,7 @@ describe('Cloudflare relay (local workerd)', () => {
 
     const old = raw(relayUrl(base, 'CF6'));
     await until(() => old.open);
-    old.ws.send(encodeMessage({ type: 'hello', version: PROTOCOL_VERSION, room: 'CF6', name: 'n', car: 'lcf1', circuit: '' }).map((v, i) => (i === 1 ? v + 1 : v)));
+    old.ws.send(encodeMessage({ type: 'hello', version: PROTOCOL_VERSION, mode: 'either', token: 0, room: 'CF6', name: 'n', car: 'lcf1', circuit: '' }).map((v, i) => (i === 1 ? v + 1 : v)));
     await until(() => old.closed !== null);
     expect(old.got[0]).toMatchObject({ ok: true, msg: { type: 'error', code: ERROR.version } });
   });

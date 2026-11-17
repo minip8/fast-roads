@@ -3,8 +3,8 @@ import { listen } from './ws';
 
 // ============================================================================
 // `npm run server`: the multiplayer relay on WebSocket. PORT (default 8787) and HOST (default all interfaces)
-// from the environment; MAX_PLAYERS, BATCH_MS and MIN_LAP_SECS optionally (server/env.ts). Logs rooms opening,
-// joins, leaves and kicks.
+// from the environment; MAX_PLAYERS, BATCH_MS, MIN_LAP_SECS and WEEKEND_SCALE optionally (server/env.ts). Logs
+// rooms opening, joins, leaves, the weekend's phases and kicks.
 // ============================================================================
 const port = Number(process.env.PORT ?? 8787);
 const host = process.env.HOST || undefined;

@@ -12,9 +12,14 @@
 //
 // Versioning: PROTOCOL_VERSION is in hello and welcome, at the same place (u16 at offset 1) in every version, so a
 // relay can refuse a client of another version (helloVersion) even when the rest of its hello no longer parses.
-// Types 0x20-0x2f are reserved for race-session messages (grid, start lights, results).
+// Version 2 added explicit room creation, rejoining, race weekends (0x20-0x27) and the car state's status byte.
 // ============================================================================
-export const PROTOCOL_VERSION = 1;
+import {
+  GRID_ORDERS, PHASES, QUALIFYING, type RoomSettings, type SessionInfo, type Standing, STAGES, STANDING_STATUS,
+} from './race';
+import { MAX_WEATHER_KEYS, type ResolvedWeather, WEATHER_KINDS, type WeatherKey } from './weather';
+
+export const PROTOCOL_VERSION = 2;
 
 export const MSG = {
   state: 0x01,       // unreliable, both ways: a car's state (STATE_BYTES)
@@ -30,6 +35,13 @@ export const MSG = {
   lap: 0x18,         // client -> relay -> clients: a lap completed (relayed only if accepted)
   board: 0x19,       // relay -> clients: the session's lap board
   restart: 0x1a,     // client -> relay -> clients: the car was put back at the start spot
+  settings: 0x20,    // host -> relay: new room settings; relay -> clients: the settings now
+  host: 0x21,        // relay -> clients: who the host is now
+  control: 0x22,     // host -> relay: start the weekend, skip (end) the session, abort to the lobby
+  session: 0x23,     // relay -> clients: the session (phase) now
+  weather: 0x24,     // relay -> clients: the session's weather keyframes
+  standings: 0x25,   // relay -> clients: the race classification
+  pit: 0x26,         // client -> relay -> clients: a pit stop
   error: 0x1f,       // relay -> client: an error; fatal ones are followed by the relay closing the connection
 } as const;
 export type MsgType = (typeof MSG)[keyof typeof MSG];
@@ -42,7 +54,8 @@ export const MAX_ID_BYTES = 16;          // car / circuit id: 1-16 of a-z 0-9
 export const MAX_ERROR_BYTES = 200;
 export const MAX_BOARD = 32;             // lap board entries
 export const MAX_ROSTER = 32;            // players in a welcome
-export const MAX_CLIENT_MSG = 256;       // the largest message a client may send (a hello is at most 95 bytes)
+export const MAX_CLIENT_MSG = 256;       // the largest message a client may send (a hello is at most 100 bytes)
+export const MAX_GRID = 32;              // race grid / one-shot entrants
 export const NO_TIME = 0xffffffff;       // a lap's sector that was not timed
 const ROOM_RE = /^[A-Z0-9]{1,8}$/, ID_RE = /^[a-z0-9]{1,16}$/;
 
@@ -60,6 +73,8 @@ export interface CarState {
   rpm: number;                   // 0..30000
   flags: number;                 // STATE_FLAG bits
   epoch: number;                 // 0..15, +1 (mod 16) at every restart or teleport: receivers do not blend across it
+  compound: number;              // 0..7: the tyres fitted (race.ts COMPOUND)
+  reason: number;                // 0..7: why the car is shown as it is, e.g. why it does not collide (race.ts CAR_REASON)
 }
 export const STATE_FLAG = {
   noCollide: 1,                  // do not collide with this car (just restarted, in the pits, a ghost)
@@ -70,7 +85,7 @@ const FLAGS_KNOWN = 7;
 
 export function emptyCarState(): CarState {
   return { x: 0, y: 0, z: 0, qx: 0, qy: 0, qz: 0, qw: 1, vx: 0, vy: 0, vz: 0, wx: 0, wy: 0, wz: 0,
-    steer: 0, throttle: 0, brake: 0, gear: 0, rpm: 0, flags: 0, epoch: 0 };
+    steer: 0, throttle: 0, brake: 0, gear: 0, rpm: 0, flags: 0, epoch: 0, compound: 0, reason: 0 };
 }
 
 // A state on the wire: the car state plus who (set by the relay), sequence and time.
@@ -81,15 +96,15 @@ export interface StateMsg extends CarState {
   timeWire: number;              // u32: the sender's estimate of the relay clock, in TIME_UNITS_PER_S, mod 2^32
 }
 
-// Layout (STATE_BYTES = 42):
+// Layout (STATE_BYTES = 43):
 //   0 u8 type | 1 u8 player | 2 u16 seq | 4 u32 time (1e-4 s, relay clock, mod 2^32)
 //   8 i24 x | 11 i24 y | 14 i24 z (mm, +-8388 m)
 //   17 u16 q0 | 19 u16 q1 | 21 u16 q2: smallest-three quaternion: the three components other than the largest, each
 //      15 bits over [-1/sqrt2, 1/sqrt2]; bit 15 of q0 and q1 hold the dropped component's index (0-3: x y z w)
 //   23 i16 vx, vy, vz (0.01 m/s, +-327 m/s) | 29 i16 wx, wy, wz (0.001 rad/s, +-32.7 rad/s)
 //   35 i8 steer (0.01 rad) | 36 u8 throttle | 37 u8 brake (/255) | 38 i8 gear | 39 u16 rpm | 41 u8 flags (bits 0-3)
-//      and epoch (bits 4-7)
-export const STATE_BYTES = 42;
+//      and epoch (bits 4-7) | 42 u8 compound (bits 0-2) and reason (bits 3-5); bits 6-7 reserved (0)
+export const STATE_BYTES = 43;
 export const TIME_UNITS_PER_S = 10000;
 const POS_Q = 1000, VEL_Q = 100, ANG_Q = 1000, STEER_Q = 100, PEDAL_Q = 255;
 const Q_MAX = 16383, Q_RANGE = Math.SQRT1_2;
@@ -111,6 +126,7 @@ export function encodeState(s: CarState, seq: number, timeS: number, out: Uint8A
   v.setInt8(38, clamp(Math.round(fin(s.gear)), -1, 15));
   v.setUint16(39, clamp(Math.round(fin(s.rpm)), 0, 30000), true);
   v.setUint8(41, (s.flags & FLAGS_KNOWN) | ((s.epoch & 15) << 4));
+  v.setUint8(42, (s.compound & 7) | ((s.reason & 7) << 3));
   return out;
 }
 
@@ -118,7 +134,8 @@ export function encodeState(s: CarState, seq: number, timeS: number, out: Uint8A
 export function stateValid(d: Uint8Array): boolean {
   if (d.length !== STATE_BYTES || d[0] !== MSG.state) return false;
   const v = view(d);
-  return quatValid(v, 17) && v.getInt8(38) >= -1 && v.getInt8(38) <= 15 && v.getUint16(39, true) <= 30000 && (d[41] & 8) === 0;
+  return quatValid(v, 17) && v.getInt8(38) >= -1 && v.getInt8(38) <= 15 && v.getUint16(39, true) <= 30000 && (d[41] & 8) === 0
+    && (d[42] & 0xc0) === 0;
 }
 
 function decodeState(r: Reader): StateMsg {
@@ -132,8 +149,8 @@ function stateAt(r: Reader, o: number): StateMsg {
   const v = r.v;
   if (v.getUint8(o) !== MSG.state) r.fail('not a state');
   if (!quatValid(v, o + 17)) r.fail('bad quaternion');
-  const gear = v.getInt8(o + 38), rpm = v.getUint16(o + 39, true), f = v.getUint8(o + 41);
-  if (gear < -1 || gear > 15 || rpm > 30000 || (f & 8)) r.fail('state out of range');
+  const gear = v.getInt8(o + 38), rpm = v.getUint16(o + 39, true), f = v.getUint8(o + 41), st = v.getUint8(o + 42);
+  if (gear < -1 || gear > 15 || rpm > 30000 || (f & 8) || (st & 0xc0)) r.fail('state out of range');
   const m: StateMsg = {
     type: 'state', player: v.getUint8(o + 1), seq: v.getUint16(o + 2, true), timeWire: v.getUint32(o + 4, true),
     x: getI24(v, o + 8) / POS_Q, y: getI24(v, o + 11) / POS_Q, z: getI24(v, o + 14) / POS_Q,
@@ -141,7 +158,7 @@ function stateAt(r: Reader, o: number): StateMsg {
     vx: v.getInt16(o + 23, true) / VEL_Q, vy: v.getInt16(o + 25, true) / VEL_Q, vz: v.getInt16(o + 27, true) / VEL_Q,
     wx: v.getInt16(o + 29, true) / ANG_Q, wy: v.getInt16(o + 31, true) / ANG_Q, wz: v.getInt16(o + 33, true) / ANG_Q,
     steer: v.getInt8(o + 35) / STEER_Q, throttle: v.getUint8(o + 36) / PEDAL_Q, brake: v.getUint8(o + 37) / PEDAL_Q,
-    gear, rpm, flags: f & FLAGS_KNOWN, epoch: f >> 4,
+    gear, rpm, flags: f & FLAGS_KNOWN, epoch: f >> 4, compound: st & 7, reason: (st >> 3) & 7,
   };
   unpackQuat(v, o + 17, m);
   return m;
@@ -193,13 +210,13 @@ export interface BoardEntry {
   sectors: (number | null)[];    // that lap's three sectors (s)
   laps: number;                  // valid laps this player has done in this car
 }
-export const LEAVE_REASON = { left: 0, timeout: 1, kicked: 2 } as const;
+export const LEAVE_REASON = { left: 0, timeout: 1, kicked: 2, replaced: 3 } as const;
 export const ERROR = {
-  version: 1,        // the client speaks another protocol version (fatal)
+  version: 1,        // the client speaks another protocol version (fatal): the game needs updating (a reload)
   roomFull: 2,       // fatal
   badName: 3,        // fatal on hello; on a player update the old name stays
-  badCar: 4,         // fatal on hello
-  badCircuit: 5,     // fatal on hello
+  badCar: 4,         // fatal on hello; not fatal on a player or settings change (also: a car the room does not allow)
+  badCircuit: 5,     // fatal on hello; not fatal on a settings change
   badRoom: 6,        // fatal: a hello for another room than the connection's address names
   malformed: 7,      // a message did not decode (fatal after repeats)
   rate: 8,           // too many messages (fatal after repeats)
@@ -210,14 +227,30 @@ export const ERROR = {
   badContact: 13,    // not fatal
   serverFull: 14,    // fatal
   shutdown: 15,      // fatal
+  noRoom: 16,        // fatal: a join for a room that does not exist
+  roomTaken: 17,     // fatal: a create for a room code in use (pick another code and try again)
+  notHost: 18,       // not fatal: settings or a session control from a player who is not the host
+  badPhase: 19,      // not fatal: not now (settings outside the lobby, start outside it, skip or abort in it)
+  pitRejected: 20,   // not fatal: the pit stop report failed the relay's checks
+  replaced: 21,      // fatal: the same player rejoined (its token) on another connection
 } as const;
+
+// How a hello asks for its room: join an existing one, create a new one, or either (join it, or create it if there
+// is none: version 1's only behaviour, which the game uses until it chooses).
+export const HELLO_MODES = ['join', 'create', 'either'] as const;
+export type HelloMode = (typeof HELLO_MODES)[number];
+export const CONTROL_ACTIONS = ['start', 'skip', 'abort'] as const;
+export type ControlAction = (typeof CONTROL_ACTIONS)[number];
+
+// A session's weather: keyframes from `origin` (relay time of session time 0) and the kind they were made as.
+export interface WeatherInfo { origin: number; kind: ResolvedWeather; keys: WeatherKey[] }
+export const RESOLVED_WEATHER = ['dry', 'damp', 'wet', 'changeable'] as const;
 
 export type NetMessage =
   | StateMsg
   | { type: 'states'; states: StateMsg[] }
-  | { type: 'hello'; version: number; room: string; name: string; car: string; circuit: string }
-  | { type: 'welcome'; version: number; you: number; room: string; circuit: string; serverTime: number;
-      maxPlayers: number; stateHz: number; players: PlayerInfo[]; board: BoardEntry[] }
+  | { type: 'hello'; version: number; mode: HelloMode; token: number; room: string; name: string; car: string; circuit: string }
+  | WelcomeMsg
   | { type: 'joined'; player: PlayerInfo }
   | { type: 'left'; id: number; reason: number }
   | { type: 'player'; player: PlayerInfo }
@@ -227,7 +260,24 @@ export type NetMessage =
   | LapMsg
   | { type: 'board'; board: BoardEntry[] }
   | { type: 'restart'; player: number }
+  | { type: 'settings'; settings: RoomSettings }
+  | { type: 'host'; id: number }
+  | { type: 'control'; action: ControlAction }
+  | { type: 'session'; session: SessionInfo }
+  | { type: 'weather'; weather: WeatherInfo }
+  | { type: 'standings'; final: boolean; standings: Standing[] }
+  | PitMsg
   | { type: 'error'; code: number; fatal: boolean; message: string };
+
+export interface WelcomeMsg {
+  type: 'welcome'; version: number; you: number;
+  token: number;                 // u32: hand it back in a hello to rejoin as the same player (not 0)
+  room: string; serverTime: number; maxPlayers: number; stateHz: number;
+  host: number;                  // the host's id (0: none; may be a player who left less than hostGrace ago)
+  players: PlayerInfo[]; board: BoardEntry[];
+  settings: RoomSettings; session: SessionInfo; weather: WeatherInfo;
+  final: boolean; standings: Standing[];   // the race under way, or the last race's result (final), or none
+}
 
 // A car-to-car hit as the sender's simulation resolved it, so the other car's client can apply its half if its own
 // simulation missed it. impulse: what the sender's car received (N s, world); the other car takes the opposite.
@@ -243,9 +293,17 @@ export interface ContactMsg {
 export interface LapMsg {
   type: 'lap';
   player: number;                // 0 from a client; the relay sets the sender's id
+  lap: number;                   // u16, 1..: the sender's count of laps it reported this session
+  crossingWire: number;          // relay clock of the line crossing that ended the lap (as StateMsg.timeWire)
   time: number;                  // lap time (s, microseconds on the wire)
   sectors: (number | null)[];    // three
   valid: boolean;
+}
+export interface PitMsg {
+  type: 'pit';
+  player: number;                // 0 from a client; the relay sets the sender's id
+  timeWire: number;              // relay clock of the stop (as StateMsg.timeWire)
+  compound: number;              // 0-7: the tyres fitted (race.ts COMPOUND)
 }
 export const MAX_IMPULSE = 1e6, MAX_CLOSING = 200, MAX_LAP_S = 3600;
 
@@ -260,12 +318,15 @@ export function encodeMessage(m: NetMessage): Uint8Array {
   const w = new Writer();
   w.u8(MSG[m.type]);
   switch (m.type) {
-    case 'hello': w.u16(m.version); w.str(m.room); w.str(m.name); w.str(m.car); w.str(m.circuit); break;
+    case 'hello':
+      w.u16(m.version); w.u8(HELLO_MODES.indexOf(m.mode)); w.u32(m.token); w.str(m.room); w.str(m.name); w.str(m.car); w.str(m.circuit);
+      break;
     case 'welcome':
-      w.u16(m.version); w.u8(m.you); w.str(m.room); w.str(m.circuit); w.f64(m.serverTime);
-      w.u8(m.maxPlayers); w.u8(m.stateHz);
+      w.u16(m.version); w.u8(m.you); w.u32(m.token); w.str(m.room); w.f64(m.serverTime);
+      w.u8(m.maxPlayers); w.u8(m.stateHz); w.u8(m.host);
       w.u8(m.players.length); for (const p of m.players) writePlayer(w, p);
-      writeBoard(w, m.board);
+      writeBoard(w, m.board); writeSettings(w, m.settings); writeSession(w, m.session); writeWeather(w, m.weather);
+      writeStandings(w, m.final, m.standings);
       break;
     case 'joined': case 'player': writePlayer(w, m.player); break;
     case 'left': w.u8(m.id); w.u8(m.reason); break;
@@ -275,9 +336,20 @@ export function encodeMessage(m: NetMessage): Uint8Array {
       w.u8(m.from); w.u8(m.to); w.u32(m.timeWire);
       w.f32(m.ix); w.f32(m.iy); w.f32(m.iz); w.f32(m.px); w.f32(m.py); w.f32(m.pz); w.f32(m.closing);
       break;
-    case 'lap': w.u8(m.player); w.u32(usOf(m.time)); for (let k = 0; k < 3; k++) w.u32(usOf(m.sectors[k])); w.u8(m.valid ? 1 : 0); break;
+    case 'lap':
+      w.u8(m.player); w.u16(m.lap); w.u32(m.crossingWire); w.u32(usOf(m.time));
+      for (let k = 0; k < 3; k++) w.u32(usOf(m.sectors[k]));
+      w.u8(m.valid ? 1 : 0);
+      break;
     case 'board': writeBoard(w, m.board); break;
     case 'restart': w.u8(m.player); break;
+    case 'settings': writeSettings(w, m.settings); break;
+    case 'host': w.u8(m.id); break;
+    case 'control': w.u8(CONTROL_ACTIONS.indexOf(m.action) + 1); break;
+    case 'session': writeSession(w, m.session); break;
+    case 'weather': writeWeather(w, m.weather); break;
+    case 'standings': writeStandings(w, m.final, m.standings); break;
+    case 'pit': w.u8(m.player); w.u32(m.timeWire); w.u8(m.compound & 7); break;
     case 'error': w.u8(m.code); w.u8(m.fatal ? 1 : 0); w.str(truncUtf8(m.message, MAX_ERROR_BYTES)); break;
   }
   return w.done();
@@ -289,6 +361,39 @@ function writeBoard(w: Writer, b: BoardEntry[]) {
     w.u8(e.player); w.str(e.name); w.str(e.car); w.u32(usOf(e.best));
     for (let k = 0; k < 3; k++) w.u32(usOf(e.sectors[k]));
     w.u16(Math.min(e.laps, 65535));
+  }
+}
+const u8of = (x: number) => clamp(Math.round(fin(x)), 0, 255);
+function writeSettings(w: Writer, s: RoomSettings) {
+  w.str(s.circuit); w.str(s.car);
+  w.u8(u8of(s.practice)); w.u8(u8of(s.practiceMinutes));
+  w.u8(Math.max(0, QUALIFYING.indexOf(s.qualifying))); w.u8(u8of(s.qualifyingMinutes));
+  w.u8(u8of(s.raceLaps)); w.u8(Math.max(0, GRID_ORDERS.indexOf(s.grid))); w.u8(u8of(s.pitStops));
+  w.u8(u8of(s.tyreWear * 10)); w.u8(Math.max(0, WEATHER_KINDS.indexOf(s.weather))); w.u8(s.collisions ? 1 : 0);
+  w.u8(u8of(s.invalidPenalty)); w.u16(clamp(Math.round(fin(s.finishSecs)), 0, 65535));
+}
+const timeOrNone = (t: number | null) => (t == null ? -1 : t);
+function writeSession(w: Writer, s: SessionInfo) {
+  w.u8(PHASES.indexOf(s.phase)); w.u8(s.index); w.u8(STAGES.indexOf(s.stage)); w.u8((s.collisions ? 1 : 0) | (s.oneShot ? 2 : 0));
+  w.f64(s.start); w.f64(timeOrNone(s.end)); w.f64(timeOrNone(s.lightsAt)); w.f64(timeOrNone(s.goAt)); w.f64(timeOrNone(s.finishAt));
+  w.u32(s.seed);
+  const g = s.grid.slice(0, MAX_GRID);
+  w.u8(g.length); for (const id of g) w.u8(id);
+}
+function writeWeather(w: Writer, x: WeatherInfo) {
+  w.f64(x.origin); w.u8(Math.max(0, RESOLVED_WEATHER.indexOf(x.kind)));
+  const keys = x.keys.slice(0, MAX_WEATHER_KEYS);
+  w.u8(keys.length);
+  for (const k of keys) { w.u16(clamp(Math.round(fin(k.t)), 0, 65535)); w.u8(u8of(k.rain * 255)); w.u8(u8of(k.wet * 255)); }
+}
+function writeStandings(w: Writer, final: boolean, st: Standing[]) {
+  w.u8(final ? 1 : 0);
+  const list = st.slice(0, MAX_GRID);
+  w.u8(list.length);
+  for (const e of list) {
+    w.u8(e.player); w.str(e.name); w.str(e.car); w.u8(Math.max(0, STANDING_STATUS.indexOf(e.status))); w.u8(e.grid ?? 255);
+    w.u16(Math.min(e.laps, 65535)); w.u32(usOf(e.time)); w.u32(Math.min(NO_TIME - 1, usOf(e.penalty))); w.u32(usOf(e.best));
+    w.u8(Math.min(e.pits, 255)); w.u8(Math.min(e.invalid, 255));
   }
 }
 const usOf = (t: number | null | undefined) => (t == null || !Number.isFinite(t) || t < 0 ? NO_TIME : Math.min(NO_TIME - 1, Math.round(t * 1e6)));
@@ -321,24 +426,27 @@ function decodeBody(r: Reader): NetMessage {
     case MSG.hello: {
       const version = r.u16();
       if (version !== PROTOCOL_VERSION) r.fail('version');
-      return { type: 'hello', version, room: r.room(), name: r.str(MAX_NAME_BYTES), car: r.id(), circuit: r.id(true) };
+      const mode = r.pick(HELLO_MODES), token = r.u32();
+      return { type: 'hello', version, mode, token, room: r.room(), name: r.str(MAX_NAME_BYTES), car: r.id(), circuit: r.id(true) };
     }
     case MSG.welcome: {
       const version = r.u16();
       if (version !== PROTOCOL_VERSION) r.fail('version');
-      const you = r.u8(), room = r.room(), circuit = r.id(), serverTime = r.f64();
+      const you = r.u8(), token = r.u32(), room = r.room(), serverTime = r.f64();
       if (serverTime < 0) r.fail('bad time');
-      const maxPlayers = r.u8(), stateHz = r.u8(), n = r.u8();
+      const maxPlayers = r.u8(), stateHz = r.u8(), host = r.u8(), n = r.u8();
       if (n > MAX_ROSTER || stateHz === 0) r.fail('out of range');
       const players: PlayerInfo[] = [];
       for (let i = 0; i < n; i++) players.push(readPlayer(r));
-      return { type: 'welcome', version, you, room, circuit, serverTime, maxPlayers, stateHz, players, board: readBoard(r) };
+      const board = readBoard(r), settings = readSettings(r), session = readSession(r), weather = readWeather(r);
+      const { final, standings } = readStandings(r);
+      return { type: 'welcome', version, you, token, room, serverTime, maxPlayers, stateHz, host, players, board, settings, session, weather, final, standings };
     }
     case MSG.joined: return { type: 'joined', player: readPlayer(r) };
     case MSG.player: return { type: 'player', player: readPlayer(r) };
     case MSG.left: {
       const id = r.u8(), reason = r.u8();
-      if (reason > 2) r.fail('out of range');
+      if (reason > 3) r.fail('out of range');
       return { type: 'left', id, reason };
     }
     case MSG.ping: return { type: 'ping', nonce: r.u32(), clientTime: r.f64() };
@@ -351,12 +459,28 @@ function decodeBody(r: Reader): NetMessage {
       return m;
     }
     case MSG.lap: {
-      const player = r.u8(), time = r.time(false)!, sectors = [r.time(true), r.time(true), r.time(true)], f = r.u8();
-      if (f > 1 || time > MAX_LAP_S || sectors.some((s) => s != null && s > MAX_LAP_S)) r.fail('out of range');
-      return { type: 'lap', player, time, sectors, valid: f === 1 };
+      const player = r.u8(), lap = r.u16(), crossingWire = r.u32();
+      const time = r.time(false)!, sectors = [r.time(true), r.time(true), r.time(true)], f = r.u8();
+      if (f > 1 || lap === 0 || time > MAX_LAP_S || sectors.some((s) => s != null && s > MAX_LAP_S)) r.fail('out of range');
+      return { type: 'lap', player, lap, crossingWire, time, sectors, valid: f === 1 };
     }
     case MSG.board: return { type: 'board', board: readBoard(r) };
     case MSG.restart: return { type: 'restart', player: r.u8() };
+    case MSG.settings: return { type: 'settings', settings: readSettings(r) };
+    case MSG.host: return { type: 'host', id: r.u8() };
+    case MSG.control: {
+      const a = r.u8();
+      if (a < 1 || a > CONTROL_ACTIONS.length) r.fail('out of range');
+      return { type: 'control', action: CONTROL_ACTIONS[a - 1] };
+    }
+    case MSG.session: return { type: 'session', session: readSession(r) };
+    case MSG.weather: return { type: 'weather', weather: readWeather(r) };
+    case MSG.standings: return { type: 'standings', ...readStandings(r) };
+    case MSG.pit: {
+      const player = r.u8(), timeWire = r.u32(), compound = r.u8();
+      if (compound > 7) r.fail('out of range');
+      return { type: 'pit', player, timeWire, compound };
+    }
     case MSG.error: {
       const code = r.u8(), f = r.u8();
       if (f > 1) r.fail('out of range');
@@ -375,6 +499,50 @@ function readBoard(r: Reader): BoardEntry[] {
       sectors: [r.time(true), r.time(true), r.time(true)], laps: r.u16() });
   }
   return out;
+}
+// Numbers as they came (the relay clamps them: race.ts normaliseSettings); enums must be known values.
+function readSettings(r: Reader): RoomSettings {
+  const circuit = r.id(), car = r.id(true), practice = r.u8(), practiceMinutes = r.u8();
+  const qualifying = r.pick(QUALIFYING), qualifyingMinutes = r.u8(), raceLaps = r.u8(), grid = r.pick(GRID_ORDERS);
+  const pitStops = r.u8(), tyreWear = r.u8() / 10, weather = r.pick(WEATHER_KINDS), f = r.u8();
+  if (f > 1) r.fail('out of range');
+  const invalidPenalty = r.u8(), finishSecs = r.u16();
+  return { circuit, car, practice, practiceMinutes, qualifying, qualifyingMinutes, raceLaps, grid, pitStops, tyreWear, weather,
+    collisions: f === 1, invalidPenalty, finishSecs };
+}
+function readSession(r: Reader): SessionInfo {
+  const phase = r.pick(PHASES), index = r.u8(), stage = r.pick(STAGES), f = r.u8();
+  if (f > 3) r.fail('out of range');
+  const start = r.f64();
+  if (start < 0) r.fail('bad time');
+  const opt = () => { const t = r.f64(); return t < 0 ? null : t; };
+  const end = opt(), lightsAt = opt(), goAt = opt(), finishAt = opt(), seed = r.u32(), n = r.u8();
+  if (n > MAX_GRID) r.fail('out of range');
+  const grid: number[] = [];
+  for (let i = 0; i < n; i++) grid.push(r.u8());
+  return { phase, index, stage, collisions: (f & 1) !== 0, oneShot: (f & 2) !== 0, start, end, lightsAt, goAt, finishAt, seed, grid };
+}
+function readWeather(r: Reader): WeatherInfo {
+  const origin = r.f64(), kind = r.pick(RESOLVED_WEATHER), n = r.u8();
+  if (n < 1 || n > MAX_WEATHER_KEYS) r.fail('out of range');
+  const keys: WeatherKey[] = [];
+  for (let i = 0; i < n; i++) {
+    const t = r.u16();
+    if (i && t <= keys[i - 1].t) r.fail('keyframes out of order');
+    keys.push({ t, rain: r.u8() / 255, wet: r.u8() / 255 });
+  }
+  return { origin, kind, keys };
+}
+function readStandings(r: Reader): { final: boolean; standings: Standing[] } {
+  const f = r.u8(), n = r.u8();
+  if (f > 1 || n > MAX_GRID) r.fail('out of range');
+  const standings: Standing[] = [];
+  for (let i = 0; i < n; i++) {
+    const player = r.u8(), name = r.str(MAX_NAME_BYTES), car = r.id(), status = r.pick(STANDING_STATUS), g = r.u8();
+    standings.push({ player, name, car, status, grid: g === 255 ? null : g, laps: r.u16(), time: r.time(true), penalty: r.time(false)!,
+      best: r.time(true), pits: r.u8(), invalid: r.u8() });
+  }
+  return { final: f === 1, standings };
 }
 
 // ---------------------------------------------------------------------------- byte helpers
@@ -400,6 +568,7 @@ class Reader {
   }
   room() { const s = this.str(MAX_ROOM_BYTES); if (!ROOM_RE.test(s)) this.fail('bad room code'); return s; }
   id(empty = false) { const s = this.str(MAX_ID_BYTES); if (!(ID_RE.test(s) || (empty && s === ''))) this.fail('bad id'); return s; }
+  pick<T>(values: readonly T[]): T { const k = this.u8(); if (k >= values.length) this.fail('out of range'); return values[k]; }
   time(optional: boolean): number | null {
     const u = this.u32();
     if (u === NO_TIME) { if (!optional) this.fail('missing time'); return null; }

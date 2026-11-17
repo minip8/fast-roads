@@ -8,6 +8,9 @@ import {
   type CarState, decodeMessage, emptyCarState, encodeBundle, encodeMessage, encodeState, helloVersion, MSG, type NetMessage,
   PROTOCOL_VERSION, roomFromPath, seqNewer, STATE_BYTES, type StateMsg, stateValid, timeToWire, unwrapTime,
 } from '../src/net/protocol';
+import { defaultSettings, lobbySession, type RoomSettings, type SessionInfo, type Standing } from '../src/net/race';
+import type { WeatherInfo } from '../src/net/protocol';
+import { weatherKeys } from '../src/net/weather';
 import { TRACKS } from '../src/tracks';
 import { relayUrl } from '../src/net/websocket';
 
@@ -18,29 +21,55 @@ const state = (o: Partial<CarState> = {}): CarState => {
   const q = { x: 0.1, y: 0.7, z: -0.05, w: 0.7 }, n = Math.hypot(q.x, q.y, q.z, q.w);
   return { ...emptyCarState(), x: -3123.4567, y: 12.345, z: 2876.5432, qx: q.x / n, qy: q.y / n, qz: q.z / n, qw: q.w / n,
     vx: 81.234, vy: -0.42, vz: -30.987, wx: 0.012, wy: 0.734, wz: -0.021, steer: 0.123, throttle: 0.8, brake: 0.05,
-    gear: 6, rpm: 11234, flags: 5, epoch: 9, ...o };
+    gear: 6, rpm: 11234, flags: 5, epoch: 9, compound: 4, reason: 6, ...o };
 };
 
 const board = [{ player: 2, name: 'Zoë', car: 'lcf1', best: 116.548123, sectors: [30.1, 40.2, 46.248123], laps: 3 },
   { player: 0, name: 'Left Early', car: 'drift', best: 158.25, sectors: [null, null, null], laps: 1 }];
+const settings: RoomSettings = { ...defaultSettings('monza'), practice: 2, practiceMinutes: 15, qualifying: 'oneShot', raceLaps: 12,
+  grid: 'reversed', pitStops: 1, tyreWear: 3, weather: 'changeable', invalidPenalty: 5, finishSecs: 90 };
+const race: SessionInfo = { phase: 'race', index: 0, stage: 'finishing', collisions: true, oneShot: false, start: 100.25, end: 700,
+  lightsAt: 115.25, goAt: 121.75, finishAt: 600.5, seed: 3000000000, grid: [3, 1, 7] };
+const weather: WeatherInfo = { origin: 100.25, kind: 'changeable', keys: weatherKeys('changeable', 77, 0, 64) };
+const standings: Standing[] = [
+  { player: 3, name: 'Zoë', car: 'lcf1', status: 'finished', grid: 0, laps: 12, time: 540.123456, penalty: 5, best: 44.5, pits: 1, invalid: 1 },
+  { player: 0, name: 'Gone', car: 'drift', status: 'dnf', grid: null, laps: 0, time: null, penalty: 0, best: null, pits: 0, invalid: 0 },
+];
 const samples: NetMessage[] = [
-  { type: 'hello', version: PROTOCOL_VERSION, room: 'AB12', name: 'Max Ü', car: 'lcgt3', circuit: 'monza' },
-  { type: 'hello', version: PROTOCOL_VERSION, room: 'Z', name: '', car: 'drift', circuit: '' },
-  { type: 'welcome', version: PROTOCOL_VERSION, you: 3, room: 'AB12', circuit: 'monza', serverTime: 1234.5678, maxPlayers: 8, stateHz: 60,
-    players: [{ id: 1, name: 'A', car: 'lcf1' }, { id: 3, name: 'Bé', car: 'drift' }], board },
+  { type: 'hello', version: PROTOCOL_VERSION, mode: 'either', token: 0, room: 'AB12', name: 'Max Ü', car: 'lcgt3', circuit: 'monza' },
+  { type: 'hello', version: PROTOCOL_VERSION, mode: 'either', token: 0, room: 'Z', name: '', car: 'drift', circuit: '' },
+  { type: 'hello', version: PROTOCOL_VERSION, mode: 'create', token: 4294967295, room: 'NEW1', name: 'Host', car: 'lcf1', circuit: 'spa' },
+  { type: 'welcome', version: PROTOCOL_VERSION, you: 3, token: 123456789, room: 'AB12', serverTime: 1234.5678, maxPlayers: 8, stateHz: 60,
+    host: 1, players: [{ id: 1, name: 'A', car: 'lcf1' }, { id: 3, name: 'Bé', car: 'drift' }], board, settings, session: race,
+    weather, final: false, standings },
+  { type: 'welcome', version: PROTOCOL_VERSION, you: 1, token: 1, room: 'Q', serverTime: 0, maxPlayers: 1, stateHz: 1,
+    host: 0, players: [], board: [], settings: defaultSettings('melbourne'), session: lobbySession(0),
+    weather: { origin: 0, kind: 'dry', keys: [{ t: 0, rain: 0, wet: 0 }] }, final: true, standings: [] },
   { type: 'joined', player: { id: 7, name: 'New', car: 'lcgt3' } },
   { type: 'left', id: 7, reason: 1 },
   { type: 'player', player: { id: 0, name: 'Renamed', car: 'lcf1' } },
   { type: 'ping', nonce: 4000000000, clientTime: 98765.4321 },
   { type: 'pong', nonce: 17, clientTime: 1.25, serverTime: 3600.125 },
   { type: 'contact', from: 0, to: 4, timeWire: 123456789, ix: 1500.5, iy: -2, iz: 300.25, px: -120.5, py: 0.5, pz: 2200.75, closing: 12.5 },
-  { type: 'lap', player: 0, time: 116.548123, sectors: [30.1, 40.2, 46.248123], valid: true },
-  { type: 'lap', player: 5, time: 130.5, sectors: [31, null, null], valid: false },
+  { type: 'lap', player: 0, lap: 1, crossingWire: 4294967295, time: 116.548123, sectors: [30.1, 40.2, 46.248123], valid: true },
+  { type: 'lap', player: 5, lap: 65535, crossingWire: 0, time: 130.5, sectors: [31, null, null], valid: false },
+  { type: 'settings', settings },
+  { type: 'settings', settings: { ...defaultSettings('spa'), car: 'lcgt3', qualifying: 'none', grid: 'random', weather: 'random', collisions: false, tyreWear: 0.5 } },
+  { type: 'host', id: 4 },
+  { type: 'control', action: 'start' }, { type: 'control', action: 'skip' }, { type: 'control', action: 'abort' },
+  { type: 'session', session: race },
+  { type: 'session', session: { ...lobbySession(12.5), phase: 'qualifying', oneShot: true, collisions: false, goAt: 22.5, end: 400, grid: [1, 2] } },
+  { type: 'weather', weather },
+  { type: 'standings', final: true, standings },
+  { type: 'standings', final: false, standings: [] },
+  { type: 'pit', player: 0, timeWire: 99, compound: 3 },
   { type: 'board', board },
   { type: 'board', board: [] },
   { type: 'restart', player: 0 },
   { type: 'error', code: 2, fatal: true, message: 'room AB12 is full' },
 ];
+
+const sample = (type: NetMessage['type']) => samples.find((m) => m.type === type)!;
 
 describe('protocol', () => {
   it('round-trips every reliable message', () => {
@@ -56,11 +85,11 @@ describe('protocol', () => {
     }
   });
 
-  it('packs a car state into 42 bytes, within its quantisation', () => {
+  it('packs a car state into 43 bytes, within its quantisation', () => {
     const s = state();
     const bytes = encodeState(s, 65535, 4321.98765);
     expect(bytes.length).toBe(STATE_BYTES);
-    expect(STATE_BYTES).toBe(42);
+    expect(STATE_BYTES).toBe(43);
     expect(stateValid(bytes)).toBe(true);
     const d = decodeMessage(bytes);
     if (!d.ok || d.msg.type !== 'state') throw new Error('no state');
@@ -74,7 +103,7 @@ describe('protocol', () => {
     expect(2 * Math.acos(Math.min(1, dot))).toBeLessThan(1e-4);   // rad: under 0.006 deg
     expect(Math.abs(m.steer - s.steer)).toBeLessThanOrEqual(0.005);
     expect(Math.abs(m.throttle - s.throttle)).toBeLessThanOrEqual(0.5 / 255);
-    expect([m.gear, m.rpm, m.flags, m.epoch, m.player]).toEqual([6, 11234, 5, 9, 0]);
+    expect([m.gear, m.rpm, m.flags, m.epoch, m.player, m.compound, m.reason]).toEqual([6, 11234, 5, 9, 0, 4, 6]);
   });
 
   it('bundles relayed states, and rejects a bundle with a bad state in it', () => {
@@ -134,8 +163,8 @@ describe('protocol', () => {
   it('reads the protocol version of any hello, even one that no longer parses', () => {
     const h = encodeMessage(samples[0]);
     expect(helloVersion(h)).toBe(PROTOCOL_VERSION);
-    const other = new Uint8Array([MSG.hello, 2, 0, 99, 99]);
-    expect(helloVersion(other)).toBe(2);
+    const other = new Uint8Array([MSG.hello, 1, 0, 99, 99]);   // version 1, the protocol before rooms were created explicitly
+    expect(helloVersion(other)).toBe(1);
     expect(decodeMessage(other)).toEqual({ ok: false, error: 'version' });
     expect(helloVersion(new Uint8Array([MSG.ping, 1, 0]))).toBe(null);
   });
@@ -144,24 +173,30 @@ describe('protocol', () => {
     const bad: [string, Uint8Array][] = [
       ['empty', new Uint8Array(0)],
       ['unknown type', new Uint8Array([0x7f])],
-      ['reserved type', new Uint8Array([0x20, 0])],
-      ['state truncated', encodeState(state(), 1, 0).subarray(0, 41)],
+      ['reserved type', new Uint8Array([0x27, 0])],
+      ['state truncated', encodeState(state(), 1, 0).subarray(0, STATE_BYTES - 1)],
       ['state trailing', new Uint8Array([...encodeState(state(), 1, 0), 0])],
-      ['ping trailing', new Uint8Array([...encodeMessage(samples[6]), 1])],
-      ['pong truncated', encodeMessage(samples[7]).subarray(0, 12)],
-      ['bad utf-8 name', new Uint8Array([MSG.hello, PROTOCOL_VERSION, 0, 1, 65, 2, 0xc3, 0x28, 4, 108, 99, 102, 49, 0])],
-      ['lower-case room', new Uint8Array([MSG.hello, PROTOCOL_VERSION, 0, 1, 97, 1, 65, 4, 108, 99, 102, 49, 0])],
-      ['car id with a dot', new Uint8Array([MSG.hello, PROTOCOL_VERSION, 0, 1, 65, 1, 65, 4, 108, 46, 102, 49, 0])],
-      ['name too long', new Uint8Array([MSG.hello, PROTOCOL_VERSION, 0, 1, 65, 49, ...new Array(49).fill(65), 4, 108, 99, 102, 49, 0])],
+      ['ping trailing', new Uint8Array([...encodeMessage(sample('ping')), 1])],
+      ['pong truncated', encodeMessage(sample('pong')).subarray(0, 12)],
+      ['bad utf-8 name', new Uint8Array([MSG.hello, PROTOCOL_VERSION, 0, 2, 0, 0, 0, 0, 1, 65, 2, 0xc3, 0x28, 4, 108, 99, 102, 49, 0])],
+      ['lower-case room', new Uint8Array([MSG.hello, PROTOCOL_VERSION, 0, 2, 0, 0, 0, 0, 1, 97, 1, 65, 4, 108, 99, 102, 49, 0])],
+      ['car id with a dot', new Uint8Array([MSG.hello, PROTOCOL_VERSION, 0, 2, 0, 0, 0, 0, 1, 65, 1, 65, 4, 108, 46, 102, 49, 0])],
+      ['name too long', new Uint8Array([MSG.hello, PROTOCOL_VERSION, 0, 2, 0, 0, 0, 0, 1, 65, 49, ...new Array(49).fill(65), 4, 108, 99, 102, 49, 0])],
       ['left reason', new Uint8Array([MSG.left, 3, 9])],
       ['error flag', new Uint8Array([MSG.error, 1, 2, 0])],
-      ['lap flag', new Uint8Array([MSG.lap, 0, 1, 0, 0, 0, ...new Array(12).fill(255), 2])],
-      ['lap with no time', new Uint8Array([MSG.lap, 0, 255, 255, 255, 255, ...new Array(12).fill(255), 0])],
+      ['lap flag', new Uint8Array([MSG.lap, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, ...new Array(12).fill(255), 2])],
+      ['lap with no time', new Uint8Array([MSG.lap, 0, 1, 0, 0, 0, 0, 0, 255, 255, 255, 255, ...new Array(12).fill(255), 0])],
+      ['lap number 0', new Uint8Array([MSG.lap, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, ...new Array(12).fill(255), 0])],
+      ['hello mode', new Uint8Array([MSG.hello, PROTOCOL_VERSION, 0, 3, 0, 0, 0, 0, 1, 65, 1, 65, 4, 108, 99, 102, 49, 0])],
+      ['control action', new Uint8Array([MSG.control, 4])],
+      ['control action 0', new Uint8Array([MSG.control, 0])],
+      ['pit compound', new Uint8Array([MSG.pit, 0, 0, 0, 0, 0, 8])],
+      ['left reason', new Uint8Array([MSG.left, 3, 4])],
       ['board too long', new Uint8Array([MSG.board, 200])],
     ];
-    const ping = encodeMessage(samples[6]); new DataView(ping.buffer).setFloat64(5, Number.NaN, true);
+    const ping = encodeMessage(sample('ping')); new DataView(ping.buffer).setFloat64(5, Number.NaN, true);
     bad.push(['NaN time', ping]);
-    const contact = encodeMessage(samples[8]); new DataView(contact.buffer).setFloat32(7, 1e9, true);
+    const contact = encodeMessage(sample('contact')); new DataView(contact.buffer).setFloat32(7, 1e9, true);
     bad.push(['huge impulse', contact]);
     const quat = encodeState(state(), 1, 0); quat[21] = 0xff; quat[22] = 0x7f; quat[17] = 0xff; quat[18] = 0x7f;
     bad.push(['impossible quaternion', quat]);
@@ -169,6 +204,16 @@ describe('protocol', () => {
     bad.push(['gear', gear]);
     const flags = encodeState(state(), 1, 0); flags[41] |= 8;
     bad.push(['reserved flag', flags]);
+    const status = encodeState(state(), 1, 0); status[42] |= 0x40;
+    bad.push(['reserved status bit', status]);
+    const sess = encodeMessage({ type: 'session', session: race }); sess[1] = 4;
+    bad.push(['unknown phase', sess]);
+    const set = encodeMessage({ type: 'settings', settings }); set[set.length - 5] = 9;   // the weather (before the collisions flag, the penalty and the u16 finish time)
+    bad.push(['unknown weather', set]);
+    const wx = encodeMessage({ type: 'weather', weather }); wx[15] = wx[11]; wx[16] = wx[12];   // the second keyframe at the first's time
+    bad.push(['keyframes out of order', wx]);
+    const st = encodeMessage({ type: 'standings', final: true, standings }); st[1] = 2;
+    bad.push(['standings flag', st]);
     for (const [why, bytes] of bad) {
       const d = decodeMessage(bytes);
       expect(d.ok, why).toBe(false);

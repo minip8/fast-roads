@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { NetClient, type NetEvent } from '../src/net/client';
 import { type LinkConditions, type LoopbackEnd, LoopbackNet, type LoopbackPair } from '../src/net/loopback';
 import {
-  type CarState, decodeMessage, emptyCarState, encodeMessage, encodeState, ERROR, MSG, type NetMessage, PROTOCOL_VERSION,
+  type CarState, decodeMessage, emptyCarState, encodeMessage, encodeState, ERROR, MSG, type NetMessage, PROTOCOL_VERSION, STATE_BYTES,
 } from '../src/net/protocol';
 import { emptySample } from '../src/net/remote';
 import { Relay, type RelayOptions, sanitiseName } from '../server/relay';
@@ -244,9 +244,9 @@ describe('relay and clients over the emulated network', () => {
     for (const [why, bytes, code] of [
       ['garbage', new Uint8Array([0xde, 0xad, 0xbe, 0xef]), ERROR.malformed],
       ['state before hello', encodeState(emptyCarState(), 1, 0), ERROR.notJoined],
-      ['unknown car', encodeMessage({ type: 'hello', version: PROTOCOL_VERSION, room: 'R', name: 'x', car: 'tank', circuit: '' }), ERROR.badCar],
-      ['unknown circuit', encodeMessage({ type: 'hello', version: PROTOCOL_VERSION, room: 'R', name: 'x', car: 'lcf1', circuit: 'nurburg' }), ERROR.badCircuit],
-      ['empty name', encodeMessage({ type: 'hello', version: PROTOCOL_VERSION, room: 'R', name: ' ​\u0007 ', car: 'lcf1', circuit: '' }), ERROR.badName],
+      ['unknown car', encodeMessage({ type: 'hello', version: PROTOCOL_VERSION, mode: 'either', token: 0, room: 'R', name: 'x', car: 'tank', circuit: '' }), ERROR.badCar],
+      ['unknown circuit', encodeMessage({ type: 'hello', version: PROTOCOL_VERSION, mode: 'either', token: 0, room: 'R', name: 'x', car: 'lcf1', circuit: 'nurburg' }), ERROR.badCircuit],
+      ['empty name', encodeMessage({ type: 'hello', version: PROTOCOL_VERSION, mode: 'either', token: 0, room: 'R', name: ' ​\u0007 ', car: 'lcf1', circuit: '' }), ERROR.badName],
       ['too big', new Uint8Array(300).fill(MSG.hello), ERROR.tooBig],
     ] as [string, Uint8Array, number][]) {
       const r = w.raw();
@@ -336,13 +336,13 @@ describe('relay and clients over the emulated network', () => {
     return r;
   }
 
-  it('costs about 1.7 KB/s up and 11.5 KB/s down of payload per player in a full room of 8 at 40 Hz', () => {
+  it('costs about 1.8 KB/s up and 11.8 KB/s down of payload per player in a full room of 8 at 40 Hz', () => {
     const r = bandwidth(0);
-    // 42-byte states: up 40/s plus pings; down 7 x 40/s (less 3% loss on the emulated link) plus pongs
-    expect(r.up).toBeGreaterThan(40 * 42);
-    expect(r.up).toBeLessThan(40 * 42 + 100);
-    expect(r.down).toBeGreaterThan(7 * 40 * 42 * 0.95);
-    expect(r.down).toBeLessThan(7 * 40 * 42 + 100);
+    // 43-byte states: up 40/s plus pings; down 7 x 40/s (less 3% loss on the emulated link) plus pongs
+    expect(r.up).toBeGreaterThan(40 * STATE_BYTES);
+    expect(r.up).toBeLessThan(40 * STATE_BYTES + 100);
+    expect(r.down).toBeGreaterThan(7 * 40 * STATE_BYTES * 0.95);
+    expect(r.down).toBeLessThan(7 * 40 * STATE_BYTES + 100);
     expect(r.downMsgs).toBeGreaterThan(260);
     // batching at 60 Hz: the same states in a quarter of the frames, the proxies as accurate
     const b = bandwidth(1 / 60);

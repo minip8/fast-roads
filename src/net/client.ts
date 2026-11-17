@@ -1,10 +1,13 @@
 import { ClockSync } from './clock';
 import {
-  type BoardEntry, type CarState, encodeMessage, encodeState, decodeMessage, isId, isRoomCode, LEAVE_REASON,
-  MAX_NAME_BYTES, NAME_CHARS, type NetMessage, type StateMsg, type PlayerInfo, PROTOCOL_VERSION, STATE_BYTES, timeToWire, truncUtf8, unwrapTime,
+  type BoardEntry, type CarState, type ControlAction, decodeMessage, encodeMessage, encodeState, type HelloMode, isId, isRoomCode, LEAVE_REASON,
+  MAX_NAME_BYTES, NAME_CHARS, type NetMessage, type PlayerInfo, PROTOCOL_VERSION, STATE_BYTES, type StateMsg, timeToWire, truncUtf8,
+  unwrapTime, type WeatherInfo, type WelcomeMsg,
 } from './protocol';
+import { defaultSettings, lightsLit, lobbySession, raceStage, type RaceStage, type RoomSettings, type SessionInfo, type Standing } from './race';
 import { RemoteCar, type RemoteOptions, type RemoteSample } from './remote';
 import type { Transport } from './transport';
+import { type Conditions, weatherAt } from './weather';
 
 // ============================================================================
 // The game's side of a multiplayer session (docs/net.md has the API and an example game loop). Plain data in and
@@ -12,13 +15,17 @@ import type { Transport } from './transport';
 // of Vehicle, three.js or the DOM. It has no timers: the game calls update(now) every frame (or tick), and
 // sendState(state, at) every tick or frame, which sends at most `sendHz` times a second.
 // All times are seconds: `now` is the game's local monotonic clock (performance.now() / 1000), relay times come
-// from serverTime(now).
+// from serverTime(now). The room's weekend (settings, session, weather, standings) is kept here as the relay says.
 // ============================================================================
 export interface NetClientOptions {
   room: string;                 // room code, 1-8 of A-Z 0-9 (lower case is upper-cased)
   name: string;                 // trimmed to NAME_CHARS characters; the relay sanitises it further
   car: string;                  // car id (cars.ts)
-  circuit?: string;             // circuit wanted if this hello creates the room ('' or absent: the relay's default)
+  // 'create': a new room (refused with roomTaken if the code is in use: pick another and try again); 'join': an
+  // existing one (noRoom if there is none); 'either' (the default): join it, or create it if there is none.
+  mode?: HelloMode;
+  circuit?: string;             // the circuit of a room this creates ('' or absent: the relay's default)
+  token?: number;               // a previous welcome's token: rejoin as that player (same id, host role, race entry)
   sendHz?: number;              // car states a second (default 40; the relay's welcome caps it)
   // Local clock for stamping arrivals as they happen (performance.now() / 1000 in the browser). Without one a
   // message counts as arriving at the next update(now), which adds up to an update interval to every round trip.
@@ -27,18 +34,26 @@ export interface NetClientOptions {
   remote?: Partial<RemoteOptions>;   // proxy tuning (remote.ts)
 }
 
-export type LeaveReason = 'left' | 'timeout' | 'kicked';
+export type LeaveReason = 'left' | 'timeout' | 'kicked' | 'replaced';
 export type NetEvent =
-  | { type: 'welcome'; you: number; room: string; circuit: string; players: PlayerInfo[] }
+  | { type: 'welcome'; you: number; room: string; circuit: string; players: PlayerInfo[]; host: number; token: number }
   | { type: 'join'; player: PlayerInfo }
   | { type: 'leave'; player: PlayerInfo; reason: LeaveReason }
   | { type: 'player'; player: PlayerInfo; before: PlayerInfo }       // a name or car change (also our own, echoed)
   // Another car's client resolved a hit with us. impulse: what to apply to OUR car (N s, world; the opposite of
   // what the sender's car received) at `point`; time: relay time of the hit; closing speed (m/s).
   | { type: 'contact'; from: number; time: number; impulse: Vec3; point: Vec3; closing: number }
-  | { type: 'lap'; player: number; time: number; sectors: (number | null)[]; valid: boolean }   // accepted laps only
+  // accepted laps only, ours included; lap: the sender's number for it this session; crossing: relay time
+  | { type: 'lap'; player: number; lap: number; crossing: number; time: number; sectors: (number | null)[]; valid: boolean }
+  | { type: 'pit'; player: number; time: number; compound: number }  // accepted pit stops, ours included
   | { type: 'board'; board: BoardEntry[] }
   | { type: 'restart'; player: number }
+  | { type: 'host'; host: number; before: number }
+  // circuitChanged: the host moved the room to another circuit (the game reloads onto it, rejoining with `token`)
+  | { type: 'settings'; settings: RoomSettings; before: RoomSettings; circuitChanged: boolean }
+  | { type: 'session'; session: SessionInfo; before: SessionInfo }   // a new session or a new stage of one
+  | { type: 'weather'; weather: WeatherInfo }
+  | { type: 'standings'; standings: Standing[]; final: boolean }
   | { type: 'error'; code: number; fatal: boolean; message: string }
   | { type: 'closed'; reason: string };
 export interface Vec3 { x: number; y: number; z: number }
@@ -52,26 +67,35 @@ export interface ClientStats {
   unknownSender: number;        // states for no player in the roster (or ourselves)
 }
 
-const LEAVE_NAMES: Record<number, LeaveReason> = { [LEAVE_REASON.left]: 'left', [LEAVE_REASON.timeout]: 'timeout', [LEAVE_REASON.kicked]: 'kicked' };
+const LEAVE_NAMES: Record<number, LeaveReason> = {
+  [LEAVE_REASON.left]: 'left', [LEAVE_REASON.timeout]: 'timeout', [LEAVE_REASON.kicked]: 'kicked', [LEAVE_REASON.replaced]: 'replaced',
+};
 const PING_FAST = 0.5, PING_SLOW = 2, FAST_PINGS = 6;
 
 export class NetClient {
   status: ClientStatus = 'connecting';
   closeReason = '';
   selfId = 0;
+  token = 0;                     // from the welcome: keep it (e.g. sessionStorage) to rejoin as this player after a reload
   room: string;
-  circuit = '';                  // the room's circuit (from the welcome: may differ from the one asked for)
+  circuit = '';                  // the room's circuit (settings.circuit; from the welcome: may differ from the one asked for)
   maxPlayers = 0;
   sendHz: number;
   readonly players = new Map<number, PlayerInfo>();   // everyone in the room, ourselves included
   readonly remotes = new Map<number, RemoteCar>();    // everyone else's proxy
   board: BoardEntry[] = [];
+  host = 0;                      // the host's id (0: none)
+  settings: RoomSettings = defaultSettings('');
+  session: SessionInfo = lobbySession(0);
+  weather: WeatherInfo = { origin: 0, kind: 'dry', keys: [] };
+  standings: Standing[] = [];    // the race under way; in the lobby, the last race's result (standingsFinal)
+  standingsFinal = false;
   readonly clock = new ClockSync();
   readonly stats: ClientStats = { sentMessages: 0, sentBytes: 0, statesSent: 0, receivedMessages: 0, receivedBytes: 0, statesReceived: 0, malformed: 0, unknownSender: 0 };
 
   private events: NetEvent[] = [];
   private inbox: { data: Uint8Array | null; at: number | null; reason?: string }[] = [];   // data null: the transport closed
-  private name: string; private car: string; private wantCircuit: string;
+  private name: string; private car: string; private wantCircuit: string; private mode: HelloMode; private wantToken: number;
   private helloAt = -1;
   private seq = 0;
   private nextSend = -Infinity;
@@ -79,6 +103,8 @@ export class NetClient {
   private pings = new Map<number, number>();         // nonce -> local send time
   private nextPing = 0;
   private lastHeard = 0;
+  private lastNow = 0;
+  private lapNo = 0;                                 // laps reported this session
   private readonly stateBuf = new Uint8Array(STATE_BYTES);
   private readonly timeout: number;
   private readonly clockFn: (() => number) | null;
@@ -92,6 +118,8 @@ export class NetClient {
     this.name = clipName(opt.name);
     this.car = opt.car;
     this.wantCircuit = opt.circuit ?? '';
+    this.mode = opt.mode ?? 'either';
+    this.wantToken = (opt.token ?? 0) >>> 0;
     this.sendHz = opt.sendHz ?? 40;
     this.timeout = opt.timeout ?? 15;
     this.clockFn = opt.clock ?? null;
@@ -103,6 +131,7 @@ export class NetClient {
 
   // Every frame: handles what arrived, says hello once the transport is open, pings the clock, notices a dead link.
   update(now: number) {
+    this.lastNow = now;
     const inbox = this.inbox; this.inbox = [];
     for (const m of inbox) {
       if (this.status === 'closed') break;
@@ -112,7 +141,8 @@ export class NetClient {
     if (this.status === 'connecting' && this.transport.state === 'open') {
       this.status = 'joining';
       this.helloAt = now; this.lastHeard = now;
-      this.send(encodeMessage({ type: 'hello', version: PROTOCOL_VERSION, room: this.room, name: this.name, car: this.car, circuit: this.wantCircuit }));
+      this.send(encodeMessage({ type: 'hello', version: PROTOCOL_VERSION, mode: this.mode, token: this.wantToken, room: this.room,
+        name: this.name, car: this.car, circuit: this.wantCircuit }));
     }
     if (this.status === 'joined' && now >= this.nextPing) {
       this.nextPing = now + (this.clock.samples < FAST_PINGS ? PING_FAST : PING_SLOW);
@@ -143,17 +173,35 @@ export class NetClient {
   }
 
   // The car of player `id` at local time `now` (the present, for drawing and colliding), or null (no such player
-  // or nothing received yet). out: reused by the caller.
+  // or nothing received yet). out: reused by the caller. Not collidable when the session says so (collides()).
   sample(id: number, now: number, out: RemoteSample, smooth = true): RemoteSample | null {
-    return this.remotes.get(id)?.sample(this.serverTime(now), out, smooth) ?? null;
+    const s = this.remotes.get(id)?.sample(this.serverTime(now), out, smooth) ?? null;
+    if (s && !this.collides(id)) s.collidable = false;
+    return s;
   }
 
   // We were put back at the start spot (bump CarState.epoch as well, so proxies do not blend across the jump).
   sendRestart() { if (this.status === 'joined') this.send(encodeMessage({ type: 'restart', player: 0 })); }
 
-  // A lap finished (all laps, valid or not: the relay keeps the board from the valid ones).
-  sendLap(lap: { time: number; sectors: (number | null)[]; valid: boolean }) {
-    if (this.status === 'joined') this.send(encodeMessage({ type: 'lap', player: 0, time: lap.time, sectors: lap.sectors.slice(0, 3), valid: lap.valid }));
+  // A lap finished (all laps, valid or not: the relay keeps the board from the valid ones), its line crossing at
+  // local time `at` (default: now). Numbered for the relay here, from 1 each session. Not sent while it could not
+  // count: spectating a race, or the race over for us (finished, results).
+  sendLap(lap: { time: number; sectors: (number | null)[]; valid: boolean; at?: number }) {
+    if (this.status !== 'joined') return;
+    if (this.session.phase === 'race') {
+      const me = this.standings.find((s) => s.player === this.selfId);
+      if (!me || me.status !== 'racing' || this.session.stage === 'results') return;
+    }
+    const crossing = this.serverTime(lap.at ?? this.localNow());
+    this.lapNo = Math.min(65535, this.lapNo + 1);
+    this.send(encodeMessage({ type: 'lap', player: 0, lap: this.lapNo, crossingWire: timeToWire(crossing), time: lap.time,
+      sectors: lap.sectors.slice(0, 3), valid: lap.valid }));
+  }
+
+  // A pit stop made at local time `at` (default: now), fitting `compound` (race.ts COMPOUND).
+  sendPit(p: { compound: number; at?: number }) {
+    if (this.status !== 'joined') return;
+    this.send(encodeMessage({ type: 'pit', player: 0, timeWire: timeToWire(this.serverTime(p.at ?? this.localNow())), compound: p.compound & 7 }));
   }
 
   // Our car hit player `other`'s proxy: impulse is what OUR car received (N s, world), at local time `at`.
@@ -173,6 +221,43 @@ export class NetClient {
     if (this.status === 'joined') this.send(encodeMessage({ type: 'player', player: { id: 0, name: this.name, car: this.car } }));
   }
 
+  // ------------------------------------------------------------------------ the host's calls (others get notHost)
+  // New settings (merged into the current ones; the relay clamps them and answers with a 'settings' event). Lobby only.
+  setSettings(s: Partial<RoomSettings>) {
+    if (this.status !== 'joined') return;
+    this.send(encodeMessage({ type: 'settings', settings: { ...this.settings, ...s } }));
+  }
+  startWeekend() { this.control('start'); }     // lobby -> the first practice (or qualifying, or the race)
+  skipSession() { this.control('skip'); }       // end the session (the race: to its results; the results: to the lobby)
+  abortWeekend() { this.control('abort'); }     // back to the lobby, the race unfinished
+  get isHost() { return this.status === 'joined' && this.host === this.selfId; }
+
+  // ------------------------------------------------------------------------ the weekend, read
+  // Whether our car and player `id`'s collide now: neither is a spectator, and the session has collisions on.
+  collides(id: number): boolean {
+    const s = this.session;
+    if (!s.collisions) return false;
+    if (s.phase === 'race' && (this.isSpectator(id) || this.isSpectator(this.selfId))) return false;
+    return true;
+  }
+  // A player on track in a race without being in it (joined after the race began): never collides, not classified.
+  isSpectator(id = this.selfId): boolean { return this.session.phase === 'race' && !this.session.grid.includes(id); }
+  gridSlot(id = this.selfId): number | null { const k = this.session.grid.indexOf(id); return k < 0 ? null : k; }
+  // The race stage and the start lights at local time `now` (null / 0 outside a race).
+  raceStage(now: number): RaceStage | null { return raceStage(this.session, this.serverTime(now)); }
+  lightsLit(now: number): number { return lightsLit(this.session, this.serverTime(now)); }
+  // Whether our car must be held still (on the grid until the lights go out; one-shot qualifying until release).
+  held(now: number): boolean {
+    const s = this.session, t = this.serverTime(now);
+    return s.goAt != null && t < s.goAt && (s.phase === 'race' || s.oneShot) && !this.isSpectator();
+  }
+  // s left in the session's current stage at local time `now` (null: no end).
+  timeLeft(now: number): number | null { return this.session.end == null ? null : Math.max(0, this.session.end - this.serverTime(now)); }
+  // Rain and track wetness (0..1) at local time `now`.
+  conditions(now: number, out?: Conditions): Conditions { return weatherAt(this.weather.keys, this.serverTime(now) - this.weather.origin, out); }
+  // Laps completed in the race by player `id` (from the standings).
+  raceLaps(id = this.selfId): number { return this.standings.find((s) => s.player === id)?.laps ?? 0; }
+
   // What happened since the last call, in order.
   takeEvents(): NetEvent[] { const e = this.events; this.events = []; return e; }
 
@@ -183,6 +268,9 @@ export class NetClient {
   }
 
   // ------------------------------------------------------------------------
+  private localNow() { return this.clockFn ? this.clockFn() : this.lastNow; }
+  private control(action: ControlAction) { if (this.status === 'joined') this.send(encodeMessage({ type: 'control', action })); }
+
   private send(data: Uint8Array, lane: 'reliable' | 'unreliable' = 'reliable') {
     this.stats.sentMessages++; this.stats.sentBytes += data.length;
     this.transport.send(lane, data);
@@ -209,15 +297,16 @@ export class NetClient {
     this.handle(m, at);
   }
 
-  private welcome(m: Extract<NetMessage, { type: 'welcome' }>, at: number) {
+  private welcome(m: WelcomeMsg, at: number) {
     this.status = 'joined';
-    this.selfId = m.you; this.room = m.room; this.circuit = m.circuit; this.maxPlayers = m.maxPlayers;
+    this.selfId = m.you; this.token = m.token; this.room = m.room; this.maxPlayers = m.maxPlayers;
     this.sendHz = Math.min(this.sendHz, m.stateHz);
     this.clock.seed(m.serverTime, this.helloAt, at);
     for (const p of m.players) this.addPlayer(p);
-    this.board = m.board;
+    this.board = m.board; this.host = m.host; this.settings = m.settings; this.circuit = m.settings.circuit;
+    this.session = m.session; this.weather = m.weather; this.standings = m.standings; this.standingsFinal = m.final;
     this.nextPing = at;
-    this.events.push({ type: 'welcome', you: m.you, room: m.room, circuit: m.circuit, players: m.players });
+    this.events.push({ type: 'welcome', you: m.you, room: m.room, circuit: this.circuit, players: m.players, host: m.host, token: m.token });
     this.events.push({ type: 'board', board: m.board });
   }
 
@@ -269,11 +358,39 @@ export class NetClient {
         this.events.push({ type: 'contact', from: m.from, time: unwrapTime(m.timeWire, this.serverTime(at)),
           impulse: { x: -m.ix, y: -m.iy, z: -m.iz }, point: { x: m.px, y: m.py, z: m.pz }, closing: m.closing });
         return;
-      case 'lap': this.events.push({ type: 'lap', player: m.player, time: m.time, sectors: m.sectors, valid: m.valid }); return;
+      case 'lap':
+        this.events.push({ type: 'lap', player: m.player, lap: m.lap, crossing: unwrapTime(m.crossingWire, this.serverTime(at)),
+          time: m.time, sectors: m.sectors, valid: m.valid });
+        return;
+      case 'pit': this.events.push({ type: 'pit', player: m.player, time: unwrapTime(m.timeWire, this.serverTime(at)), compound: m.compound }); return;
       case 'board': this.board = m.board; this.events.push({ type: 'board', board: m.board }); return;
       case 'restart':
         // (the proxy is not reset here: the state after the restart may already be in, and its epoch handles the jump)
         this.events.push({ type: 'restart', player: m.player });
+        return;
+      case 'host': {
+        const before = this.host;
+        this.host = m.id;
+        this.events.push({ type: 'host', host: m.id, before });
+        return;
+      }
+      case 'settings': {
+        const before = this.settings;
+        this.settings = m.settings; this.circuit = m.settings.circuit;
+        this.events.push({ type: 'settings', settings: m.settings, before, circuitChanged: before.circuit !== m.settings.circuit });
+        return;
+      }
+      case 'session': {
+        const before = this.session;
+        this.session = m.session;
+        if (m.session.start !== before.start || m.session.phase !== before.phase) this.lapNo = 0;   // a new session: laps count from 1
+        this.events.push({ type: 'session', session: m.session, before });
+        return;
+      }
+      case 'weather': this.weather = m.weather; this.events.push({ type: 'weather', weather: m.weather }); return;
+      case 'standings':
+        this.standings = m.standings; this.standingsFinal = m.final;
+        this.events.push({ type: 'standings', standings: m.standings, final: m.final });
         return;
       case 'error': this.events.push({ type: 'error', code: m.code, fatal: m.fatal, message: m.message }); return;
       default: return;   // client-bound only: anything else from the relay is ignored

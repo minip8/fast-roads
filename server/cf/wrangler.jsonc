@@ -10,7 +10,8 @@
   },
   // The Free plan has only SQLite-backed Durable Objects; the relay stores nothing in it.
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RelayRoom"] }],
-  // Optional: MAX_PLAYERS (1-32), BATCH_MS (0-100), MIN_LAP_SECS (1-600), as for `npm run server` (server/env.ts).
+  // Optional: MAX_PLAYERS (1-32), BATCH_MS (0-100), MIN_LAP_SECS (1-600), WEEKEND_SCALE (tests only), as for
+  // `npm run server` (server/env.ts).
   "vars": {},
   "observability": { "enabled": true }
 }

@@ -5,6 +5,7 @@ import { NetClient } from '../src/net/client';
 import { decodeMessage, emptyCarState, encodeMessage, ERROR, PROTOCOL_VERSION } from '../src/net/protocol';
 import { emptySample } from '../src/net/remote';
 import { relayUrl, WebSocketTransport } from '../src/net/websocket';
+import { scaledWeekend } from '../server/env';
 import { listen, type RelayServer } from '../server/ws';
 
 // The relay's WebSocket entry point (server/ws.ts, what `npm run server` starts) on an ephemeral port, in real time:
@@ -14,7 +15,8 @@ import { listen, type RelayServer } from '../server/ws';
 let server: RelayServer;
 let url = '';
 beforeAll(async () => {
-  server = await listen({ port: 0, host: '127.0.0.1', tickMs: 100, relay: { helloTimeout: 1 } });
+  // the 1 s tick (the default): the weekend test below sees the deadline timer, which is much sooner
+  server = await listen({ port: 0, host: '127.0.0.1', relay: { helloTimeout: 1, ...scaledWeekend(0.01) } });
   url = `ws://127.0.0.1:${server.port}`;
 });
 afterAll(async () => { await server?.close(); });
@@ -67,6 +69,27 @@ describe('WebSocket relay', () => {
     }
   });
 
+  it('creates a room and times its sessions with a deadline timer', async () => {
+    const mk = (name: string, mode: 'create' | 'join') => new NetClient(new WebSocketTransport(relayUrl(url, 'WS4')), { room: 'WS4', name, car: 'lcf1', mode, clock: now });
+    const a = mk('Ann', 'create'), b = mk('Ben', 'create');
+    const timer = setInterval(() => { a.update(now()); b.update(now()); }, 5);
+    try {
+      await until(() => a.status === 'joined' && b.status === 'closed');
+      expect(b.takeEvents().some((e) => e.type === 'error' && e.code === ERROR.roomTaken)).toBe(true);
+      a.setSettings({ practice: 1, practiceMinutes: 1, qualifying: 'none' });   // a minute is 0.6 s here
+      await until(() => a.settings.qualifying === 'none');
+      a.startWeekend();
+      await until(() => a.session.phase === 'practice');
+      const p = a.session;
+      await until(() => a.session.phase === 'race', 2000);
+      expect(a.session.start).toBe(p.end);
+      expect(a.serverTime(now()) - p.end!).toBeLessThan(0.15);   // seen within a few ms (and the poll), not at the next tick
+    } finally {
+      clearInterval(timer);
+      a.close(); b.close();
+    }
+  });
+
   it('takes the room in the address (refusing a bad one at the handshake and a hello for another room)', async () => {
     const bad = raw('/room/abc');
     let status = 0;
@@ -107,7 +130,7 @@ describe('WebSocket relay', () => {
 
     const old = raw();
     await until(() => old.open);
-    old.ws.send(encodeMessage({ type: 'hello', version: PROTOCOL_VERSION, room: 'X', name: 'n', car: 'lcf1', circuit: '' }).map((v, i) => (i === 1 ? v + 1 : v)));
+    old.ws.send(encodeMessage({ type: 'hello', version: PROTOCOL_VERSION, mode: 'either', token: 0, room: 'X', name: 'n', car: 'lcf1', circuit: '' }).map((v, i) => (i === 1 ? v + 1 : v)));
     await until(() => old.closed !== null);
     expect(old.got[0]).toMatchObject({ ok: true, msg: { type: 'error', code: ERROR.version } });
 

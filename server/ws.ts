@@ -30,7 +30,16 @@ export interface RelayServer {
 
 export function listen(opt: ListenOptions): Promise<RelayServer> {
   const start = performance.now();
-  const relay = new Relay({ ...opt.relay, now: () => (performance.now() - start) / 1000 });
+  // phase deadlines (a session's end, lights out...): a timer for the next one, so they do not wait for the tick
+  let deadline: ReturnType<typeof setTimeout> | null = null;
+  const schedule = (at: number | null) => {
+    if (deadline) clearTimeout(deadline);
+    deadline = null;
+    if (at == null) return;
+    deadline = setTimeout(() => { deadline = null; relay.update(); }, Math.max(0, (at - relay.opt.now()) * 1000) + 1);
+    deadline.unref();
+  };
+  const relay: Relay = new Relay({ ...opt.relay, now: () => (performance.now() - start) / 1000, schedule });
   const wss = new WebSocketServer({
     port: opt.port, host: opt.host, maxPayload: MAX_CLIENT_MSG, perMessageDeflate: false, clientTracking: true,
     verifyClient: (info, done) => (roomOf(info.req.url) === null ? done(false, 400, 'bad room code') : done(true)),
@@ -52,6 +61,7 @@ export function listen(opt: ListenOptions): Promise<RelayServer> {
         close: () => new Promise<void>((done) => {
           clearInterval(timer);
           if (batch) clearInterval(batch);
+          if (deadline) clearTimeout(deadline);
           relay.shutdown();
           for (const ws of wss.clients) ws.terminate();
           wss.close(() => done());

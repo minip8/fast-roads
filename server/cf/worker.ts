@@ -14,7 +14,7 @@ import { Relay, RELAY_DEFAULTS } from '../relay';
 // ============================================================================
 export interface Env {
   ROOMS: DurableObjectNamespace<RelayRoom>;
-  MAX_PLAYERS?: string; BATCH_MS?: string; MIN_LAP_SECS?: string;
+  MAX_PLAYERS?: string; BATCH_MS?: string; MIN_LAP_SECS?: string; WEEKEND_SCALE?: string;
 }
 
 // Connections an object takes beyond its players: joiners still sending their hello, and the slack for a
@@ -44,6 +44,8 @@ export class RelayRoom extends DurableObject<Env> {
   private room: string | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private batch: ReturnType<typeof setInterval> | null = null;
+  private deadline: ReturnType<typeof setTimeout> | null = null;
+  private due: number | null = null;   // the relay's next phase deadline (relay time)
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -56,6 +58,7 @@ export class RelayRoom extends DurableObject<Env> {
       ...opt, maxRooms: 1, maxConnections: maxPlayers + SPARE_CONNECTIONS,
       now: () => (performance.now() - start) / 1000,
       log: (line) => console.log(line),
+      schedule: (at) => { this.due = at; this.armDeadline(); },
     });
   }
 
@@ -73,8 +76,9 @@ export class RelayRoom extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  // relay.update() every second while anyone is connected; stopped with the last connection, so an empty object
-  // does nothing and can be evicted.
+  // relay.update() every second while anyone is connected, and at the relay's next phase deadline; all stopped
+  // with the last connection, so an empty object does nothing and can be evicted (deadlines that pass meanwhile
+  // are caught up, each at its own time, by the update() the next connection runs first).
   private startTimers() {
     if (this.timer) return;
     this.timer = setInterval(() => {
@@ -83,11 +87,23 @@ export class RelayRoom extends DurableObject<Env> {
     }, 1000);
     const iv = this.relay.opt.batchInterval;
     if (iv > 0) this.batch = setInterval(() => this.relay.flush(), iv * 1000);
+    this.armDeadline();
+  }
+  private armDeadline() {
+    if (this.deadline) clearTimeout(this.deadline);
+    this.deadline = null;
+    if (this.due == null || !this.timer) return;
+    this.deadline = setTimeout(() => {
+      this.deadline = null;
+      this.relay.update();
+      if (this.relay.connectionCount === 0) this.stopTimers();
+    }, Math.max(0, (this.due - this.relay.opt.now()) * 1000) + 1);
   }
   private stopTimers() {
     if (this.timer) clearInterval(this.timer);
     if (this.batch) clearInterval(this.batch);
-    this.timer = this.batch = null;
+    if (this.deadline) clearTimeout(this.deadline);
+    this.timer = this.batch = this.deadline = null;
   }
 }
 

@@ -51,7 +51,7 @@ export interface RemoteSample extends CarState {
 }
 export function emptySample(): RemoteSample {
   return { x: 0, y: 0, z: 0, qx: 0, qy: 0, qz: 0, qw: 1, vx: 0, vy: 0, vz: 0, wx: 0, wy: 0, wz: 0, steer: 0, throttle: 0,
-    brake: 0, gear: 0, rpm: 0, flags: 0, epoch: 0, time: 0, age: 0, extrapolated: 0, collidable: false, alpha: 0, correction: 0 };
+    brake: 0, gear: 0, rpm: 0, flags: 0, epoch: 0, compound: 0, reason: 0, time: 0, age: 0, extrapolated: 0, collidable: false, alpha: 0, correction: 0 };
 }
 
 export interface RemoteStats { received: number; accepted: number; stale: number; future: number; snaps: number }
@@ -180,7 +180,7 @@ function copyState(s: CarState, out: CarState) {
   out.x = s.x; out.y = s.y; out.z = s.z; out.qx = s.qx; out.qy = s.qy; out.qz = s.qz; out.qw = s.qw;
   out.vx = s.vx; out.vy = s.vy; out.vz = s.vz; out.wx = s.wx; out.wy = s.wy; out.wz = s.wz;
   out.steer = s.steer; out.throttle = s.throttle; out.brake = s.brake; out.gear = s.gear; out.rpm = s.rpm;
-  out.flags = s.flags; out.epoch = s.epoch;
+  out.flags = s.flags; out.epoch = s.epoch; out.compound = s.compound; out.reason = s.reason;
 }
 
 function interpolate(a: TimedState, b: TimedState, t: number, out: RemoteSample) {

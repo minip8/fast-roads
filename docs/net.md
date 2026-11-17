@@ -12,12 +12,15 @@ Owner-authoritative state replication.
   lane. Every other car is a proxy: a `RemoteCar` buffer extrapolates it to the present from the states received
   and blends corrections out. Each client collides its own car against the proxies itself, and tells the other
   car's client about the hit (`contact`) so that side can apply its half if its own simulation missed it.
-- The relay (`server/`) is thin: rooms, the roster, the room's circuit, a shared clock (ping/pong) and the
-  session's lap board. It runs no physics. It forwards car states as the bytes the client sent, with the player
-  byte overwritten by the sender's id, so a claimed id is never trusted.
-- The first mode is a shared hot-lap session: everyone on track together, flying starts as the game has now, best
-  laps on a board. Grid starts and race rules are not in yet; message types 0x20-0x2f are reserved for them, and
-  the protocol is versioned.
+- The relay (`server/`) is thin: rooms, the roster, the host, the room's settings, a shared clock (ping/pong), the
+  session's lap board, and race weekends: the phases timed on its clock, the grid, the weather, the race
+  classification. It runs no physics. It forwards car states as the bytes the client sent, with the player byte
+  overwritten by the sender's id, so a claimed id is never trusted.
+- A room is created explicitly (a hello that creates it, with a code the client picks) or joined (a hello that
+  joins an existing one); its creator is the host. Until the host starts a weekend a room is a lobby: a shared
+  hot-lap session, everyone on track together, flying starts, best laps on a board. A weekend is practice
+  sessions, qualifying and a race, then the lobby again with the results kept (**Race weekends**). The protocol is
+  versioned (2: explicit rooms, rejoining, weekends); message types 0x27-0x2f are free for more.
 - Transport: an interface with a reliable (ordered) lane and an unreliable lane. Code above the transport never
   assumes the unreliable lane orders or delivers anything, even though the WebSocket transport (both lanes on one
   socket) happens to. WebRTC data channels are planned as a third transport.
@@ -36,18 +39,22 @@ times are seconds since the relay process started, which every client estimates 
 | `src/net/clock.ts` | `ClockSync`: relay clock estimate from ping/pong |
 | `src/net/remote.ts` | `RemoteCar`: a proxy's state buffer (pure maths) |
 | `src/net/client.ts` | `NetClient`: the game's side of a session |
+| `src/net/race.ts` | race weekends: `RoomSettings` (defaults, ranges, `normaliseSettings`), `SessionInfo`, `Standing`, `raceStage` / `lightsLit`, `COMPOUND`, `CAR_REASON` |
+| `src/net/weather.ts` | a session's weather: `weatherKeys` (the seeded generator), `weatherAt` (interpolation), `resolveWeather`, `seededRandom` |
 | `src/net/ids.ts` | the car and circuit ids the relay accepts (`NET_CARS`, `NET_CIRCUITS`; the compiler and a test check they match `CARS` / `TRACKS`) |
 | `src/net/index.ts` | what the game imports |
-| `server/relay.ts` | `Relay`: rooms and limits, transport-agnostic; `plausibleLap`, `sanitiseName` |
-| `server/env.ts` | `relayEnv`: `MAX_PLAYERS`, `BATCH_MS`, `MIN_LAP_SECS` from either server's environment |
+| `server/relay.ts` | `Relay`: rooms, limits and the weekend's phases, transport-agnostic; `plausibleLap`, `sanitiseName` |
+| `server/weekend.ts` | the weekend's pure parts: `gridOrder`, `classify` |
+| `server/env.ts` | `relayEnv`: `MAX_PLAYERS`, `BATCH_MS`, `MIN_LAP_SECS`, `WEEKEND_SCALE` from either server's environment; `scaledWeekend` |
 | `server/ws.ts` | `listen({ port })`: the relay on a `ws` WebSocket server |
 | `server/main.ts` | `npm run server` entry point |
 | `server/cf/worker.ts` | the relay on Cloudflare: the Worker (routing) and `RelayRoom`, the Durable Object of one room |
 | `server/cf/wrangler.jsonc` | its wrangler config (`server/cf/tsconfig.json`: type-checked with the Workers types) |
 
 `ws` is used only by `server/`; a test checks nothing in `src/` imports it, `wrangler`, `cloudflare:*`, `node:*` or
-`server/`. `src/net/ids.ts` imports nothing (the compile-time check against the game's ids is `idsCheck.ts`, which
-nothing imports), so the Worker's typecheck sees none of the game's DOM code.
+`server/`. `src/net/ids.ts` and `src/net/weather.ts` import nothing and `race.ts` only `weather.ts` (the
+compile-time check against the game's ids is `idsCheck.ts`, which nothing imports), so the Worker's typecheck sees
+none of the game's DOM code.
 
 ## Wire format
 
@@ -65,14 +72,15 @@ that many bytes of UTF-8 (rejected if not valid UTF-8). Times marked `time32` ar
 `unwrapTime(wire, refS)`). Lap and sector times are `u32` microseconds, `0xFFFFFFFF` = not timed.
 
 Ids: room codes are 1-8 of `A-Z0-9`; car and circuit ids 1-16 of `a-z0-9`; player ids 1-255 (0 = "set by the
-relay" in client messages, and "left" on the board).
+relay" in client messages, "left" on the board, "none" for the host).
 
-Messages that a client sends and the relay forwards (`state`, `contact`, `lap`, `restart`) carry the player byte
-at offset 1: the client writes 0 and the relay overwrites it with the sender's id before forwarding the same bytes.
+Messages that a client sends and the relay forwards (`state`, `contact`, `lap`, `restart`, `pit`) carry the player
+byte at offset 1: the client writes 0 and the relay overwrites it with the sender's id before forwarding the same
+bytes.
 
 ### Unreliable lane
 
-`state` 0x01, both ways, 42 bytes (`STATE_BYTES`):
+`state` 0x01, both ways, 43 bytes (`STATE_BYTES`):
 
 | Offset | Type | Field |
 |---|---|---|
@@ -89,6 +97,7 @@ at offset 1: the client writes 0 and the relay overwrites it with the sender's i
 | 38 | i8 | gear: -1 reverse, 0 neutral, 1-15 |
 | 39 | u16 | rpm, 0-30000 |
 | 41 | u8 | bits 0-3 flags: 1 `noCollide`, 2 `paused`, 4 `flapsOpen`, 8 reserved (must be 0); bits 4-7 restart epoch (0-15) |
+| 42 | u8 | bits 0-2 tyre compound (`COMPOUND`: 0 unknown, 1 soft, 2 medium, 3 hard, 4 inter, 5 wet; 6-7 unassigned); bits 3-5 reason (`CAR_REASON`: 0 none, 1 pits, 2 spectator, 3 ghost, 4 paused, 5 finished, 6 retired; 7 unassigned); bits 6-7 reserved (must be 0) |
 
 Quantisation (half a step): position 0.5 mm, velocity 5 mm/s, angular velocity 0.5 mrad/s, rotation under 0.01
 degrees (tested over 2000 random orientations), steer 0.005 rad. `encodeState` clamps out-of-range values and
@@ -97,7 +106,12 @@ writes non-finite ones as 0 (rotation as identity), so a broken local state neve
 The epoch goes up by one (mod 16) at every restart or teleport: receivers do not blend across a change, and
 since every state carries it, a lost packet cannot hide a restart.
 
-`states` 0x02, relay to client only (batching, off by default): `u8 type | u8 n (1-32) | n x 42-byte state`
+Byte 42 (protocol 2) is for displays: the relay checks only its reserved bits and nothing in `src/net` acts on it. The
+game decides what it sets (e.g. reason pits in the pit lane, spectator for a spectator-driver, ghost while
+`noCollide` after a restart or in one-shot qualifying, finished on a cool-down lap); a value a client does not
+know shows as unknown. `CarState` / `RemoteSample` carry it as `compound` and `reason`.
+
+`states` 0x02, relay to client only (batching, off by default): `u8 type | u8 n (1-32) | n x 43-byte state`
 (whole state messages, player bytes set). Decoded as `{ type: 'states', states }`; `NetClient` handles it as n
 states.
 
@@ -105,20 +119,31 @@ states.
 
 `player` record: `u8 id | str name (<= 48 bytes) | str car`.
 `board` body: `u8 n (<= 32) | n x { u8 player (0 = has left) | str name | str car | u32 best | u32 s1 | u32 s2 | u32 s3 | u16 laps }`, sorted by best.
+`settings` body (`RoomSettings`; numbers as sent, the relay clamps them): `str circuit | str car ('' = any) | u8 practice | u8 practiceMinutes | u8 qualifying (0 none, 1 timed, 2 oneShot) | u8 qualifyingMinutes | u8 raceLaps | u8 grid (0 qualifying, 1 random, 2 reversed, 3 joinOrder) | u8 pitStops | u8 tyreWear (tenths: 5 = 0.5) | u8 weather (0 dry, 1 damp, 2 wet, 3 changeable, 4 random) | u8 collisions (0/1) | u8 invalidPenalty (s) | u16 finishSecs` (13 bytes after the two ids).
+`session` body (`SessionInfo`; times are f64 relay seconds, -1 = none): `u8 phase (0 lobby, 1 practice, 2 qualifying, 3 race) | u8 index | u8 stage (0 running, 1 finishing, 2 results) | u8 flags (1 collisions, 2 oneShot) | f64 start | f64 end | f64 lightsAt | f64 goAt | f64 finishAt | u32 seed | u8 n (<= 32) | n x u8 grid`.
+`weather` body (`WeatherInfo`): `f64 origin (relay time of session time 0) | u8 kind (0 dry, 1 damp, 2 wet, 3 changeable: what the keyframes were made as) | u8 n (1-64) | n x { u16 t (s from origin, strictly increasing) | u8 rain (/255) | u8 wet (/255) }`.
+`standings` body: `u8 final (0/1) | u8 n (<= 32) | n x { u8 player | str name | str car | u8 status (0 racing, 1 finished, 2 dnf, 3 outOfTime) | u8 grid slot (255 none) | u16 laps | u32 time (us from lights out to the last crossing, penalties excluded; none before a lap) | u32 penalty (us) | u32 best (us; none) | u8 pits | u8 invalid }`, in classification order.
 
 | Type | Name | Direction | Body after the type byte |
 |---|---|---|---|
-| 0x10 | hello | C->R | `u16 version | str room | str name (<= 48 bytes) | str car | str circuit (may be empty: the relay's default; used only if this hello creates the room)` |
-| 0x11 | welcome | R->C | `u16 version | u8 you | str room | str circuit | f64 serverTime (s) | u8 maxPlayers | u8 stateHz (the most states a second the relay takes; >= 1) | u8 n (<= 32) | n x player (everyone, you included) | board body` |
+| 0x10 | hello | C->R | `u16 version | u8 mode (0 join, 1 create, 2 either) | u32 token (0 = none; a previous welcome's, to rejoin as that player) | str room | str name (<= 48 bytes) | str car | str circuit (may be empty: the relay's default; used only if this hello creates the room)` |
+| 0x11 | welcome | R->C | `u16 version | u8 you | u32 token | str room | f64 serverTime (s) | u8 maxPlayers | u8 stateHz (the most states a second the relay takes; >= 1) | u8 host | u8 n (<= 32) | n x player (everyone, you included) | board body | settings body | session body | weather body | standings body` (the race under way; otherwise the last race's result, final, or none). The room's circuit is the settings' |
 | 0x12 | joined | R->C | `player` |
-| 0x13 | left | R->C | `u8 id | u8 reason` (0 left, 1 timeout, 2 kicked) |
+| 0x13 | left | R->C | `u8 id | u8 reason` (0 left, 1 timeout, 2 kicked, 3 replaced: rejoined on another connection) |
 | 0x14 | player | both | `player`. C->R: id 0, my new name and/or car; R->all (sender included): the player's name and car now |
 | 0x15 | ping | C->R | `u32 nonce | f64 clientTime` |
 | 0x16 | pong | R->C | `u32 nonce | f64 clientTime (echoed) | f64 serverTime` |
 | 0x17 | contact | C->R->C | `u8 from (0 from the client) | u8 to | time32 | f32 ix, iy, iz | f32 px, py, pz | f32 closing` (35 bytes) |
-| 0x18 | lap | C->R->all | `u8 player (0 from the client) | u32 time | u32 s1, s2, s3 | u8 valid (0/1)` (19 bytes) |
+| 0x18 | lap | C->R->all | `u8 player (0 from the client) | u16 lap (1-65535: the sender's count this session) | time32 crossing (of the line, ending the lap) | u32 time | u32 s1, s2, s3 | u8 valid (0/1)` (25 bytes) |
 | 0x19 | board | R->all | board body |
 | 0x1a | restart | C->R->others | `u8 player (0 from the client)` |
+| 0x20 | settings | both | settings body. C->R: the host's new settings (all of them); R->all: the settings now |
+| 0x21 | host | R->all | `u8 id`: the host now |
+| 0x22 | control | C->R | `u8 action` (1 start, 2 skip, 3 abort) |
+| 0x23 | session | R->all | session body: a new session, or a new stage of one |
+| 0x24 | weather | R->all | weather body: at every session start, and further ahead when a session runs long |
+| 0x25 | standings | R->all | standings body: the race classification, after every change |
+| 0x26 | pit | C->R->all | `u8 player (0 from the client) | time32 at | u8 compound (0-7)` (7 bytes) |
 | 0x1f | error | R->C | `u8 code | u8 fatal (0/1) | str message (<= 200 bytes)` |
 
 `contact`: `i` is the impulse the sender's car received (N s, world axes); the other car takes the opposite. `p`
@@ -126,20 +151,30 @@ is the contact point (world, m, each axis within +-1e5), `closing` the closing s
 (0-200 m/s). |i| at most 1e6.
 
 `hello` and `welcome` keep `u16 version` at offset 1 in every protocol version (`helloVersion(data)` reads it
-without decoding the rest), so a relay can refuse a client of another version with a proper error.
+without decoding the rest), so a relay can refuse a client of another version with a proper error. A version 1
+game (before explicit rooms) gets `version`, fatal: "this relay speaks protocol 2, the game 1: update the game
+(reload the page)".
 
 Error codes (`ERROR`): 1 version, 2 roomFull, 3 badName, 4 badCar, 5 badCircuit, 6 badRoom (a hello for another room than the address names; a bad room code in a hello fails decoding, so it is `malformed`), 7 malformed, 8 rate,
-9 tooBig, 10 idle, 11 notJoined, 12 lapRejected, 13 badContact, 14 serverFull, 15 shutdown. A fatal error is
-followed by the relay closing the connection.
+9 tooBig, 10 idle, 11 notJoined, 12 lapRejected, 13 badContact, 14 serverFull, 15 shutdown, 16 noRoom (a join for
+a room that does not exist), 17 roomTaken (a create for a code in use), 18 notHost, 19 badPhase (not now: settings
+outside the lobby, start outside it, skip or abort in it), 20 pitRejected, 21 replaced (to the old connection of a
+player that rejoined with its token). A fatal error is followed by the relay closing the connection. Not fatal:
+12, 13, 18, 19 and 20; 3 and 4 on a player change (4 also for a car the room does not allow); 4 and 5 on a
+settings change. The rest are fatal.
 
 ### Decoding
 
 `decodeMessage(data)` returns `{ ok: true, msg }` or `{ ok: false, error }` and never throws. It rejects: an
 empty frame, an unknown or reserved type, truncation, trailing bytes, invalid UTF-8, strings over their field's
 limit, room codes and ids outside their alphabets, non-finite floats, a hello or welcome of another version, a
-quaternion whose three components square-sum over 1, gear outside -1..15, rpm over 30000, the reserved flag bit,
-a `left` reason over 2, error/lap flags other than 0/1, a lap without a time or over 3600 s, a board or roster
-over 32, a bundle of 0 or over 32 states or with any bad state, a contact out of range. `stateValid(data)` is the
+hello mode over 2, a quaternion whose three components square-sum over 1, gear outside -1..15, rpm over 30000, the
+reserved flag bit or status bits, a `left` reason over 3, error/lap/collisions/final flags other than 0/1, a lap
+without a time, over 3600 s or numbered 0, a board, roster, grid or standings over 32, a bundle of 0 or over 32
+states or with any bad state, a contact out of range, an enum out of its list (hello mode, qualifying, grid order,
+weather, phase, stage, standing status; a control action other than 1-3), session flags over 3, a negative
+session start, a pit compound over 7, weather of 0 or over 64 keyframes or with times not increasing. Settings
+numbers out of range decode (the relay clamps them). `stateValid(data)` is the
 relay's allocation-free check of a client's state (same checks). Fuzzing (`test/net-protocol.test.ts`): 10000
 random frames, every truncation of every message, 1500 random mutations of each: nothing throws, and anything that
 decodes encodes again to the same message.
@@ -153,15 +188,23 @@ const net = new NetClient(new WebSocketTransport('wss://relay.example/'), {
   room: 'ABCD',                // 1-8 of A-Z 0-9 (lower case is upper-cased)
   name: 'Max',                 // first 16 characters; the relay sanitises it
   car: 'lcf1',
-  circuit: 'monza',            // wanted if this creates the room; the welcome says the room's circuit
+  mode: 'create',              // 'create' | 'join' | 'either' (the default: join, or create if there is none)
+  circuit: 'monza',            // the circuit of a room this creates; the welcome says the room's circuit
+  token: savedToken,           // optional: a previous welcome's net.token, to come back as the same player
   sendHz: 40,                  // default 40; capped by the welcome's stateHz (60)
   clock: () => performance.now() / 1000,   // stamps arrivals as they happen (recommended)
 });
 ```
 
-Constructor options: `room`, `name`, `car`, `circuit?`, `sendHz?`, `clock?`, `timeout?` (s without hearing the
-relay before giving up, default 15), `remote?` (`RemoteOptions` for every proxy). Throws on an invalid room code,
-car or circuit id.
+Constructor options: `room`, `name`, `car`, `mode?`, `circuit?`, `token?`, `sendHz?`, `clock?`, `timeout?` (s
+without hearing the relay before giving up, default 15), `remote?` (`RemoteOptions` for every proxy). Throws on an
+invalid room code, car or circuit id.
+
+Creating: the game picks a code (e.g. 4 random characters of `A-Z0-9`), connects with `mode: 'create'` and, on an
+`error` event with `ERROR.roomTaken` (fatal: the client closes), tries again with another code on a new
+connection. Joining with `mode: 'join'` gets `ERROR.noRoom` if the room does not exist (any more). `'either'` is
+version 1's behaviour, kept so the game works unchanged until it chooses (a `?room=` link that should not create a
+room should use `'join'`).
 
 | Member | |
 |---|---|
@@ -170,22 +213,38 @@ car or circuit id.
 | `sample(id, now, out, smooth = true)` | player `id`'s car at local time `now`, into `out` (a `RemoteSample` from `emptySample()`); null if no such player or nothing received yet |
 | `takeEvents(): NetEvent[]` | what happened since the last call, in order |
 | `sendContact({ other, at, impulse, point, closing })` | we hit player `other`'s proxy at local time `at`; `impulse` is what OUR car received |
-| `sendLap({ time, sectors, valid })` | a lap finished (every lap, valid or not) |
+| `sendLap({ time, sectors, valid, at? })` | a lap finished (every lap, valid or not), its line crossing at local time `at` (default: now, the `clock` option's or the last `update`'s). NetClient numbers the laps (1, 2, ... from each new session). Not sent while it could not count: spectating a race, or our race over (status not racing, or the results) |
+| `sendPit({ compound, at? })` | a pit stop at local time `at` (default now), fitting `compound` (`COMPOUND`) |
 | `sendRestart()` | we were put back at the start spot (bump `state.epoch` as well) |
-| `setPlayer({ name?, car? })` | a new car or name; the relay answers with a `player` event |
+| `setPlayer({ name?, car? })` | a new car or name; the relay answers with a `player` event (or `badCar` for a car the room does not allow) |
+| `setSettings(partial)` | host, in the lobby: new settings, merged into `settings` and sent whole; the relay clamps them and answers with a `settings` event to all |
+| `startWeekend()`, `skipSession()`, `abortWeekend()` | host: start the weekend (lobby only); end the session now (practice: the next; qualifying: the race; the race: its results; the results: the lobby); back to the lobby (any phase but the lobby). Others get `notHost`, the wrong phase `badPhase` |
 | `close(reason?)` | leave |
 | `status` | `'connecting'` (transport not open) / `'joining'` (hello sent) / `'joined'` / `'closed'` (`closeReason`) |
-| `selfId`, `room`, `circuit`, `maxPlayers`, `sendHz` | from the welcome |
+| `selfId`, `token`, `room`, `circuit`, `maxPlayers`, `sendHz` | from the welcome (`circuit` is `settings.circuit`). Keep `token` (e.g. in sessionStorage) to rejoin after a reload |
 | `players: Map<id, PlayerInfo>` | everyone in the room, ourselves included |
 | `remotes: Map<id, RemoteCar>` | everyone else's proxy |
-| `board: BoardEntry[]` | the lap board (`{ player, name, car, best, sectors, laps }`, best first) |
+| `board: BoardEntry[]` | the lap board (`{ player, name, car, best, sectors, laps }`, best first): the lobby's or the session's |
+| `host`, `isHost` | the host's id; whether it is us |
+| `settings: RoomSettings` | the room's settings (**Race weekends**) |
+| `session: SessionInfo` | the session (phase) now |
+| `weather: WeatherInfo` | the session's weather keyframes |
+| `standings: Standing[]`, `standingsFinal` | the race classification under way; final: the race's result (kept in the lobby until the next race) |
+| `collides(id)` | whether our car and player `id`'s collide in this session: collisions on, neither a spectator. `sample` sets `collidable` false when not |
+| `isSpectator(id = us)`, `gridSlot(id = us)` | in a race: not on the grid (joined after it began); grid slot (0 = pole) or null |
+| `raceStage(now)`, `lightsLit(now)` | `'grid' \| 'lights' \| 'racing' \| 'finishing' \| 'results'` (null outside a race); start lights lit, 0-5 |
+| `held(now)` | our car must be held at its grid slot (a race before lights out) or at the start spot (one-shot qualifying before the release) |
+| `timeLeft(now)` | s to the end of the session's current stage (null: none) |
+| `conditions(now, out?)` | `{ rain, wet }` (0..1) now: `weatherAt(weather.keys, serverTime(now) - weather.origin)` |
+| `raceLaps(id = us)` | laps completed in the race (from `standings`) |
 | `serverTime(now)`, `rtt`, `jitter`, `clock` | relay clock and link quality (s) |
 | `stats` | messages and bytes each way, states sent and received, `malformed`, `unknownSender` |
 
 `CarState` (`emptyCarState()`): `x y z` (m), `qx qy qz qw`, `vx vy vz` (m/s), `wx wy wz` (rad/s, world axes),
 `steer` (front wheel angle, rad, + = left), `throttle`, `brake` (0..1, as applied), `gear`, `rpm`, `flags`
-(`STATE_FLAG.noCollide | paused | flapsOpen`), `epoch` (0-15). These map onto `Vehicle` as `pos`, `quat`, `vel`,
-`angv`, `steer`, `throttle`, `brake`, `gear`, `rpm`, `flapsOpen`.
+(`STATE_FLAG.noCollide | paused | flapsOpen`), `epoch` (0-15), `compound` (0-7, `COMPOUND`), `reason` (0-7,
+`CAR_REASON`). These map onto `Vehicle` as `pos`, `quat`, `vel`, `angv`, `steer`, `throttle`, `brake`, `gear`,
+`rpm`, `flapsOpen`; `compound` and `reason` are the game's to set.
 
 `RemoteSample` is a `CarState` plus `time` (relay time asked for), `age` (s past the newest state; negative when
 sampling in the past), `extrapolated` (s actually extrapolated), `collidable`, `alpha` (1..0 as the proxy goes
@@ -195,14 +254,20 @@ Events (`NetEvent`):
 
 | `type` | Fields |
 |---|---|
-| `welcome` | `you, room, circuit, players` (followed by a `board` event) |
+| `welcome` | `you, room, circuit, players, host, token` (followed by a `board` event; `settings`, `session`, `weather` and `standings` are already set) |
 | `join` | `player` |
-| `leave` | `player, reason: 'left' \| 'timeout' \| 'kicked'` |
+| `leave` | `player, reason: 'left' \| 'timeout' \| 'kicked' \| 'replaced'` |
 | `player` | `player, before`: a name or car change (also our own, echoed) |
 | `contact` | `from, time` (relay time), `impulse` (to apply to OUR car: already turned round), `point`, `closing` |
-| `lap` | `player, time, sectors, valid`: accepted laps only, ours included |
+| `lap` | `player, lap, crossing` (relay time), `time, sectors, valid`: accepted laps only, ours included |
+| `pit` | `player, time` (relay time), `compound`: accepted pit stops, ours included |
 | `board` | `board` |
 | `restart` | `player` |
+| `host` | `host, before` |
+| `settings` | `settings, before, circuitChanged`: on `circuitChanged` the game reloads onto the new circuit and rejoins (`mode: 'join'`, `token`) |
+| `session` | `session, before`: a new session (phase, index or start differ) or a new stage of it |
+| `weather` | `weather`: new keyframes (a session start, or more of them) |
+| `standings` | `standings, final` |
 | `error` | `code, fatal, message` |
 | `closed` | `reason` |
 
@@ -221,6 +286,8 @@ function frame(nowMs: number) {
       case 'join': case 'leave': case 'player': rebuildProxies(); break;   // a body per player, e.player.car
       case 'contact': applyImpulseIfMissed(e.impulse, e.point, e.time); break;
       case 'board': hud.showBoard(e.board); break;
+      case 'session': if (e.session.start !== e.before.start) restartAtStartSpotOrGrid(); break;   // laps count from the session
+      case 'settings': if (e.circuitChanged) reloadAndRejoin(e.settings.circuit, net.token); break;
       case 'error': if (e.fatal) showMessage(e.message); break;
       case 'closed': backToMenu(e.reason); break;
     }
@@ -229,12 +296,12 @@ function frame(nowMs: number) {
   // physics: fixed 120 Hz ticks; the proxies sampled at each tick's time, so collisions see where they are then
   while (accumulator >= DT) {
     const tickAt = now - (accumulator - DT);           // local time this tick's state is for
-    for (const [id, car] of net.remotes) {
-      const s = car.sample(net.serverTime(tickAt), remote);
+    for (const [id] of net.remotes) {
+      const s = net.sample(id, tickAt, remote);          // (collidable false too when the session says so: collides(id))
       if (s?.collidable) placeCollider(id, s);           // kinematic body at s.x.., moving at s.vx.., spinning at s.wx..
       else removeCollider(id);
     }
-    session.tick(input);
+    session.tick(net.held(tickAt) ? holdStill(input) : input);   // on the grid until the lights go out
     // a hit our simulation resolved against proxy `id`:
     //   net.sendContact({ other: id, at: tickAt, impulse: whatOurCarGot, point, closing });
     copyCarState(session.car, state);                    // pos, quat, vel, angv, steer, pedals, gear, rpm
@@ -251,7 +318,9 @@ function frame(nowMs: number) {
 }
 
 // on restart:  epoch = (epoch + 1) & 15; net.sendRestart();
-// on a lap:    net.sendLap({ time: lap.time, sectors: lap.sectors, valid: lap.valid });
+// on a lap:    net.sendLap({ time: lap.time, sectors: lap.sectors, valid: lap.valid, at: crossingLocalTime });
+// a pit stop:  net.sendPit({ compound: COMPOUND.medium, at });
+// weather:     const { rain, wet } = net.conditions(now);
 ```
 
 Contacts: when the other car's client resolves a hit, ours receives a `contact` event about a one-way trip later.
@@ -273,6 +342,12 @@ dynamic import, so a single-player page never downloads `src/net`.
 | `noCollide`, `epoch`, `stats` | ours; `stats` counts contact ticks, events sent, applied, ignored, dropped, laps sent |
 | `sampleAt(id, now, out)` | for drawing; the game draws other cars at `now - DT`, where the player's own car is drawn (interpolated a tick behind) |
 | `takeNotices()` | joins, leaves, car changes, best laps, non-fatal errors, as text for the HUD |
+
+Protocol 2 status: `Multiplayer` and the game still use only the lobby (rooms joined with the default `'either'`,
+laps sent without `at`, so their crossing is the moment `sendLap` runs, within a tick of the real one; byte 42 of
+the state left 0). Wiring the game to rooms created explicitly, rejoining with the token, the host's settings and
+the weekend (grid placement, holding cars until `goAt`, pit reports, weather, standings) is still to do, from
+**Race weekends** and the client API above.
 
 Our car: the state after every tick (velocity and pedals zeroed while paused, so nobody extrapolates a parked car
 down the road), the epoch bumped and `restart` sent whenever the Session puts the car at the start spot
@@ -320,6 +395,123 @@ the proxy at the tick's time against the other client's real car, the F1 and GT3
 saw the hit (8 ticks each), every event was ignored, and the momentum the two cars gained were 28.7 and 29.2 kN s
 (sum 0.5 kN s, 2%). The same with the struck car's simulation blind to proxies: all 8 events applied, once each,
 30.3 and 31.1 kN s (sum 0.8 kN s).
+
+## Race weekends
+
+The relay runs them; clients follow its messages. Everything below is timed on the relay clock and every
+transition is announced (`session`, reliable) with the new session's times, so clients need no timers of their own
+beyond `serverTime(now)`.
+
+**Settings** (`RoomSettings`, `src/net/race.ts`; the host sets them in the lobby, the relay validates ids, clamps
+the rest with `normaliseSettings` and broadcasts them; `defaultSettings(circuit)` for a new room):
+
+| Field | Values (default) | |
+|---|---|---|
+| `circuit` | a circuit id (the creator's) | changing it resets the board and the kept results; clients reload onto it (`settings` event `circuitChanged`) |
+| `car` | `''` any, or one car id (`''`) | a `player` change to another car is refused (`badCar`), so is a lap in another; a hello in another car is accepted (the game switches after the welcome) |
+| `practice`, `practiceMinutes` | 0-3 (1), 1-120 (10) | sessions and their length |
+| `qualifying`, `qualifyingMinutes` | `none` / `timed` / `oneShot` (`timed`), 1-60 (10) | |
+| `raceLaps` | 1-99 (5) | |
+| `grid` | `qualifying` / `random` / `reversed` / `joinOrder` (`qualifying`) | with qualifying `none`, `qualifying` and `reversed` become `joinOrder` |
+| `pitStops` | 0-3 (0) | mandatory stops in the race |
+| `tyreWear` | 0.5, 1, 2, 3, 5 (1; nearest) | for the game's tyre model; the relay only passes it on |
+| `weather` | `dry` / `damp` / `wet` / `changeable` / `random` (`dry`) | **Weather** |
+| `collisions` | on / off (on) | in the race; practice and timed qualifying always collide, one-shot qualifying never |
+| `invalidPenalty` | 0, 1, 2, 3, 5, 10 s (0; nearest) | per invalid race lap |
+| `finishSecs` | 30-600 (120) | the others' time to finish after the winner |
+
+The host is the room's creator. When the host leaves, the role is held `hostGrace` (10 s) for it to come back with
+its token (a reload: the welcome still names it as host meanwhile, and nobody can change settings); then it goes to
+the player in the room longest (a rejoiner keeps its original join time), and everyone gets `host`. With the room
+empty it waits for the next joiner. Only the host sends `settings` (lobby only) and `control`.
+
+**Phases** (`SessionInfo`: `phase`, `index`, `stage`, `start`, `end`, `lightsAt`, `goAt`, `finishAt`, `seed`,
+`grid`, `collisions`, `oneShot`):
+
+1. `lobby`: free driving as in protocol 1 (flying starts, the board), no end. `start` (host) begins the weekend.
+2. `practice` 1..n: `end = start + practiceMinutes x minute` (`minute` 60 s), then the next practice, or
+   qualifying, or the race.
+3. `qualifying`, timed: running until `end` (the flag), then stage `finishing` with `finishAt` = the flag and `end`
+   = the flag + `overtimeSecs` (180): a lap that began before the flag (crossing - time <= flag + 1 s) still counts;
+   each player's first accepted lap after the flag ends their session (their later laps are refused); it ends when
+   everyone in the room has had one, or at `end`. The board is its result: a player's best valid lap in any car.
+4. `qualifying`, one-shot (`oneShot`, `collisions` off): `grid` lists who takes part (everyone in the room at the
+   start, by join order); everyone is released together at `goAt = start + oneShotPrep` (10 s), from the start spot
+   (flying), and has one lap: the first lap accepted from it, which must have begun at or after `goAt`, ends its
+   session (an invalid one counts as its lap, with no time). Joiners after the start drive but are not timed. It
+   ends when every entrant still in the room has had its lap, or at `end = goAt + oneShotLimit` (420 s).
+5. `race`: the grid is fixed at its start from the players in the room (`grid`, slot = index; order from the
+   setting: by qualifying best, its reverse, a shuffle from the room's seeded generator, or join order; players
+   without a qualifying time after those with one, in join order). `lightsAt = start + gridSecs` (15 s); the five
+   lights come on a second apart (all five at `lightsAt + 4`) and go out at `goAt`, a uniformly random 0.2-3 s
+   after the fifth, chosen when the race starts and announced with it. Clients hold their cars until `goAt`
+   (`held(now)`), so there is no jump start to police; the relay refuses any lap that could have begun before
+   `goAt`. While running, `end` is a safety stop at `goAt + raceLaps x maxRaceLapSecs` (600 s).
+   The first car to complete `raceLaps` laps wins: stage `finishing`, `finishAt` = its crossing, `end` = that +
+   `finishSecs`; every other car finishes at its first crossing after `finishAt`. The race ends (stage `results`,
+   standings final, `end` = now + `resultsSecs` (30 s)) when no car is still racing (all finished or gone), at
+   `end`, or when the host skips; cars still racing then are `outOfTime`. Then the lobby, with the result kept
+   (`standings`, final) until the next race's result replaces it or the circuit changes.
+
+Each session start resets the board (lobby too), the per-player lap numbering and the weather, and comes with a
+`weather` and a `board` message after the `session`. The host can end the current session or stage at once
+(`skip`: practice -> the next, qualifying -> the race (no overtime), race -> results, results -> lobby) or `abort`
+to the lobby from anywhere (the race unfinished, its result not kept). The game should put every car back at the
+start spot (practice, qualifying) or its grid slot (race) on each new session; a lap that began before the session
+did is refused.
+
+Laps: every client reports every lap it completes (`sendLap`: lap number, the relay time of the line crossing, the
+lap time, sectors, valid), in every phase. The race's first lap is timed from `goAt` (it includes the run from the
+grid slot to the line). Pit stops (`sendPit`: time, compound fitted) count in the race after `goAt`; in other
+phases they are only passed on.
+
+Classification (`server/weekend.ts` `classify`, broadcast as `standings` after every race lap, pit stop, retirement
+and stage change; clients compute the live running order between laps from the cars' positions and these lap
+counts): cars still classified (racing, finished, outOfTime) by laps completed, then by the time of their last
+crossing plus penalties, then grid slot; cars that left (`dnf`) after them. Penalty: invalid laps x
+`invalidPenalty`, plus `missedStopPenalty` (60 s) once the race is over for a car that made fewer than `pitStops`
+stops. `time` is the last crossing less `goAt`, without the penalty.
+
+Joining mid-weekend: in the lobby, practice and qualifying a joiner is a driver (in the race grid if it starts
+while they are in). During a race a joiner is a spectator-driver: on track, not on the grid (`isSpectator`),
+never collided with (`collides` is false both ways), not classified, its laps and stops refused (NetClient does not
+send them). A player who leaves the race is `dnf`; if it rejoins with its token (same id) while the race runs it is
+racing again, its laps kept.
+
+Rejoining: the welcome's `token` (u32, random, unique in the room) in a later hello, within the room's life (the
+relay keeps the last 64 leavers' tokens), gives back the same player id (unless taken meanwhile), its join time,
+its board rows, the host role (within `hostGrace`) and its race entry. If the token's player is still connected
+(a reload before the old socket timed out), that connection is closed first (`replaced`; others see `leave`
+reason `replaced`, then `join`). A token is a bearer secret: anyone who has it can take the player's place.
+
+Durations: `RelayOptions` `minute`, `gridSecs`, `lightsHold`, `resultsSecs`, `overtimeSecs`, `oneShotPrep`,
+`oneShotLimit`, `maxRaceLapSecs`, `hostGrace`, `pitSpacing` (5 s between a car's stops) are injectable; the
+`WEEKEND_SCALE` env (0.001-1) multiplies all of them on either server (tests: `scaledWeekend(k)`).
+
+Deadlines: each room keeps its next deadline (stage end, host hand-over, weather extension). The relay runs every
+deadline due, each at its own time (the next session starts at the previous one's `end` exactly, however late the
+timer ran), whenever `update()` runs or a message from that room arrives, and calls `RelayOptions.schedule(at)`
+when the earliest deadline changes; both servers set a timer for it, so phase changes do not wait for the 1 s tick.
+
+### Weather
+
+`src/net/weather.ts`: at each session start the relay makes keyframes `{ t, rain, wet }` (s from the session
+start; rain intensity and track wetness 0..1 in steps of 1/255) from the `weather` setting and the session's
+`seed`, one a minute for 63 minutes (64 keyframes), and sends them with the session's start as `origin`; ten
+minutes before the last one it sends 64 more from two minutes before then (`weatherKeys(setting, seed, first, 64)`:
+the same generator, so they agree with the first batch where they overlap), up to the wire's 18 hours. Clients
+interpolate linearly: `weatherAt(keys, t)` (held before the first and after the last), `net.conditions(now)`.
+Dry weather is two keyframes of nothing (0 and 65535 s) and never extended. The lobby is always dry.
+
+The model: rain comes in showers, a two-state Markov chain a minute (chance of a shower starting / stopping) with
+an intensity per shower that wanders a little; the rain ramps towards it by at most 0.25 a minute. Wetness follows:
+dW/dt = r (1 - W) / 150 s - max(0, 1 - 3 r) W / 900 s, so heavy rain soaks the track in a few minutes, drizzle (r
+over a third) holds it, and it dries over about a quarter of an hour. Per kind: `damp` starts at 0.3-0.5 wet with
+occasional drizzle (0.05-0.2); `wet` starts at 0.75-0.95 and rains most of the time (0.35-0.85); `changeable`
+starts at 0-0.3 with showers of 0.2-0.9 coming and going (about half the minutes dry); `random` is dry (40%),
+changeable (30%), damp or wet (15% each) by the seed (`resolveWeather`; the message says which). Measured over 60
+seeds and 64 minutes (`test/net-weather.test.ts`): damp rain at most 0.2 and mean wetness 0.1-0.6; wet mean rain
+over 0.35 and wetness over 0.75; changeable 30-80% of minutes dry and showers over 0.6.
 
 ## Remote cars (`RemoteCar`)
 
@@ -377,14 +569,18 @@ estimate (from the hello's send time) so states can go out at once.
 ## Relay
 
 `new Relay({ now, ...options })` (`server/relay.ts`); `accept(transport, { room? })` for each connection (`room`:
-the one its address named); `update()` about once
-a second (timeouts, empty rooms); `flush()` every `batchInterval` if batching; `shutdown()`. `server/ws.ts`
-`listen({ port, host?, relay?, tickMs? })` wraps it on a `ws` server and returns `{ relay, port, close() }`.
+the one its address named); `update()` about once a second (timeouts, empty rooms, deadlines) and at the time
+`schedule(at)` asks for; `nextDeadline()`; `flush()` every `batchInterval` if batching; `shutdown()`.
+`server/ws.ts` `listen({ port, host?, relay?, tickMs? })` wraps it on a `ws` server and returns `{ relay, port,
+close() }`.
 
-Joining: the first hello for a room code creates the room with the hello's circuit (or `defaultCircuit`,
-melbourne). Later joiners get the room's circuit in the welcome whatever they asked for. Player ids count up
-1..255 and wrap, skipping ids in use, so a leaver's late packets are not taken for a newcomer's. Duplicate names
-in a room get " 2", " 3". An empty room is kept `roomLinger` (60 s) with its board.
+Joining: a hello with mode `create` makes the room (refused with `roomTaken` if the code is in use, also by an
+empty room still lingering) with the hello's circuit (or `defaultCircuit`, melbourne) and default settings, and
+its sender is the host; `join` needs the room to exist (`noRoom`); `either` joins or creates. Joiners get the
+room's settings, session, weather and standings in the welcome whatever circuit they asked for. Player ids count
+up 1..255 and wrap, skipping ids in use, so a leaver's late packets are not taken for a newcomer's (a rejoin with
+a token gets its old id back). Duplicate names in a room get " 2", " 3". An empty room is kept `roomLinger` (60 s)
+with its board, settings and weekend (whose deadlines still run, on Cloudflare caught up at the next connection).
 
 Limits (`RELAY_DEFAULTS`):
 
@@ -396,7 +592,7 @@ Limits (`RELAY_DEFAULTS`):
 | car states | 60 a second, burst 30 (told in the welcome as `stateHz`) | dropped; every 10th drop is a violation |
 | other messages | 20 a second, burst 40 | dropped, violation |
 | violations (bad or excess messages; they decay at 2 a second) | 50 | `malformed` / `rate`, closed (kicked) |
-| hello | within 5 s of connecting, first message, protocol 1, for the room the address names (if it names one) | `idle` / `notJoined` / `version` / `badRoom`, closed |
+| hello | within 5 s of connecting, first message, protocol 2, for the room the address names (if it names one); `create` for a free code, `join` for an existing room | `idle` / `notJoined` / `version` / `badRoom` / `roomTaken` / `noRoom`, closed |
 | idle (nothing at all from a joined client; clients ping every 2 s) | 10 s | `idle`, closed; others see `leave` reason timeout |
 | name | sanitised: NFC, whitespace collapsed, control/format/private-use characters removed (so bidi overrides and zero-width characters), at most two combining marks in a row, 16 characters, 48 bytes; empty after that is refused | `badName` (fatal in a hello) |
 | car / circuit | in `NET_CARS` / `NET_CIRCUITS` | `badCar` / `badCircuit` (fatal in a hello) |
@@ -405,13 +601,21 @@ Limits (`RELAY_DEFAULTS`):
 
 Before forwarding a car state the relay checks it as the decoder would (`stateValid`), copies it and writes the
 sender's id at offset 1. A `contact` goes to the other car's client only (refused with `badContact` if that player
-is not in the room or is the sender); a `restart` to everyone else; a `player` change, accepted `lap`s and the
-`board` to everyone.
+is not in the room or is the sender); a `restart` to everyone else; a `player` change, accepted `lap`s and `pit`s,
+the `board`, `settings`, `host`, `session`, `weather` and `standings` to everyone.
 
-Lap claims: `verifyLap(claim, options)` decides (default `plausibleLap`): time at least `minLapSecs` (40, or per
-circuit) and at most 3600 s; a valid lap has three positive sectors adding up to the time within 2 ms; the player
-has been in the room, and since its last accepted lap, at least the lap time less 1 s; it sent a car state in the
-last 2 s. A refused claim gets `lapRejected` (not fatal) and is neither forwarded nor on the board. Accepted laps
+Lap claims: first the weekend's rules (**Race weekends**: a car the room allows; in a race on the grid, still
+racing, not in the results; one-shot: an entrant's first lap; after the flag: begun before it), then
+`verifyLap(claim, options)` (default `plausibleLap`): time at least `minLapSecs` (40, or per circuit) and at most
+3600 s; a valid lap has three positive sectors adding up to the time within 2 ms; the lap number above the last
+accepted this session (gaps allowed: a refused lap does not use one up); the crossing no more than 1 s in the
+future and no more than 10 s in the past of the relay clock, and after the previous accepted crossing; the player
+has been in the room, and since its last accepted lap (arrival), at least the lap time less 1 s; the crossing at
+least the lap time less 1 s after the earliest the lap could have begun (`startRef`: the session's start, in a
+race `goAt`, in one-shot qualifying the release, or the previous crossing, whichever is latest); it sent a car
+state in the last 2 s. A refused claim gets `lapRejected` (not fatal, with the reason) and is neither forwarded nor
+on the board nor counted. Pit stops: the time within 1 s ahead and 10 s behind, at least `pitSpacing` after the
+car's previous stop, and in a race from a car still racing after `goAt`; otherwise `pitRejected`. Accepted laps
 are forwarded (valid or not); valid ones update the board: one row per player and car, best time and its sectors,
 valid lap count, best first, at most 32 rows; a leaver's rows stay with player 0. The hook for real verification:
 a later protocol version can carry the lap's inputs in the claim, and a `verifyLap` that replays them headlessly
@@ -429,17 +633,21 @@ segment: the worst case):
 
 | | up per player | down per player | relay out, total |
 |---|---|---|---|
-| payload, no batching | 1.69 KB/s (41 frames/s) | 11.5 KB/s (275 frames/s) | 92 KB/s |
-| on the wire, no batching | ~3.6 KB/s | ~23 KB/s (~185 kbit/s) | ~180 KB/s |
-| on the wire, batching 1/60 s | ~3.6 KB/s | ~14 KB/s (61 frames/s) | ~109 KB/s |
+| payload, no batching | 1.73 KB/s (41 frames/s) | 11.8 KB/s (275 frames/s) | 94 KB/s |
+| on the wire, no batching | ~3.6 KB/s | ~23 KB/s (~187 kbit/s) | ~182 KB/s |
+| on the wire, batching 1/60 s | ~3.6 KB/s | ~14 KB/s (61 frames/s) | ~111 KB/s |
 
-Batching costs up to its interval (8 ms on average at 1/60 s) of extra delay on every remote car.
+Batching costs up to its interval (8 ms on average at 1/60 s) of extra delay on every remote car. Protocol 2's
+43-byte state (one byte more than protocol 1's, for the compound and the reason) adds 40 B/s up and 280 B/s down
+per player here (2.4%). The weekend's reliable messages are rare: a race lap is a 25-byte `lap` and a `standings`
+of about 30 bytes a car to everyone, a few times a minute per car.
 
 ## Running the relay
 
     npm run server                         # builds build/server/server.mjs (vite.server.config.ts), listens on 8787
     PORT=9000 HOST=127.0.0.1 MAX_PLAYERS=12 BATCH_MS=16 npm run server
     MIN_LAP_SECS=60 npm run server         # the shortest lap the board takes (default 40)
+    WEEKEND_SCALE=0.1 npm run server       # every weekend duration x 0.1 (a settings minute is 6 s): for trying it out
 
 The build bundles `src/net` into one module and leaves `ws` as an import (from this repository's `node_modules`).
 It logs rooms opening, joins, leaves, refused laps and kicks to stdout; SIGINT / SIGTERM send every client a
@@ -473,11 +681,16 @@ on Cloudflare Pages and be reached over `wss://` without a server of your own.
 - **Plain WebSockets, no hibernation.** Cars send 40 states a second, so an object with players never has the idle
   time the Hibernation API needs; the object stays in memory while anyone is connected.
 - **Timers.** A 1 s `setInterval` runs `relay.update()` (hello and idle timeouts, the empty room's linger) only while
-  the object has connections, plus a `flush()` timer if `BATCH_MS` is set; the tick that finds no connections left
-  stops them, so an empty object does no work and Cloudflare evicts it. The first connection after a quiet spell
-  runs `update()` first, so a room that outlived `roomLinger` (60 s) is dropped then. As on Node, the room and its
-  board survive an empty spell of up to `roomLinger`, but only while the object stays in memory (eviction loses
-  them sooner; the relay stores nothing). No alarms: nothing has to happen while nobody is connected.
+  the object has connections, plus a `flush()` timer if `BATCH_MS` is set, plus a `setTimeout` for the relay's next
+  phase deadline (`schedule`); the tick that finds no connections left stops them all, so an empty object does no
+  work and Cloudflare evicts it. The first connection after a quiet spell runs `update()` first, so a room that
+  outlived `roomLinger` (60 s) is dropped then, and deadlines that passed meanwhile are run, each at its own time.
+  As on Node, the room, its board and its weekend survive an empty spell of up to `roomLinger`, but only while the
+  object stays in memory (eviction loses them sooner; the relay stores nothing, so a `join` then gets `noRoom`). No
+  alarms: nothing has to happen while nobody is connected.
+- **Rooms that do not exist.** A `join` for a code nobody created reaches a fresh object (the Worker cannot know),
+  whose `Relay` has no room: it refuses the hello (`noRoom`, fatal) and closes, and with no connections left its
+  timers stop at the next tick. A later `create` of that code on the same object works.
 - **Differences from `server/ws.ts`.** A Workers WebSocket has no `bufferedAmount`, so the relay cannot drop car
   states for a backed-up client (`UNRELIABLE_BACKLOG`): they queue. The platform's own message limit (32 MiB) is far
   above the relay's 256 bytes, which the relay enforces itself (`tooBig`, kicked; on Node `ws` closes with 1009).
@@ -549,6 +762,12 @@ duration while each player-hour uses 7.3% of the requests, so duration runs out 
 single player for long (it cannot: at one player the requests last 13.7 h, the duration 28.9 h). A tab in the
 menu still sends states at the full rate (paused); a hidden tab sends about one a second.
 
+Protocol 2 changes none of this: requests are billed per message, not per byte, so the state's extra byte costs
+nothing, and a weekend adds only a handful of client messages (a lap report per lap, a pit report per stop, the
+host's few settings and controls): at a 90 s lap, 0.011 messages a second per player against 40.5, under 0.03%.
+The relay's own messages (session, standings, weather) are outgoing, which is free. The phase deadline timer is a
+few wake-ups per session while the object is awake anyway.
+
 When a limit is hit: past the requests, new connections fail (the Worker answers 503 when it cannot reach the
 object; the game says it could not reach the relay) and, presumably, so do messages on open sockets (not
 documented, not checked), so players see "Disconnected"; past the Worker's own requests, the upgrade gets error
@@ -597,7 +816,7 @@ capacity above counts only the object's requests).
 
 ## Tests
 
-`npm test` runs them (project `unit`, about 10 s together):
+`npm test` runs them (project `unit`, about 20 s together):
 
 - `test/net-protocol.test.ts`: round trips, quantisation, clamping, time and sequence wrap, version peek, malformed
   input, fuzzing; the id lists against `CARS` / `TRACKS`; nothing in `src/` imports `ws`, `node:*` or `server/`.
@@ -606,15 +825,30 @@ capacity above counts only the object's requests).
 - `test/net-relay.test.ts`: relay and three (up to eight) NetClients over the emulated network: join and roster,
   state relay, spoofed ids, contacts, the lap board and refused laps, car changes, restarts, leaving, a dead link
   timing out, a full room, other versions and bad hellos, garbage and oversized messages, floods, bandwidth.
+- `test/net-weekend.test.ts`: rooms and weekends in-process over the emulated network, the relay's durations
+  shortened (a settings minute is 5 s, the grid 1 s): create / join / a taken code / a missing room / `either`, a
+  version 1 hello (update needed), the host held for its grace then handed to the longest present, rejoining with
+  a token (same id, host kept, an old connection replaced), settings permissions, clamping, a one-car room, a
+  circuit change; `normaliseSettings` and every grid order; a whole weekend with three clients (practice, timed
+  qualifying with overtime, a race gridded from it, the lights, a lap before lights out refused, pit stops,
+  penalties for an invalid lap and a missed stop reordering the finish, a DNF, results, the lobby keeping them);
+  one-shot qualifying; a spectator joining mid-race and a racer rejoining it; skip and abort; bad and out-of-order
+  lap and pit reports; deadlines met at their own times with the schedule asked for, a race nobody is left in;
+  weather keyframes from the session seed and their extension in a long session.
+- `test/net-weather.test.ts`: the weather generator, deterministic and in range for every kind, each kind's
+  character, wetness following rain, interpolation.
 - `test/net-ws.test.ts`: the real `listen()` on an ephemeral port: NetClients over `WebSocketTransport`, raw `ws`
   sockets sending text, oversized frames, garbage, another version, or nothing; the room in the address (a bad
-  one refused at the handshake, a hello for another room).
+  one refused at the handshake, a hello for another room); a taken code, and a practice session ending on the
+  deadline timer, not the 1 s tick.
 - `test/net-cf.test.ts`: the Cloudflare relay run locally by wrangler's `unstable_startWorker` (workerd, offline,
-  no account; about 3 s with its startup), `MAX_PLAYERS` 3 and `MIN_LAP_SECS` 1 as vars: three NetClients joining,
-  the roster, car states between all three, a contact reaching only its target, an accepted lap and the board, a
-  refused lap, leaving; a fourth player refused from the full room while a client in another room sees nobody;
-  bad room codes and other paths refused at the handshake (400 / 404), a hello for another room, garbage, an
-  oversized frame, text, another version.
+  no account; about 8 s with its startup), `MAX_PLAYERS` 3, `MIN_LAP_SECS` 1 and `WEEKEND_SCALE` 0.05 as vars:
+  three NetClients joining, the roster, car states between all three, a contact reaching only its target, an
+  accepted lap and the board, a refused lap, leaving; a fourth player refused from the full room while a client in
+  another room sees nobody; create, a taken code, a join to a missing room refused (and that object taking a create
+  afterwards), notHost, settings, a practice ending into the race on the object's deadline timer, skip, the results
+  ending into the lobby, the host handed on; bad room codes and other paths refused at the handshake (400 / 404), a
+  hello for another room, garbage, an oversized frame, text, another version.
 - `test/multiplayer.test.ts`: game Sessions joined through the relay with `Multiplayer` (above): proxy accuracy,
   a rear-end hit seen by both sides and by one, restarting onto an occupied spot, pausing, joins, car changes,
   leaving, a lap reaching the board.
