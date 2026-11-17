@@ -245,7 +245,7 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
     applied only if our simulation had no contact with that car within the window `W` about a round trip, then that
     proxy is not collided with until `W` after the hit) is in docs/net.md.
   - `remoteCars.ts` `RemoteCars`: the other cars drawn (the spec's own mesh, own material copies so one car can turn
-    translucent, wheels and cockpit posed from the state), name tags (`#netLabels`, DOM), minimap dots (`MapDot`).
+    translucent, wheels and cockpit posed from the state), name tags (`#netLabels`, DOM, before `#hud` in the page so a tag passes behind the HUD's panels), minimap dots (`MapDot`).
     `netHud.ts` `NetHud`: the board and notice feed in `#leftCol` under the timing panel. `netGame.ts`: what main.ts
     imports dynamically (`connect`, waits for the welcome), so `src/net` is not in a single-player page's download.
     `netPrefs.ts` (static, no net code): `fastroads.net` in localStorage (server, room, name), the default relay

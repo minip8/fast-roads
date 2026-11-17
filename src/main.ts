@@ -112,7 +112,7 @@ export async function main() {
   let netStatus: NetStatus = bootError ? { state: 'error', text: bootError } : { state: 'off', text: '' };
   const labels = document.createElement('div');
   labels.id = 'netLabels';
-  document.body.append(labels);
+  $('hud').before(labels);   // under the HUD: a tag passes behind a panel, as the car it names does
   const startNet = (mod: NetModule, net: NetClient, server: string) => {
     netRt = { mp: new mod.Multiplayer(net, session), view: new mod.RemoteCars(scene, labels), board: new mod.NetHud($('leftCol')) };
     history.replaceState(null, '', roomUrl(net.room, server));

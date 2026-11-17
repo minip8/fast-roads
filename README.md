@@ -168,7 +168,8 @@ and the page's address shows it while you are in a room, so it can be shared.
   hit is felt on both sides even when the two games disagree slightly about where the cars were.
 - A car is a **ghost** (drawn translucent, collides with nothing) after a restart, while its driver is in the menu
   (the game sends it as paused) and when its connection has gone quiet, until it has been clear of every other car
-  for a second. So several players restarting onto the same spot at once do not crash into each other. Yours shows
+  for a second. So several players restarting onto the same spot at once do not crash into each other (if they stay
+  on top of each other, one of them turns solid and the others wait until they are clear of it). Yours shows
   GHOST in the HUD while it lasts.
 - The board, under the timing panel: the room, the players (best lap first, the gap to the fastest, the car, and
   whether each is on track, a ghost, in the menu or has no signal), then short notices when someone joins, leaves or

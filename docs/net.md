@@ -287,8 +287,11 @@ destroyed). It is in `session.proxies` only while it is collidable: `sample.coll
 
 Not collidable (`noCollide`), ours: from joining, after every restart, and while paused, until our box grown by
 `CLEAR_MARGIN` (0.5 m) has overlapped no other car heard from in the last `collideAge`, collidable or not, for
-`CLEAR_SECS` (1 s). So several players restarting onto the same spot at once are ghosts to each other until they
-have spread out, and a player back from the menu cannot land on someone. While ours is not collidable we collide
+`CLEAR_SECS` (1 s). A car that is itself not collidable counts in that test only if its player id is lower than
+ours: of cars that stay on top of each other (the same car and line after restarting together) the lowest id is
+collidable again first and the others wait for it, where each would otherwise wait for the other for ever. So
+several players restarting onto the same spot at once are ghosts to each other until they have spread out, and a
+player back from the menu cannot land on someone. While ours is not collidable we collide
 with nothing and drop contact events.
 
 Contacts, the rule:

@@ -19,7 +19,8 @@ import type { DriveInput } from './vehicle';
 //   Session.proxies (so our car is pushed off it) only while it is collidable.
 // - Not collidable (STATE_FLAG.noCollide on our car, honoured for every proxy): our car from joining, after every
 //   restart and while the game is paused (no ticks: `idle` sends the paused state), until its box, grown by
-//   CLEAR_MARGIN, has overlapped no other car for CLEAR_SECS. A proxy that its owner marks so, that is paused, or that
+//   CLEAR_MARGIN, has overlapped no other car for CLEAR_SECS (not counting cars that are not collidable themselves
+//   and have a higher player id: see checkClear). A proxy that its owner marks so, that is paused, or that
 //   has gone stale (RemoteCar's collidable). While ours is not collidable it collides with nothing.
 // - Contacts: each client resolves its own car against the proxies and applies its own half at once. It also sends a
 //   `contact` event to the other car's client for every CHUNK_SECS of contact with it (the impulse summed over the
@@ -210,7 +211,10 @@ export class Multiplayer {
     for (const p of this.players.values()) { if (p.chunk) this.flush(p); }
   }
 
-  // Our car (grown by CLEAR_MARGIN) against every other car heard from lately, collidable or not.
+  // Our car (grown by CLEAR_MARGIN) against every other car heard from lately. A car that is itself not collidable
+  // counts only if its player id is below ours: of cars that restarted onto the same spot together and stay together
+  // (each would otherwise wait for the other for ever), the lowest id is collidable again first and the rest wait for
+  // it, so every client reaches the same order and nobody turns collidable inside a collidable car.
   private checkClear() {
     if (this.paused) { this.clearFor = 0; return; }
     const me = contactBody(this.session.car, this.self);
@@ -218,6 +222,7 @@ export class Multiplayer {
     let clear = true;
     for (const p of this.players.values()) {
       if (!p.hasSample || !p.spec || p.sample.age > this.net.remotes.get(p.id)!.opt.collideAge) continue;
+      if (p.sample.flags & STATE_FLAG.noCollide && p.id > this.net.selfId) continue;
       copyBody(p.body, this.other);
       this.other.shape = grown(p.body.shape);
       if (collide(me, this.other)) { clear = false; break; }

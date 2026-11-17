@@ -190,6 +190,21 @@ describe('multiplayer sessions over the emulated network', () => {
     for (const c of [a, b]) expect(c.s.car.speedF * 3.6).toBeGreaterThan(100);
   });
 
+  test('identical cars that restart together and stay together: the lowest player id is collidable again, the rest wait', async () => {
+    const room = new Room();
+    const cs = [await room.join('Alice', 'lcgt3'), await room.join('Bob', 'lcgt3'), await room.join('Cy', 'lcgt3')];
+    room.settle();
+    let contacts = 0;
+    room.run(CLEAR_SECS + 2, () => { for (const c of cs) contacts += c.s.contacts.length; });
+    // the same car, driver and spot: they are still on top of each other
+    for (const c of cs.slice(1)) expect(dist(cs[0].s.car.pos, c.s.car.pos)).toBeLessThan(0.5);
+    const byId = [...cs].sort((p, q) => p.mp.net.selfId - q.mp.net.selfId);
+    expect(byId.map((c) => c.mp.noCollide)).toEqual([false, true, true]);
+    expect(contacts).toBe(0);
+    // and nobody collides with anybody while they overlap
+    for (const c of cs) expect(c.s.proxies.length).toBe(0);
+  });
+
   test('a paused player is sent as paused and not collidable, and is a ghost again for a while after', async () => {
     const room = new Room();
     const a = await room.join('Alice', 'lcgt3'), b = await room.join('Bob', 'lcf1');
