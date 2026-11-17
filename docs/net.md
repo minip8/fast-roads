@@ -506,8 +506,8 @@ at Melbourne a stop costs the F1
 roof: `Session.autoReset`): in the lobby, practice and timed qualifying a flying start on a fresh set of
 `nextCompound`; in a race (racing) and in one-shot qualifying after the release a **recovery**: the car put back on
 the track at the nearest point (in the pit lane, the lane's middle; else at most 2 m inside the edge), at rest, the
-lap going on, and held there for `RECOVERY_SECS` (10 s) as a ghost: with the standing start after it, a recovery
-costs well over 10 s, so it is a last resort, and it never gains ground. Nothing on the grid before the lights.
+lap going on, and held there for `RECOVERY_SECS` (5 s) as a ghost: with the standing start after it, a recovery
+costs well over 5 s, so it is a last resort, and it never gains ground. Nothing on the grid before the lights.
 
 **Pausing in a race.** A race does not stop for one player: while the menu is open (or before the first Drive) in a
 race we are in, the game keeps simulating our car (`weekend.keepsRunning`) with the input parked (it brakes to a stop

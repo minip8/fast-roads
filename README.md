@@ -341,7 +341,7 @@ tyre wear, weather, collisions, penalties) are set in the lobby; the relay times
   THIS LAP?) when a required stop is owed and the laps are running out, when the tyres are nearly worn out (75%), or
   when they are wrong for the track. The first session of a weekend explains pit stops in one line. Going past the
   box without stopping, in a race you are still in, is a drive-through: not a stop.
-- **Restart in a race** is a recovery: put back on the track where you are, at rest, held 10 s as a ghost. In
+- **Restart in a race** is a recovery: put back on the track where you are, at rest, held 5 s as a ghost. In
   practice and qualifying R is the flying start on a fresh set.
 - **The menu during a race** does not stop it: your car brakes to a stop where it is, a ghost, while the race goes on
   (the menu's title says so: RACE ON · YOUR CAR IS STOPPED). A reload during the race brings you back out of your pit
@@ -395,7 +395,7 @@ The default keys (all but Esc can be changed in the menu's Controls tab):
 | W / ↑ | Throttle |
 | S / ↓ | Brake (automatic gears: hold when stopped to reverse, up to ~40 km/h; W then brakes, and selects first once stopped) |
 | A D / ← → | Steer |
-| R / Enter | Restart the lap: back before the last corners at flying-lap speed (in a multiplayer race: a recovery, held 10 s) |
+| R / Enter | Restart the lap: back before the last corners at flying-lap speed (in a multiplayer race: a recovery, held 5 s) |
 | L | Race weekends: pit request, "box this lap" (also the d-pad down) |
 | N | Race weekends: the tyres the next pit stop fits (also the d-pad up) |
 | V | Mouse steering on/off (also in the menu) |

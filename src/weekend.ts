@@ -16,7 +16,7 @@ import type { DriveInput } from './vehicle';
 // order. Multiplayer owns one and calls it around every tick; it has no DOM, so the tests run it as the game does.
 // What a HUD or menu needs is plain state here (`phase`, `pit`, `order`, `startCompound`, ...).
 // ============================================================================
-export const RECOVERY_SECS = 10;      // s a recovered car is held where it was put back: the cost of a recovery
+export const RECOVERY_SECS = 5;       // s a recovered car is held where it was put back: the cost of a recovery
 const CONDITIONS_EVERY = 0.5;         // s between conditions updates (wetness moves slowly)
 const ORDER_EVERY = 0.1;              // s between running-order updates
 const GAP_BUCKET = 10;                // m: the running order's timing loops
