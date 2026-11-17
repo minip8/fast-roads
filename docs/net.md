@@ -1,7 +1,7 @@
 # Multiplayer networking
 
 The networking layer for multiplayer: `src/net/` (browser-safe, shared by the game and the relay) and `server/`
-(the Node relay). The game uses it through `src/multiplayer.ts` (**In the game**, below). The source of truth for
+(the relay: on Node, `server/ws.ts`, and on Cloudflare Workers, `server/cf/`, both running the same `Relay`). The game uses it through `src/multiplayer.ts` (**In the game**, below). The source of truth for
 the byte layout is `src/net/protocol.ts`: keep the two in step.
 
 ## Model
@@ -39,12 +39,25 @@ times are seconds since the relay process started, which every client estimates 
 | `src/net/ids.ts` | the car and circuit ids the relay accepts (`NET_CARS`, `NET_CIRCUITS`; the compiler and a test check they match `CARS` / `TRACKS`) |
 | `src/net/index.ts` | what the game imports |
 | `server/relay.ts` | `Relay`: rooms and limits, transport-agnostic; `plausibleLap`, `sanitiseName` |
+| `server/env.ts` | `relayEnv`: `MAX_PLAYERS`, `BATCH_MS`, `MIN_LAP_SECS` from either server's environment |
 | `server/ws.ts` | `listen({ port })`: the relay on a `ws` WebSocket server |
 | `server/main.ts` | `npm run server` entry point |
+| `server/cf/worker.ts` | the relay on Cloudflare: the Worker (routing) and `RelayRoom`, the Durable Object of one room |
+| `server/cf/wrangler.jsonc` | its wrangler config (`server/cf/tsconfig.json`: type-checked with the Workers types) |
 
-`ws` is used only by `server/`; a test checks nothing in `src/` imports it, `node:*` or `server/`.
+`ws` is used only by `server/`; a test checks nothing in `src/` imports it, `wrangler`, `cloudflare:*`, `node:*` or
+`server/`. `src/net/ids.ts` imports nothing (the compile-time check against the game's ids is `idsCheck.ts`, which
+nothing imports), so the Worker's typecheck sees none of the game's DOM code.
 
 ## Wire format
+
+Connection address: the relay's URL with `/room/CODE` appended to its path (`relayUrl(server, room)` in
+`src/net/websocket.ts`: `wss://relay.example` -> `wss://relay.example/room/ABCD`; a query is kept), so a server
+can route the connection to its room before the hello (the Cloudflare relay has to). `roomFromPath` reads it back:
+a path ending in `/room/CODE` ties the connection to that room, and a hello for another room is refused (`badRoom`,
+fatal); `/room/` followed by anything but a room code is refused at the handshake with HTTP 400. The Node relay also
+takes a path without `/room/` (the hello's room decides); the Cloudflare one answers those with 404 (`/` with a
+line of text).
 
 Every message is one transport frame starting with a `u8` type. Little-endian. `str` is a `u8` byte count then
 that many bytes of UTF-8 (rejected if not valid UTF-8). Times marked `time32` are the relay clock in units of
@@ -115,7 +128,7 @@ is the contact point (world, m, each axis within +-1e5), `closing` the closing s
 `hello` and `welcome` keep `u16 version` at offset 1 in every protocol version (`helloVersion(data)` reads it
 without decoding the rest), so a relay can refuse a client of another version with a proper error.
 
-Error codes (`ERROR`): 1 version, 2 roomFull, 3 badName, 4 badCar, 5 badCircuit, 6 badRoom (reserved: a bad room code fails decoding, so it is `malformed`), 7 malformed, 8 rate,
+Error codes (`ERROR`): 1 version, 2 roomFull, 3 badName, 4 badCar, 5 badCircuit, 6 badRoom (a hello for another room than the address names; a bad room code in a hello fails decoding, so it is `malformed`), 7 malformed, 8 rate,
 9 tooBig, 10 idle, 11 notJoined, 12 lapRejected, 13 badContact, 14 serverFull, 15 shutdown. A fatal error is
 followed by the relay closing the connection.
 
@@ -360,7 +373,8 @@ estimate (from the hello's send time) so states can go out at once.
 
 ## Relay
 
-`new Relay({ now, ...options })` (`server/relay.ts`); `accept(transport)` for each connection; `update()` about once
+`new Relay({ now, ...options })` (`server/relay.ts`); `accept(transport, { room? })` for each connection (`room`:
+the one its address named); `update()` about once
 a second (timeouts, empty rooms); `flush()` every `batchInterval` if batching; `shutdown()`. `server/ws.ts`
 `listen({ port, host?, relay?, tickMs? })` wraps it on a `ws` server and returns `{ relay, port, close() }`.
 
@@ -379,7 +393,7 @@ Limits (`RELAY_DEFAULTS`):
 | car states | 60 a second, burst 30 (told in the welcome as `stateHz`) | dropped; every 10th drop is a violation |
 | other messages | 20 a second, burst 40 | dropped, violation |
 | violations (bad or excess messages; they decay at 2 a second) | 50 | `malformed` / `rate`, closed (kicked) |
-| hello | within 5 s of connecting, first message, protocol 1 | `idle` / `notJoined` / `version`, closed |
+| hello | within 5 s of connecting, first message, protocol 1, for the room the address names (if it names one) | `idle` / `notJoined` / `version` / `badRoom`, closed |
 | idle (nothing at all from a joined client; clients ping every 2 s) | 10 s | `idle`, closed; others see `leave` reason timeout |
 | name | sanitised: NFC, whitespace collapsed, control/format/private-use characters removed (so bidi overrides and zero-width characters), at most two combining marks in a row, 16 characters, 48 bytes; empty after that is refused | `badName` (fatal in a hello) |
 | car / circuit | in `NET_CARS` / `NET_CIRCUITS` | `badCar` / `badCircuit` (fatal in a hello) |
@@ -422,11 +436,159 @@ Batching costs up to its interval (8 ms on average at 1/60 s) of extra delay on 
 
     npm run server                         # builds build/server/server.mjs (vite.server.config.ts), listens on 8787
     PORT=9000 HOST=127.0.0.1 MAX_PLAYERS=12 BATCH_MS=16 npm run server
+    MIN_LAP_SECS=60 npm run server         # the shortest lap the board takes (default 40)
 
 The build bundles `src/net` into one module and leaves `ws` as an import (from this repository's `node_modules`).
 It logs rooms opening, joins, leaves, refused laps and kicks to stdout; SIGINT / SIGTERM send every client a
 `shutdown` error and close. It speaks plain `ws://`: put TLS (`wss://`, which a page served over https needs) in
-front of it with a reverse proxy.
+front of it with a reverse proxy, or use the Cloudflare relay (**On Cloudflare**, **Going live**).
+
+## On Cloudflare (`server/cf/`)
+
+The same `Relay` on Cloudflare Workers with Durable Objects, on the Free plan, so the relay can sit next to a site
+on Cloudflare Pages and be reached over `wss://` without a server of your own.
+
+    npm run relay:cf        # wrangler dev: the Worker and its objects locally in workerd, ws://127.0.0.1:8787, no account
+    npm run relay:deploy    # wrangler deploy (needs `npx wrangler login` first)
+
+- **Routing.** The Worker (`fetch` in `worker.ts`) reads the room from the address (`roomFromPath`) before anything
+  else: `/room/CODE` with a valid code and an `Upgrade: websocket` header goes to the room's object
+  (`env.ROOMS.getByName(CODE)`: one object per room code, created on first use); a bad code is 400, no upgrade
+  426, any other path 404 (`/`: a line of text), none of which creates an object. The object (`RelayRoom`) checks
+  the code again, accepts the socket (`WebSocketPair`, `accept()`) and hands it to its `Relay` with `{ room }`, so
+  a hello for another room is refused (`badRoom`). Old clients that connect without `/room/` get 404.
+- **One room per object.** The object's `Relay` has `maxRooms: 1` and `maxConnections: maxPlayers + 8` (8 for
+  joiners still on their hello and a reconnect while the old socket times out); everything else is the Node
+  relay's code and defaults, with `MAX_PLAYERS`, `BATCH_MS` and `MIN_LAP_SECS` from the Worker's `vars` (in
+  `wrangler.jsonc`; `server/env.ts`, checked as on Node). The Node relay's global limits (256 rooms, 2048
+  connections per process) have no counterpart: there is no registry of rooms. What protects the Worker as a
+  whole: only a valid `/room/CODE` upgrade reaches an object, every connection still has the relay's hello
+  timeout (5 s), rate limits and kicks, an object takes at most `maxPlayers + 8` sockets, and the Free plan's daily
+  allowances are a hard stop (no bill). Anyone can still open valid codes; each costs a request, so a flood can use
+  up the day's allowance (a denial of service, not a cost). A Cloudflare rate-limiting rule could cap that per IP
+  on a custom domain (not set up; not checked for `workers.dev`).
+- **Plain WebSockets, no hibernation.** Cars send 40 states a second, so an object with players never has the idle
+  time the Hibernation API needs; the object stays in memory while anyone is connected.
+- **Timers.** A 1 s `setInterval` runs `relay.update()` (hello and idle timeouts, the empty room's linger) only while
+  the object has connections, plus a `flush()` timer if `BATCH_MS` is set; the tick that finds no connections left
+  stops them, so an empty object does no work and Cloudflare evicts it. The first connection after a quiet spell
+  runs `update()` first, so a room that outlived `roomLinger` (60 s) is dropped then. As on Node, the room and its
+  board survive an empty spell of up to `roomLinger`, but only while the object stays in memory (eviction loses
+  them sooner; the relay stores nothing). No alarms: nothing has to happen while nobody is connected.
+- **Differences from `server/ws.ts`.** A Workers WebSocket has no `bufferedAmount`, so the relay cannot drop car
+  states for a backed-up client (`UNRELIABLE_BACKLOG`): they queue. The platform's own message limit (32 MiB) is far
+  above the relay's 256 bytes, which the relay enforces itself (`tooBig`, kicked; on Node `ws` closes with 1009).
+  `binaryType` is set to `arraybuffer` (at this compatibility date the default is `blob`).
+
+### Clock
+
+The relay clock is `(performance.now() - start) / 1000` in the object. In Workers `performance.timeOrigin` is 0
+and `performance.now()` equals `Date.now()`; deployed, neither advances while code runs, only after I/O (the
+"time of the last I/O"; a Spectre mitigation), and under `wrangler dev` they advance regardless. Measured under
+local workerd (2026-11-17, a scratch Worker): `timeOrigin` 0, `performance.now()` equal to `Date.now()`, whole
+milliseconds (successive distinct readings exactly 1 ms apart), and a 20 ms busy loop read as 20 ms (the local
+runtime does not freeze it). The resolution deployed is not documented; this assumes whole milliseconds there too.
+
+What that does to clock sync: the relay reads the clock when it handles a ping and sends the pong in the same
+event, so the freeze costs only that handler's CPU time (microseconds). Whole milliseconds make each pong's
+`serverTime` up to 1 ms low. The part common to everyone cancels (only the difference between two clients' clocks
+moves a proxy); the rest leaves each client's offset (the lowest-RTT of its last 16 pings) off by 0-1 ms on its
+own, so two clients disagree by up to 1 ms more than on Node (about 0.33 ms on average for two independent
+uniform errors): up to 9 cm, about 3 cm on average, of proxy position at 90 m/s, against the 6-17 cm the proxy
+errors above already have. A ping queued behind other events in the object biases its client by half the wait
+(inbound delay only); with 8 players the object handles about 330 messages a second, each in microseconds, so the
+queue is short. Not measurable locally: the asymmetry of the path client -> nearest Cloudflare location -> the
+object's location (each object lives near where it was first created, so a far player has a long, possibly
+asymmetric, path), which no ping can detect (**Measured accuracy** above).
+
+Measured in the browser (two headless Chromium pages on one room, each the game with `?autopilot`, the F1 at
+Melbourne, local relays; rendering switched off so both ran at 60 fps and 120 ticks a second, a scratch CDP script
+comparing each page's proxy of the other car with the other page's own car at the same wall-clock time, and each
+page's relay clock estimate at the same moment):
+
+| Relay (local) | proxy error, mean | p50 | p95 | max | clocks disagree, mean / p95 / max | RTT |
+|---|---|---|---|---|---|---|
+| Cloudflare (`wrangler dev`, workerd) | 0.042 / 0.046 m | 0.027 / 0.028 m | 0.105 / 0.120 m | 2.6 / 2.7 m | 0.71 / 1.90 / 1.90 ms | 11 ms |
+| Node (`npm run server`) | 0.071 / 0.061 m | 0.036 / 0.039 m | 0.143 / 0.144 m | 6.8 / 6.9 m | 0.88 / 1.77 / 2.02 ms | 9-11 ms |
+
+170 s each (about 8,400 samples each way; the two numbers are each page's view of the other), both cars lapping in
+116.5-116.6 s, and both laps on both pages' boards. The two relays are within run-to-run noise of each other: the
+1 ms clock steps did not show (the clock disagreement includes the pages' own `performance.now()` coarsening and
+`timeOrigin`s). The maxima are single moments in both runs (not looked into; the cars drove the same line a
+second or so apart). This is local workerd, whose clock advances during execution and has no real network path:
+it checks the room logic, the routing and the 1 ms steps, not the deployed clock (**Going live**: what stays open).
+
+### Limits (Cloudflare's documentation, read 2026-11-17)
+
+| | Free plan | Source |
+|---|---|---|
+| Durable Object requests | 100,000 a day (reset 00:00 UTC) | Durable Objects pricing (updated 2026-11-13) |
+| Durable Object duration | 13,000 GB-s a day, billed on 128 MB per object whatever it uses | same |
+| WebSocket messages | incoming billed as requests at 20:1 (100 messages = 5 requests); outgoing free; WebSocket protocol pings free; the connection itself is a request | same |
+| Duration with `accept()`ed (non-hibernating) WebSockets | billed the whole time a socket is connected | same |
+| Storage backend | SQLite-backed classes only (`new_sqlite_classes` in the migration) | same |
+| Over a free limit | "further operations of that type will fail with an error" until the reset | same |
+| Worker requests | 100,000 a day; over it, error 1027 | Workers limits (updated 2026-11-13) |
+| Worker CPU | 10 ms per HTTP request (the routing uses microseconds) | same |
+| Object CPU | 30 s per incoming request or WebSocket message (SQLite-backed) | Durable Objects limits |
+| WebSocket message size | 32 MiB received | same |
+| Requests per object | soft limit 1,000 a second ("overloaded" errors past it) | same |
+| WebSockets per object | no figure given ("thousands of clients per instance") | WebSockets best practices (updated 2026-10-30) |
+| Clock | `Date.now()` / `performance.now()` frozen during execution, advance after I/O; `timeOrigin` 0 | Workers security model, Performance API (updated 2026-10-27) |
+
+### Capacity on the Free plan
+
+Requests bind first. A player in a room sends 40 states a second plus a ping every 2 s: 40.5 messages a second,
+2.025 billed requests a second at 20:1, 7,290 an hour. 100,000 a day / 7,290 = **about 13.7 player-hours a day**
+(4 players for 3.4 hours, 8 for 1.7), less a request or two per join. Duration: 13,000 GB-s / 0.125 GB = 104,000 s,
+**about 28.9 hours a day of a room with anyone in it**, however many players; one room-hour uses 3.5% of the day's
+duration while each player-hour uses 7.3% of the requests, so duration runs out first only if most rooms hold a
+single player for long (it cannot: at one player the requests last 13.7 h, the duration 28.9 h). A tab in the
+menu still sends states at the full rate (paused); a hidden tab sends about one a second.
+
+When a limit is hit: past the requests, new connections fail (the Worker answers 503 when it cannot reach the
+object; the game says it could not reach the relay) and, presumably, so do messages on open sockets (not
+documented, not checked), so players see "Disconnected"; past the Worker's own requests, the upgrade gets error
+1027. Either way until 00:00 UTC. Nothing is billed on the Free plan.
+
+Cheaper options (not done; the send rate is unchanged): clients sending 30 states a second (`sendHz`, the lowest
+the protocol takes) would be 1.525 requests a second, about 18.2 player-hours a day, at some proxy accuracy at high
+latency; a client-side bundle of two states per message (a protocol change) would halve the requests for 25 ms
+more delay. Neither would change the Node relay.
+
+### Going live
+
+Nothing here has been run against a real account (the tests and checks above are local); these are the steps.
+
+1. **Account.** A free Cloudflare account. On this machine: `npx wrangler login` (opens the browser to authorise
+   wrangler).
+2. **Relay.** `npm run relay:deploy` (`wrangler deploy -c server/cf/wrangler.jsonc`). On an account without a
+   `workers.dev` subdomain it first asks for one. It uploads the Worker `fast-roads-relay`, creates the
+   `RelayRoom` Durable Object class (SQLite-backed, migration `v1`) and prints the Worker's address,
+   `https://fast-roads-relay.<subdomain>.workers.dev`. Check it: `curl https://fast-roads-relay.<subdomain>.workers.dev/`
+   prints `fast-roads relay: open a WebSocket to /room/CODE`. **The relay address for the game is
+   `wss://fast-roads-relay.<subdomain>.workers.dev`** (no path: the game adds `/room/CODE`).
+   Settings (`MAX_PLAYERS`, `BATCH_MS`, `MIN_LAP_SECS`) go in `vars` in `server/cf/wrangler.jsonc`, then deploy
+   again; keep `MAX_PLAYERS` at 24 or less (at 40 Hz that keeps an object under the 1,000 requests a second soft
+   limit, if WebSocket messages count towards it, which the documentation does not say). A deploy restarts the
+   objects, so everyone in a room is disconnected (a reload rejoins). Logs: `npx wrangler tail -c
+   server/cf/wrangler.jsonc`, or the Worker's Observability tab in the dashboard.
+3. **Site.** Dashboard: Workers & Pages -> Create -> Pages -> Connect to Git, pick this repository, then:
+   production branch `main`; framework preset None; build command `npm run build`; build output directory `dist`;
+   root directory empty; environment variables (Production, and Preview if wanted) `VITE_RELAY_URL` =
+   `wss://fast-roads-relay.<subdomain>.workers.dev` and `NODE_VERSION` = `24` (vite 8 and vitest 5 need Node
+   22.12+, 24 or 26+). Save and deploy; the site is `https://<project>.pages.dev`. `VITE_RELAY_URL` is read at build
+   time, so changing it needs a new build (retry the deployment). Without Git: `VITE_RELAY_URL=wss://... npm run build`
+   and `npx wrangler pages deploy dist --project-name <project>`. The repository root has no wrangler config, so
+   Pages does not mistake the relay's (`server/cf/`) for its own.
+4. **Play.** On the site, Race tab -> Multiplayer: a room code, a name, Join (the relay field defaults to
+   `VITE_RELAY_URL`), or share `https://<project>.pages.dev/?room=CODE`.
+
+What stays open until it runs on Cloudflare: the deployed clock's resolution and the real paths' asymmetry
+(**Clock**); whether open sockets keep working past the daily request allowance; how long an empty object takes to
+be evicted and what duration it is billed meanwhile; whether incoming WebSocket messages count towards the
+per-object 1,000 a second; that the Worker drops out of the path once it has handed the socket to the object (the
+capacity above counts only the object's requests).
 
 ## Tests
 
@@ -440,7 +602,14 @@ front of it with a reverse proxy.
   state relay, spoofed ids, contacts, the lap board and refused laps, car changes, restarts, leaving, a dead link
   timing out, a full room, other versions and bad hellos, garbage and oversized messages, floods, bandwidth.
 - `test/net-ws.test.ts`: the real `listen()` on an ephemeral port: NetClients over `WebSocketTransport`, raw `ws`
-  sockets sending text, oversized frames, garbage, another version, or nothing.
+  sockets sending text, oversized frames, garbage, another version, or nothing; the room in the address (a bad
+  one refused at the handshake, a hello for another room).
+- `test/net-cf.test.ts`: the Cloudflare relay run locally by wrangler's `unstable_startWorker` (workerd, offline,
+  no account; about 3 s with its startup), `MAX_PLAYERS` 3 and `MIN_LAP_SECS` 1 as vars: three NetClients joining,
+  the roster, car states between all three, a contact reaching only its target, an accepted lap and the board, a
+  refused lap, leaving; a fourth player refused from the full room while a client in another room sees nobody;
+  bad room codes and other paths refused at the handshake (400 / 404), a hello for another room, garbage, an
+  oversized frame, text, another version.
 - `test/multiplayer.test.ts`: game Sessions joined through the relay with `Multiplayer` (above): proxy accuracy,
   a rear-end hit seen by both sides and by one, restarting onto an occupied spot, pausing, joins, car changes,
   leaving, a lap reaching the board.

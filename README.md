@@ -15,6 +15,7 @@ Needs Node.js. Install once, then start the dev server and open the URL it print
     npm run build      # type-check + static build in dist/ (host anywhere; `npm run preview` serves it locally)
     npm run build:env  # the reinforcement-learning environment worker, build/env/worker.mjs (docs/ai-env.md)
     npm run server     # the multiplayer relay, on ws://<this machine>:8787 (docs/net.md)
+    npm run relay:cf   # the same relay as a Cloudflare Worker, run locally (ws://127.0.0.1:8787, no account)
 
 The built game works from any sub-path of any static host, and keeps working offline after the first visit: a small
 service worker (`src/sw.js`, production builds only) caches the build; the page itself is always fetched fresh when
@@ -153,7 +154,8 @@ chicane, say) and the lap that follows is deleted, as is the one you were on if 
 Hot laps together: everyone in a room drives the same circuit at once, each with the game's flying start and
 restarts, and the room keeps a board of best laps. There are no grid starts or race rules yet.
 
-Someone runs the relay (`npm run server`, a small Node WebSocket server on port 8787; it runs no physics). In the
+Someone runs the relay (`npm run server`, a small Node WebSocket server on port 8787, or the same relay on
+Cloudflare, below; it runs no physics). In the
 menu's Race tab, **Multiplayer** takes a room code (1-8 letters or digits), your name and the relay's address
 (by default the page's own host on port 8787, or `VITE_RELAY_URL` set when the game was built); **Join** enters the
 room and **Leave** leaves it. The first player in a room sets its circuit; joining a room at another circuit
@@ -172,8 +174,22 @@ and the page's address shows it while you are in a room, so it can be shared.
   whether each is on track, a ghost, in the menu or has no signal), then short notices when someone joins, leaves or
   sets a best lap. Your own lap times, best laps and ghost car are kept in the browser as in single-player.
 
-The relay speaks plain `ws://`; a page served over https needs a `wss://` address, so put the relay behind a TLS
-reverse proxy. Without a room joined the game is single-player as before, and does not download the networking code.
+The Node relay speaks plain `ws://`; a page served over https needs a `wss://` address, so put it behind a TLS
+reverse proxy, or host the relay on Cloudflare. Without a room joined the game is single-player as before, and does not download the networking code.
+
+### Hosting it free on Cloudflare
+
+The site on Cloudflare Pages and the relay as a Worker with one Durable Object per room, both on the Free plan
+(exact steps, limits and the arithmetic: docs/net.md, **Going live**):
+
+1. Relay: `npx wrangler login`, then `npm run relay:deploy`. It prints the Worker's address,
+   `https://fast-roads-relay.<your-subdomain>.workers.dev`; the relay is `wss://fast-roads-relay.<your-subdomain>.workers.dev`.
+2. Site: a Pages project from this repository with build command `npm run build`, output directory `dist`, and the
+   environment variable `VITE_RELAY_URL` set to that `wss://` address (and `NODE_VERSION` 24).
+3. Share `https://<project>.pages.dev/?room=CODE`.
+
+The Free plan allows about 13.7 player-hours a day (each player's 40 car states a second are billed as 2 requests
+a second against 100,000 a day); past that, joining fails until 00:00 UTC, and nothing is charged.
 
 ## HUD
 

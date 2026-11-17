@@ -1,4 +1,4 @@
-import { NetClient, WebSocketTransport } from './net';
+import { NetClient, relayUrl, WebSocketTransport } from './net';
 
 // ============================================================================
 // Multiplayer in the game: what main.ts imports dynamically when a room is joined (so a single-player page never
@@ -16,7 +16,7 @@ export function connect(o: { server: string; room: string; name: string; car: st
   const clock = () => performance.now() / 1000;
   let net: NetClient;
   try {
-    net = new NetClient(new WebSocketTransport(o.server), { room: o.room, name: o.name, car: o.car, circuit: o.circuit, clock });
+    net = new NetClient(new WebSocketTransport(relayUrl(o.server, o.room)), { room: o.room, name: o.name, car: o.car, circuit: o.circuit, clock });
   } catch (err) {
     return Promise.resolve({ ok: false, error: err instanceof Error ? err.message : String(err) });
   }

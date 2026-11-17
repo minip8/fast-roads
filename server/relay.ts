@@ -93,6 +93,7 @@ interface Conn {
   t: Transport;
   id: number;                     // 0 until joined
   room: Room | null;
+  want: string | null;            // the room the connection's address named (its hello must be for it), or null
   name: string; car: string;
   connectedAt: number; joinedAt: number; lastHeard: number;
   lastStateAt: number | null; lastLapAt: number | null;
@@ -127,11 +128,12 @@ export class Relay {
 
   get connectionCount() { return this.conns.size; }
 
-  // A new connection (open, or about to be).
-  accept(t: Transport) {
+  // A new connection (open, or about to be). `room`: the room its address named (roomFromPath), if any; a hello
+  // for another room is refused (badRoom).
+  accept(t: Transport, opt: { room?: string } = {}) {
     const now = this.opt.now();
     const c: Conn = {
-      t, id: 0, room: null, name: '', car: '', connectedAt: now, joinedAt: 0, lastHeard: now, lastStateAt: null, lastLapAt: null,
+      t, id: 0, room: null, want: opt.room ?? null, name: '', car: '', connectedAt: now, joinedAt: 0, lastHeard: now, lastStateAt: null, lastLapAt: null,
       states: { tokens: this.opt.stateBurst, at: now }, reliable: { tokens: this.opt.reliableBurst, at: now },
       violations: 0, violationsAt: now, rateDrops: 0, gone: false, pending: [],
     };
@@ -204,6 +206,7 @@ export class Relay {
     const m = d.msg;
     if (m.type !== 'hello') return this.kick(c, ERROR.notJoined, 'hello first', LEAVE_REASON.kicked);
     const o = this.opt;
+    if (c.want !== null && m.room !== c.want) return this.kick(c, ERROR.badRoom, `this connection is for room ${c.want}, not ${m.room}`, LEAVE_REASON.kicked);
     const name = sanitiseName(m.name);
     if (!name) return this.kick(c, ERROR.badName, 'empty name', LEAVE_REASON.kicked);
     if (!o.cars.includes(m.car)) return this.kick(c, ERROR.badCar, `unknown car ${m.car}`, LEAVE_REASON.kicked);

@@ -6,9 +6,10 @@ import { CARS } from '../src/cars';
 import { NET_CARS, NET_CIRCUITS } from '../src/net/ids';
 import {
   type CarState, decodeMessage, emptyCarState, encodeBundle, encodeMessage, encodeState, helloVersion, MSG, type NetMessage,
-  PROTOCOL_VERSION, seqNewer, STATE_BYTES, type StateMsg, stateValid, timeToWire, unwrapTime,
+  PROTOCOL_VERSION, roomFromPath, seqNewer, STATE_BYTES, type StateMsg, stateValid, timeToWire, unwrapTime,
 } from '../src/net/protocol';
 import { TRACKS } from '../src/tracks';
+import { relayUrl } from '../src/net/websocket';
 
 // The multiplayer wire format (src/net/protocol.ts, docs/net.md): every message round-trips, car states within
 // their quantisation, and nothing malformed gets past the decoder (which faces the internet on the relay).
@@ -228,6 +229,17 @@ describe('ids and bundling', () => {
     expect([...NET_CIRCUITS].sort()).toEqual(Object.keys(TRACKS).sort());
   });
 
+  it('puts the room at the end of the relay address, and reads it back', () => {
+    expect(relayUrl('wss://relay.example', 'ab1')).toBe('wss://relay.example/room/AB1');
+    expect(relayUrl('ws://localhost:8787/', 'X')).toBe('ws://localhost:8787/room/X');
+    expect(relayUrl(' wss://example.com/relay/?k=1 ', 'Q')).toBe('wss://example.com/relay/room/Q?k=1');
+    expect(() => relayUrl('not a url', 'A')).toThrow();
+    expect(roomFromPath('/room/AB1')).toBe('AB1');
+    expect(roomFromPath('/relay/room/Q')).toBe('Q');
+    for (const bad of ['/room/', '/room/ab', '/room/ABCDEFGHI', '/room/A-B']) expect(roomFromPath(bad), bad).toBeNull();
+    for (const none of ['/', '', '/rooms/AB', '/room/AB/x']) expect(roomFromPath(none), none).toBeUndefined();
+  });
+
   it('keeps the relay and ws out of the site: nothing in src/ imports them', () => {
     const files: string[] = [];
     const walk = (d: string) => {
@@ -239,7 +251,7 @@ describe('ids and bundling', () => {
     walk('src');
     for (const f of files) {
       const text = readFileSync(f, 'utf8');
-      expect(text, f).not.toMatch(/from ['"](ws|node:[a-z_]+|\.\.\/(\.\.\/)?server\/[^'"]*)['"]/);
+      expect(text, f).not.toMatch(/from ['"](ws|wrangler|cloudflare:[a-z_]+|node:[a-z_]+|\.\.\/(\.\.\/)?server\/[^'"]*)['"]/);
     }
   });
 });

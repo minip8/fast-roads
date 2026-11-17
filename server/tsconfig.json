@@ -8,5 +8,8 @@
   },
   "include": [
     "."
+  ],
+  "exclude": [
+    "cf"
   ]
 }

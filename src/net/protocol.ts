@@ -200,7 +200,7 @@ export const ERROR = {
   badName: 3,        // fatal on hello; on a player update the old name stays
   badCar: 4,         // fatal on hello
   badCircuit: 5,     // fatal on hello
-  badRoom: 6,        // fatal
+  badRoom: 6,        // fatal: a hello for another room than the connection's address names
   malformed: 7,      // a message did not decode (fatal after repeats)
   rate: 8,           // too many messages (fatal after repeats)
   tooBig: 9,         // fatal
@@ -379,7 +379,7 @@ function readBoard(r: Reader): BoardEntry[] {
 
 // ---------------------------------------------------------------------------- byte helpers
 class DecodeError extends Error {}
-const utf8 = new TextEncoder(), utf8Strict = new TextDecoder('utf-8', { fatal: true });
+const utf8 = new TextEncoder(), utf8Strict = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
 
 class Reader {
   at = 0;
@@ -439,6 +439,17 @@ export function truncUtf8(s: string, max: number): string {
 export const utf8Bytes = (s: string) => utf8.encode(s).length;
 export const isRoomCode = (s: string) => ROOM_RE.test(s);
 export const isId = (s: string) => ID_RE.test(s);
+
+// The room in the connection's address: the relay's URL with `/room/CODE` appended (after any path it already
+// has), so a server can route the connection before the hello arrives (the Cloudflare relay: one Durable Object per
+// room). roomFromPath: the code if the path ends in /room/CODE, null if it ends in /room/<anything else> (refuse
+// it), undefined if it names no room (the Node relay takes those; the hello's room decides).
+export const ROOM_PATH = '/room/';
+export function roomFromPath(path: string): string | null | undefined {
+  const m = /\/room\/([^/]*)$/.exec(path);
+  if (!m) return undefined;
+  return isRoomCode(m[1]) ? m[1] : null;
+}
 
 const view = (d: Uint8Array) => new DataView(d.buffer, d.byteOffset, d.byteLength);
 const fin = (x: number) => (Number.isFinite(x) ? x : 0);

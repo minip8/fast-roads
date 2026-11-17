@@ -23,7 +23,9 @@ dev and the tests use the inline copy.
     npx vitest run test/handling.test.ts -t 'reverse'   # one file / one test by name
     npm run build       # typecheck + static build in dist/ (base './'); npm run preview serves it
     npm run build:env   # RL environment worker -> build/env/worker.mjs (git-ignored); node ai/client.mjs drives it
-    npm run server      # multiplayer relay -> build/server/server.mjs, listening on ws://*:8787 (PORT, HOST, MAX_PLAYERS, BATCH_MS)
+    npm run server      # multiplayer relay -> build/server/server.mjs, listening on ws://*:8787 (PORT, HOST, MAX_PLAYERS, BATCH_MS, MIN_LAP_SECS)
+    npm run relay:cf    # the same relay on Cloudflare Workers, locally (wrangler dev, workerd, no account) on ws://127.0.0.1:8787
+    npm run relay:deploy   # deploys it (the owner deploys: needs `wrangler login`)
     node scripts/cars/convert.mjs lcgt3 <source.glb>   # remake a car model (sources: see its header)
     node scripts/tracks/convert.mjs <racetrack-database> <f1-circuits> [id ...]   # remake circuit CSVs (see its header)
 
@@ -89,7 +91,8 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   pinned laps moves it too: update both), random starts, every episode end, automatic resets.
   `test/ai-worker.test.ts` builds the worker into a temporary folder and drives it over the protocol with
   `ai/client.mjs`, comparing every reply bit for bit with the same environments run in-process.
-- Multiplayer: `test/net-*.test.ts` cover `src/net/` and the relay on their own (docs/net.md, **Tests**);
+- Multiplayer: `test/net-*.test.ts` cover `src/net/` and the relay on their own (docs/net.md, **Tests**;
+  `test/net-cf.test.ts` runs the Cloudflare relay in local workerd through wrangler's `unstable_startWorker`, ~3 s);
   `test/multiplayer.test.ts` joins game Sessions (harness `session()`) through an in-process `Relay` over
   `LoopbackNet` (40 ms + jitter, loss) with `Multiplayer`, ticked in lockstep: proxy error against the other
   client's real car, a rear-end hit seen by both simulations (no event applied) and by one (`localCollisions =
@@ -226,8 +229,13 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
     `decodeMessage` never throws), `client.ts` `NetClient`, `remote.ts` `RemoteCar` (a proxy's buffer:
     extrapolation, blending, staleness), `clock.ts`, `transport.ts` / `websocket.ts` / `loopback.ts` (the emulated
     network for tests), `ids.ts`. Nothing in `src/` imports `ws`, `node:*` or `server/` (a test checks).
-  - `server/`: `relay.ts` `Relay` (rooms, roster, clock, lap board, limits), `ws.ts` `listen`, `main.ts`; built by
-    `vite.server.config.ts`.
+  - `server/`: `relay.ts` `Relay` (rooms, roster, clock, lap board, limits), `env.ts` (settings from either server's
+    environment), `ws.ts` `listen`, `main.ts`; built by `vite.server.config.ts`. `server/cf/`: the same `Relay` on
+    Cloudflare Workers (`worker.ts`: the Worker routes `/room/CODE` to one Durable Object per room, plain WebSockets,
+    a 1 s timer only while connected; `wrangler.jsonc`; its own `tsconfig.json` with the Workers types, so
+    `src/net/` must stay free of DOM and game imports: `ids.ts` imports nothing). The client connects to
+    `relayUrl(server, room)` (`<server>/room/CODE`); the Node relay accepts any path and checks a `/room/` one.
+    docs/net.md **On Cloudflare** has the limits (dated), the clock and the go-live steps.
   - `multiplayer.ts` `Multiplayer(net, session)`: the glue, no DOM or rendering (the tests run it as the game does).
     `tick(input, autopilot, tickAt)` replaces `session.tick`: each player's `RemoteCar` sampled at `tickAt` into a
     `ContactBody` (shape from `shapeOf`: one throwaway car per car id), put in `session.proxies` only while

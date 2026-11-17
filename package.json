@@ -7,8 +7,10 @@
     "build": "npm run typecheck && vite build",
     "build:env": "vite build --config vite.env.config.ts",
     "preview": "vite preview",
-    "typecheck": "tsc && tsc -p test && tsc -p ai && tsc -p server",
+    "typecheck": "tsc && tsc -p test && tsc -p ai && tsc -p server && tsc -p server/cf",
     "server": "vite build --config vite.server.config.ts --logLevel warn && node build/server/server.mjs",
+    "relay:cf": "WRANGLER_SEND_METRICS=false wrangler dev -c server/cf/wrangler.jsonc --port 8787",
+    "relay:deploy": "wrangler deploy -c server/cf/wrangler.jsonc",
     "test": "vitest run --project unit",
     "test:laps": "vitest run --project laps",
     "tracks:outlines": "UPDATE_OUTLINES=1 vitest run --project unit test/tracks.test.ts -t outline",
@@ -20,6 +22,7 @@
     "ws": "8.22.1"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "5.20261102.1",
     "@gltf-transform/core": "4.5.1",
     "@gltf-transform/extensions": "4.5.1",
     "@gltf-transform/functions": "4.5.1",
@@ -30,6 +33,7 @@
     "sharp": "0.35.5",
     "typescript": "7.0.2",
     "vite": "8.3.5",
-    "vitest": "5.0.5"
+    "vitest": "5.0.5",
+    "wrangler": "4.156.2"
   }
 }

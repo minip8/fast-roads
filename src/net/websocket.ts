@@ -1,3 +1,4 @@
+import { ROOM_PATH } from './protocol';
 import type { Lane, Transport, TransportState } from './transport';
 
 // ============================================================================
@@ -7,6 +8,14 @@ import type { Lane, Transport, TransportState } from './transport';
 // adds latency. Binary frames only; a text frame from the relay closes the connection.
 // ============================================================================
 export const UNRELIABLE_BACKLOG = 16 * 1024;
+
+// The address to open for a room: the relay's URL with /room/CODE after its path (query kept), e.g.
+// wss://relay.example/ -> wss://relay.example/room/ABCD. Throws on a URL that does not parse.
+export function relayUrl(server: string, room: string): string {
+  const u = new URL(server.trim());
+  u.pathname = u.pathname.replace(/\/+$/, '') + ROOM_PATH + room.toUpperCase();
+  return u.toString();
+}
 
 // The parts of the WebSocket API this uses (the browser's and Node's both fit).
 interface Socket {

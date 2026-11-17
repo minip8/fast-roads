@@ -4,7 +4,7 @@ import { WebSocket } from 'ws';
 import { NetClient } from '../src/net/client';
 import { decodeMessage, emptyCarState, encodeMessage, ERROR, PROTOCOL_VERSION } from '../src/net/protocol';
 import { emptySample } from '../src/net/remote';
-import { WebSocketTransport } from '../src/net/websocket';
+import { relayUrl, WebSocketTransport } from '../src/net/websocket';
 import { listen, type RelayServer } from '../server/ws';
 
 // The relay's WebSocket entry point (server/ws.ts, what `npm run server` starts) on an ephemeral port, in real time:
@@ -27,8 +27,8 @@ async function until(cond: () => boolean, ms = 3000) {
 }
 
 // a raw socket: what it got (decoded), and how it was closed
-function raw() {
-  const ws = new WebSocket(url);
+function raw(path = '') {
+  const ws = new WebSocket(url + path);
   const got: ReturnType<typeof decodeMessage>[] = [];
   const s = { ws, got, closed: null as number | null, open: false };
   ws.on('open', () => { s.open = true; });
@@ -64,6 +64,26 @@ describe('WebSocket relay', () => {
     } finally {
       clearInterval(timer);
       a.close(); b.close();
+    }
+  });
+
+  it('takes the room in the address (refusing a bad one at the handshake and a hello for another room)', async () => {
+    const bad = raw('/room/abc');
+    let status = 0;
+    bad.ws.on('unexpected-response', (_req, res) => { status = res.statusCode ?? 0; bad.closed = -1; });
+    await until(() => bad.closed !== null);
+    expect(bad.open).toBe(false);
+    expect(status).toBe(400);
+
+    const mk = (room: string, at: string) => new NetClient(new WebSocketTransport(relayUrl(url, at)), { room, name: 'Pat', car: 'lcf1', clock: now });
+    const ok = mk('WS2', 'WS2'), wrong = mk('WS2', 'WS3');
+    const timer = setInterval(() => { ok.update(now()); wrong.update(now()); }, 5);
+    try {
+      await until(() => ok.status === 'joined' && wrong.status === 'closed');
+      expect(wrong.takeEvents().some((e) => e.type === 'error' && e.code === ERROR.badRoom)).toBe(true);
+    } finally {
+      clearInterval(timer);
+      ok.close(); wrong.close();
     }
   });
 

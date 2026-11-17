@@ -1,0 +1,16 @@
+// The multiplayer relay on Cloudflare Workers + Durable Objects (server/cf/worker.ts; docs/net.md, **On Cloudflare**).
+// `npm run relay:cf` runs it locally (wrangler dev, workerd, no account); `npm run relay:deploy` deploys it.
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "fast-roads-relay",
+  "main": "worker.ts",
+  "compatibility_date": "2026-11-01",
+  "durable_objects": {
+    "bindings": [{ "name": "ROOMS", "class_name": "RelayRoom" }]
+  },
+  // The Free plan has only SQLite-backed Durable Objects; the relay stores nothing in it.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RelayRoom"] }],
+  // Optional: MAX_PLAYERS (1-32), BATCH_MS (0-100), MIN_LAP_SECS (1-600), as for `npm run server` (server/env.ts).
+  "vars": {},
+  "observability": { "enabled": true }
+}

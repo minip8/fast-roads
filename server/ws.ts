@@ -1,6 +1,6 @@
 import { performance } from 'node:perf_hooks';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
-import { MAX_CLIENT_MSG, truncUtf8 } from '../src/net/protocol';
+import { MAX_CLIENT_MSG, roomFromPath, truncUtf8 } from '../src/net/protocol';
 import type { Lane, Transport, TransportState } from '../src/net/transport';
 import { Relay, type RelayOptions } from './relay';
 
@@ -9,6 +9,9 @@ import { Relay, type RelayOptions } from './relay';
 // lanes share the socket; the unreliable one drops a message rather than queue it behind more than
 // UNRELIABLE_BACKLOG unsent bytes (a client on a slow link gets fewer car states, not later ones).
 // No compression (car states do not compress, and permessage-deflate costs memory per socket).
+// Any path is accepted; one ending in /room/CODE (what the game opens: relayUrl) ties the connection to that room
+// (a hello for another is refused), and /room/<not a room code> is refused at the handshake (HTTP 400), as the
+// Cloudflare relay does.
 // ============================================================================
 export const UNRELIABLE_BACKLOG = 32 * 1024;
 
@@ -28,8 +31,11 @@ export interface RelayServer {
 export function listen(opt: ListenOptions): Promise<RelayServer> {
   const start = performance.now();
   const relay = new Relay({ ...opt.relay, now: () => (performance.now() - start) / 1000 });
-  const wss = new WebSocketServer({ port: opt.port, host: opt.host, maxPayload: MAX_CLIENT_MSG, perMessageDeflate: false, clientTracking: true });
-  wss.on('connection', (ws) => relay.accept(new WsTransport(ws)));
+  const wss = new WebSocketServer({
+    port: opt.port, host: opt.host, maxPayload: MAX_CLIENT_MSG, perMessageDeflate: false, clientTracking: true,
+    verifyClient: (info, done) => (roomOf(info.req.url) === null ? done(false, 400, 'bad room code') : done(true)),
+  });
+  wss.on('connection', (ws, req) => relay.accept(new WsTransport(ws), { room: roomOf(req.url) ?? undefined }));
   const timer = setInterval(() => relay.update(), opt.tickMs ?? 1000);
   timer.unref();
   const batch = relay.opt.batchInterval > 0 ? setInterval(() => relay.flush(), relay.opt.batchInterval * 1000) : null;
@@ -54,6 +60,8 @@ export function listen(opt: ListenOptions): Promise<RelayServer> {
     });
   });
 }
+
+const roomOf = (url: string | undefined) => roomFromPath(new URL(url ?? '/', 'ws://relay').pathname);
 
 class WsTransport implements Transport {
   onOpen: (() => void) | null = null;
