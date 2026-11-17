@@ -120,7 +120,18 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   `TrackDef.startBack` metres before the line (on the straight before the last corner or corners, so a restart
   costs the run-up, 8–20 s), rolling at its `TrackDef.flying` speed (`Vehicle.placeAt(s, lat,
   speed, heading)`; heading, an angle off the racing direction, is for the RL environment's random starts), and the
-  lap under way is dropped
+  lap under way is dropped. Extra cars (`addCar` / `removeCar`, `others`: each with its own driver, the autopilot by
+  default; no timing; put back at their own start on a restart or when stuck) and `proxies` (`ContactBody`s simulated
+  elsewhere, e.g. another player's car: the session's cars are pushed off them, they are never moved) switch `tick`
+  to `stepAll`: every car steps, the world steps once, `resolveContacts` runs (all pairs, then each car against each
+  proxy) and `contacts` lists the tick's hits. With neither, `tick` is `stepPhysics` alone, so the single-car path
+  (and the pinned laps) are untouched. `?opponents=N` or `?opponents=lcgt3,drift` adds autopilot cars in the game
+- `collide.ts`: car-to-car contact on an engine-neutral `ContactBody` (centre of mass, heading, velocity, yaw rate,
+  `ContactShape`: nose and tail distances, half width, mass, yaw inertia; `contactBody(vehicle)` reads a car).
+  `collide(a, b)` wraps the vendored `resolveCarToCarObbCollision` (handed the box centre and its velocity, the yaw
+  changes worked out again about each centre of mass; overlap push capped at `MAX_PUSH`) and returns both sides'
+  `ContactDelta`; `Vehicle.applyContact(d)` applies one to either engine's body (`Vehicle.shape` is its footprint).
+  Yaw rate is `angv.y` (+ turns the nose left, towards +x). Tests: `test/collide.test.ts`.
 - `carMeshes.ts`: car bodies, static parts merged per material, each with a seated driver and steering wheel
   (`Cockpit`: the Driver camera's eye, the helmet it hides, and `poseCockpit`, which both cars' `render` call to turn
   the wheel and arms, and `screen`, the live instruments). Paint and metal reflect the environment map that

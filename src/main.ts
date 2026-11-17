@@ -61,6 +61,11 @@ export async function main() {
 
   // Physics. session.car is replaced when the Car setting changes: read it at call time.
   const session = new Session(track, scene, CARS[settings.car], def), { timing } = session;
+  // ?opponents=N (that many of the player's car) or ?opponents=lcgt3,drift: autopilot cars starting 30 m apart ahead
+  // of the player, to see car-to-car contact. A development tool: no menu, HUD or minimap for them.
+  for (const [k, id] of opponentCars(params.get('opponents'), settings.car).entries()) {
+    session.addCar(CARS[id], { s: track.L - def.startBack + 30 * (k + 1) });
+  }
   const input = new Input();
   let bindings = loadBindings();
   input.bindings = bindings;
@@ -237,6 +242,7 @@ export async function main() {
     }
     const alpha = clamp(acc / DT, 0, 1), car = session.car;
     car.render(alpha, paused ? 0 : fdt);
+    for (const o of session.others) o.car.render(alpha, paused ? 0 : fdt);
     dust.update(paused ? 0 : fdt, car, camera, renderer);
     cam.lookBack = !menu.isOpen && input.lookingBack();
     cam.update(fdt, car);
@@ -252,4 +258,13 @@ export async function main() {
     mirror.render(renderer, scene, stage.sun, car, mirror.wanted(cockpitView) && !hud.hidden && !menu.isOpen && !cam.lookBack, ghost, camera);
   };
   requestAnimationFrame(frame);
+}
+
+// The ?opponents value: a count of the player's car (none given: one), or car ids separated by commas (unknown ids
+// are skipped).
+function opponentCars(value: string | null, player: CarId): CarId[] {
+  if (value == null) return [];
+  const n = value === '' ? 1 : Number(value);
+  if (Number.isInteger(n)) return Array<CarId>(Math.max(0, Math.min(n, 12))).fill(player);
+  return value.split(',').map((v) => v.trim()).filter((v): v is CarId => v in CARS);
 }

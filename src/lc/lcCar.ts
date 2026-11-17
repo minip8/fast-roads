@@ -3,6 +3,7 @@ import type RAPIER from '@dimforge/rapier3d-compat';
 import { S_ASPHALT } from '../config';
 import { type CarMesh, poseCockpit } from '../carMeshes';
 import type { LcSpec } from '../cars';
+import type { ContactDelta, ContactShape } from '../collide';
 import { pointAt, projectOnTrack, surfaceAt, trackLimitOut, type SurfaceRes, type Track, type TrackPos } from '../track';
 import type { DriveInput, TyreState, Vehicle, VehicleTyres, VehicleWheel } from '../vehicle';
 import type { EngineDriver } from './engineDriver';
@@ -69,6 +70,7 @@ class LcTyre implements TyreState {
 export class LcCar implements Vehicle {
   readonly wheels = [new LcWheel(), new LcWheel(), new LcWheel(), new LcWheel()];
   readonly mesh: CarMesh;
+  readonly shape: ContactShape;            // the barrier probes' outline (nose, tail, widest), the engine's mass and yaw inertia
   // The engine's tyre temperatures, pressures and brake discs; the windows are the compound's (set in build)
   readonly tyres: VehicleTyres & { wheels: LcTyre[]; windowC: [number, number][]; optimalPsi: number[] } =
     { wheels: [new LcTyre(), new LcTyre(), new LcTyre(), new LcTyre()], windowC: [[0, 0], [0, 0]], optimalPsi: [0, 0] };
@@ -108,6 +110,12 @@ export class LcCar implements Vehicle {
     this.longMult = [axles[0].brush?.longStiffnessMult ?? 1, axles[1].brush?.longStiffnessMult ?? 1];
     this.tyreData = [axles[0].data, axles[1].data];
     this.build();
+    const v = this.vehicle, ch = spec.config.chassis, probes = v.wallProbePoints;
+    this.shape = {
+      front: Math.max(...probes.map((p) => p.z)), rear: -Math.min(...probes.map((p) => p.z)),
+      halfWidth: Math.max(...probes.map((p) => Math.abs(p.x))),
+      mass: v.totalMassKg, yawInertia: ch.inertia.yaw * v.totalMassKg / ch.totalMassKg,   // as setFuelMass scales it
+    };
     this.mesh = spec.mesh(spec);
     scene.add(this.mesh.root);
   }
@@ -201,6 +209,16 @@ export class LcCar implements Vehicle {
     projectOnTrack(tr, this.pos.x, this.pos.z, -1, this.proj);
     this.refresh();
     this.prevPos.copy(this.pos); this.prevQuat.copy(this.quat);
+  }
+
+  // A car-to-car contact: the engine's body state is public, so it is written straight in (its next step starts from
+  // it; the barrier sweep runs from the last step's position, so a shove through a wall is still caught).
+  applyContact(d: ContactDelta) {
+    const v = this.vehicle;
+    v.position.x += d.dx; v.position.z += d.dz;
+    v.velocity.x += d.dvx; v.velocity.z += d.dvz;
+    v.angularVelocity.y += d.dyaw;           // world-frame, as ours
+    this.readState();
   }
 
   readState() {

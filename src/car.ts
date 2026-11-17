@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { G_CAR, G_CARPART, G_GROUND, G_RAY, G_WALL, PLOUGH_FADE_V, PLOUGH_WHEEL_SHARE, SURF, SURF_BLEND_T, S_ASPHALT, groups } from './config';
 import { type CarMesh, poseCockpit } from './carMeshes';
+import type { ContactDelta, ContactShape } from './collide';
 import type { CarSpec } from './cars';
 import { pointAt, projectOnTrack, surfaceAt, trackLimitOut, type SurfaceRes, type Track, type TrackPos } from './track';
 import { clamp, lerp } from './util';
@@ -52,6 +53,7 @@ export class Car implements Vehicle {
   readonly wheels: Wheel[];
   readonly body: RAPIER.RigidBody;
   readonly mesh: CarMesh;
+  readonly shape: ContactShape;             // the hull's length, the wheels' width (they stand out of it)
   private readonly mountY: number;
   private readonly ray: RAPIER.Ray;
   // driver-facing state
@@ -105,8 +107,18 @@ export class Car implements Vehicle {
     this.ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
     this.gear = 1; this.rpm = this.spec.idle;
 
+    this.shape = { front: hz + oz, rear: hz - oz, halfWidth: Math.max(hx, spec.trackHalf + 0.5 * Math.max(...spec.tyreW)), mass: spec.mass, yawInertia: spec.inertia.y };
     this.mesh = spec.mesh(spec);
     scene.add(this.mesh.root);
+  }
+
+  // A car-to-car contact, written into the Rapier body (between world steps).
+  applyContact(d: ContactDelta) {
+    const b = this.body, t = b.translation(), lv = b.linvel(), av = b.angvel();
+    b.setTranslation({ x: t.x + d.dx, y: t.y, z: t.z + d.dz }, true);
+    b.setLinvel({ x: lv.x + d.dvx, y: lv.y, z: lv.z + d.dvz }, true);
+    b.setAngvel({ x: av.x, y: av.y + d.dyaw, z: av.z }, true);
+    this.readState();
   }
 
   destroy() {

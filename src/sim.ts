@@ -1,7 +1,9 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import type * as THREE from 'three';
+import { autopilot } from './autopilot';
 import { Car } from './car';
 import type { AnyCarSpec, CarInfo } from './cars';
+import { collide, contactBody, newBody, type Contact, type ContactBody } from './collide';
 import { DT } from './config';
 import { LcCar } from './lc/lcCar';
 import { Timing } from './timing';
@@ -54,7 +56,26 @@ export function createVehicle(world: RAPIER.World, track: Track, scene: THREE.Sc
   }
 }
 
+// Another car in the session (an opponent), driven by its own driver; it has no timing. Placed at `start` (s, lat in
+// track coordinates, rolling at speed m/s) when added and on every restart or reset of its own.
+export interface ExtraCar {
+  readonly car: Vehicle;
+  driver: (car: Vehicle, simTime: number) => DriveInput;
+  readonly start: { readonly s: number; readonly lat: number; readonly speed: number };
+  stuck: number;                // s below 1 m/s (put back at its start after STUCK_SECS)
+}
+
+// A car-to-car contact in the last tick: two of the session's cars (both got their side), or one of them against a
+// proxy body (only `a` got its side). The contact holds the closing speed, point and normal (from a to b).
+export interface CarContact {
+  readonly a: Vehicle;
+  readonly b: Vehicle | ContactBody;
+  readonly contact: Contact;
+}
+
 // Physics world with the track's walls, one car at the start spot, and its lap timing. RAPIER.init() must have resolved.
+// Other cars can be added (addCar) and bodies simulated elsewhere put in `proxies`: with either, every tick resolves
+// the contacts between all of them (collide.ts) after the cars have moved; with neither, a tick is stepPhysics alone.
 export class Session {
   readonly world: RAPIER.World;
   readonly timing: Timing;
@@ -62,6 +83,14 @@ export class Session {
   car: Vehicle;                 // replaced by setCar: read it at call time, never keep a reference
   simTime = 0;
   onReset = () => {};           // after the car is moved (restart, new car): the game snaps its camera
+  readonly others: ExtraCar[] = [];   // the cars besides `car` (addCar / removeCar)
+  // Bodies simulated elsewhere (another player's car), as of this tick: the caller keeps them up to date. The session's
+  // cars are pushed off them; they are never moved here.
+  readonly proxies: ContactBody[] = [];
+  readonly contacts: CarContact[] = [];   // the last tick's car-to-car contacts
+  private readonly inputs: DriveInput[] = [];
+  private readonly bodyA: ContactBody = newBody({ front: 0, rear: 0, halfWidth: 0, mass: 0, yawInertia: 0 });
+  private readonly bodyB: ContactBody = newBody(this.bodyA.shape);
   private readonly startS: number;
   private stuck = 0;
 
@@ -81,10 +110,80 @@ export class Session {
 
   // One physics tick. autopilot: the autopilot is driving (so it is put back on track if it gets stuck).
   tick(inp: DriveInput, autopilot: boolean) {
-    stepPhysics(this.world, this.car, this.timing, inp, this.simTime);
+    if (this.others.length === 0 && this.proxies.length === 0) {
+      if (this.contacts.length) this.contacts.length = 0;
+      stepPhysics(this.world, this.car, this.timing, inp, this.simTime);
+    } else this.stepAll(inp);
     this.simTime += DT;
     this.stuck = autopilot && Math.abs(this.car.speedF) < 1 ? this.stuck + DT : 0;
     if (this.stuck > STUCK_SECS || needsReset(this.car)) this.restart();
+    for (const o of this.others) {
+      o.stuck = Math.abs(o.car.speedF) < 1 ? o.stuck + DT : 0;
+      if (o.stuck > STUCK_SECS || needsReset(o.car)) this.placeExtra(o);
+    }
+  }
+
+  // stepPhysics for every car at once: each driver reads the state before anyone moves, the Rapier world steps once,
+  // then the contacts are resolved before the player's lap timing sees where the car ended up.
+  private stepAll(inp: DriveInput) {
+    const car = this.car, others = this.others, inputs = this.inputs;
+    for (let k = 0; k < others.length; k++) inputs[k] = finiteInput(others[k].driver(others[k].car, this.simTime));
+    inputs.length = others.length;
+    prevXZ.x = car.pos.x; prevXZ.z = car.pos.z;
+    let rapier = car.spec.physics === 'rapier';
+    car.prevPos.copy(car.pos); car.prevQuat.copy(car.quat);
+    car.step(DT, finiteInput(inp));
+    for (let k = 0; k < others.length; k++) {
+      const c = others[k].car;
+      c.prevPos.copy(c.pos); c.prevQuat.copy(c.quat);
+      c.step(DT, inputs[k]);
+      rapier ||= c.spec.physics === 'rapier';
+    }
+    if (rapier) this.world.step();
+    car.readState();
+    for (const o of others) o.car.readState();
+    this.resolveContacts();
+    currXZ.x = car.pos.x; currXZ.z = car.pos.z;
+    this.timing.tick(prevXZ, currXZ, this.simTime, DT, car);
+  }
+
+  // Every pair of the session's cars (both sides applied), then each of them against every proxy (its side only).
+  // One pass a tick, in a fixed order; a car shoved by one contact meets the next with its new state.
+  private resolveContacts() {
+    this.contacts.length = 0;
+    const n = this.others.length + 1, at = (k: number) => k === 0 ? this.car : this.others[k - 1].car;
+    for (let i = 0; i < n; i++) {
+      const a = at(i);
+      for (let j = i + 1; j < n; j++) {
+        const b = at(j), c = collide(contactBody(a, this.bodyA), contactBody(b, this.bodyB));
+        if (!c) continue;
+        a.applyContact(c.a); b.applyContact(c.b);
+        this.contacts.push({ a, b, contact: c });
+      }
+      for (const p of this.proxies) {
+        const c = collide(contactBody(a, this.bodyA), p);
+        if (!c) continue;
+        a.applyContact(c.a);
+        this.contacts.push({ a, b: p, contact: c });
+      }
+    }
+  }
+
+  // Another car (its own driver: the autopilot unless given), at (s, lat) rolling at `speed` m/s (by default the
+  // car's flying speed at the start spot). Not timed. Its mesh is in the scene; the game renders it each frame.
+  addCar(spec: AnyCarSpec, { s = this.startS, lat = 0, speed = (this.def.flying?.[spec.id] ?? 0) / 3.6,
+    driver = (c: Vehicle) => autopilot(c, this.track) }: { s?: number; lat?: number; speed?: number; driver?: ExtraCar['driver'] } = {}): ExtraCar {
+    const o: ExtraCar = { car: createVehicle(this.world, this.track, this.scene, spec), driver, start: { s: ((s % this.track.L) + this.track.L) % this.track.L, lat, speed }, stuck: 0 };
+    this.others.push(o);
+    this.placeExtra(o);
+    return o;
+  }
+
+  removeCar(o: ExtraCar) {
+    const k = this.others.indexOf(o);
+    if (k < 0) return;
+    this.others.splice(k, 1);
+    o.car.destroy();
   }
 
   // Back to the start of the lap, which is every reset there is (the player's, a stuck autopilot, a car on its roof):
@@ -93,6 +192,7 @@ export class Session {
   restart() {
     this.place();
     this.timing.reset();
+    for (const o of this.others) this.placeExtra(o);
   }
 
   // Swap in another car (with default driver settings: the caller applies its own) at the start, with its best times.
@@ -107,5 +207,10 @@ export class Session {
     this.car.placeAt(this.startS, 0, (this.def.flying?.[this.car.spec.id] ?? 0) / 3.6);
     this.stuck = 0;
     this.onReset();
+  }
+
+  private placeExtra(o: ExtraCar) {
+    o.car.placeAt(o.start.s, o.start.lat, o.start.speed);
+    o.stuck = 0;
   }
 }

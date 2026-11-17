@@ -21,7 +21,9 @@ online, so a new deploy shows up on the next load.
 
 For development, append `?autopilot` to the URL to skip the menu and watch the built-in driver lap the circuit.
 The autopilot isn't part of the game itself. It laps every circuit cleanly in every car except the drift car at
-Spa, which slides wide in the fast sweepers there.
+Spa, which slides wide in the fast sweepers there. `?opponents=2` (that many of your car) or `?opponents=lcgt3,drift`
+(car ids: `lcf1`, `lcgt3`, `drift`) adds autopilot cars starting 30 m apart ahead of you, to drive into: a first step
+towards multiplayer, with no race rules, HUD or minimap for them. A restart puts them back too.
 
 ## Main menu
 
@@ -226,6 +228,12 @@ and override the mouse while held.
   the barriers as wall segments. `src/lc/driver.ts`, `aids.ts` and `steering.ts` are ports of the parts of
   LibreCorsa's game layer that the engine relies on: pedal ramps, the keyboard steering assist, ABS and traction
   control, all run at the engine's 500 Hz. One game tick costs about half a millisecond for these cars.
+- **Car-to-car contact** (`src/collide.ts`): each car is a box in the ground plane (the drift car's hull and wheels,
+  the LibreCorsa cars' barrier outline: the F1 reaches 3.2 m ahead of its centre of mass and 2.1 m behind), and
+  LibreCorsa's own solver (`resolveCarToCarObbCollision`: separating axes, one impulse at the contact point with
+  restitution 0.22 and friction 0.28) gives each car a change of position, velocity and yaw rate, which it applies to
+  its own body on either engine. Contacts are resolved once a tick after every car has moved; overlap is undone at
+  most 5 cm per car per tick, so cars placed on top of each other slide apart over about 0.2 s.
 - **Car bodies**: built from boxes and extrusions in code (`src/carMeshes.ts`), each with a seated driver whose
   hands turn the steering wheel in the driver camera. The instruments (`src/cockpitDisplay.ts`) are drawn on a
   small canvas per car, redrawn only in the Driver camera, when a shown value changes, at most 30 times a second. The GT3 instead shows a 3D model (`public/cars/lcgt3/`, about

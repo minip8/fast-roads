@@ -1,5 +1,6 @@
 import type * as THREE from 'three';
 import type { CarMesh } from './carMeshes';
+import type { ContactDelta, ContactShape } from './collide';
 import type { CarInfo } from './cars';
 import type { TrackPos } from './track';
 
@@ -66,12 +67,16 @@ export interface Vehicle {
   readonly battery?: number;         // energy store charge, 0..1 (hybrids)
   readonly flapsOpen?: boolean;      // movable wings open (cars that have them)
   readonly tyres?: VehicleTyres;     // tyre temperatures and pressures (cars whose physics models them)
+  readonly shape: ContactShape;      // footprint and mass for car-to-car contact (collide.ts)
 
   step(dt: number, input: DriveInput): void;   // before world.step(): apply this tick's forces
   readState(): void;                 // after world.step(): refresh the physics state above
   // On the track at (s, lat) facing the racing direction (turned `heading` rad to the left of it, rolling along its
   // nose), stopped or already rolling at `speed` (m/s) in the gear for it; state refreshed and prev = current.
   placeAt(s: number, lat?: number, speed?: number, heading?: number): void;
+  // A car-to-car contact (collide.ts): move the body and change its velocity and yaw rate by `d`, state refreshed.
+  // Between ticks, after readState; prev is left alone, so rendering interpolates through the shove.
+  applyContact(d: ContactDelta): void;
   destroy(): void;                   // leave the world and the scene, and free its body (mesh.dispose)
   render(alpha: number, dt: number): void;  // pose the mesh between prev and current state
 }
