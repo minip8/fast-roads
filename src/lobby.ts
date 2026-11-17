@@ -89,7 +89,7 @@ export const ROOM_FIELDS: readonly RoomField[] = [
   { key: 'raceLaps', label: 'Race length', group: 'main', hint: 'Laps from the lights going out.',
     ...stepper(LAPS, SETTING_RANGES.raceLaps, (v) => n(v, 'lap')) },
   { key: 'qualifying', label: 'Qualifying', group: 'main', kind: 'choice',
-    hint: 'Timed: the best lap in the time sets the grid. One shot: a single flying lap each, no traffic.',
+    hint: 'Timed: the best lap in the time sets the grid. One shot: a single flying lap each, sent out one at a time.',
     options: QUALIFYING.map((v) => [v, QUALIFYING_TEXT[v]] as const) },
   { key: 'weather', label: 'Weather', group: 'main', kind: 'choice',
     hint: 'Damp and wet start with water on the track, changeable brings showers, random picks one.',
@@ -262,7 +262,7 @@ export function sessionState(se: SessionInfo, s: RoomSettings, t: number, leader
     case 'lobby': return { big: null, text: 'Free driving until the host starts the weekend.' };
     case 'practice': return { big: left(se.end), text: 'left in the session' };
     case 'qualifying':
-      if (se.oneShot) return se.goAt != null && t < se.goAt ? { big: left(se.goAt), text: 'until the cars are released: one flying lap each' }
+      if (se.oneShot) return se.goAt != null && t < se.goAt ? { big: left(se.goAt), text: 'until the first car goes out: one flying lap each, one car at a time' }
         : { big: left(se.end), text: 'to finish your lap' };
       return se.stage === 'finishing' ? { big: left(se.end), text: 'Chequered flag: finish the lap you are on' } : { big: left(se.end), text: 'left: your best lap sets the grid' };
     case 'race':
