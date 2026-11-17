@@ -165,7 +165,8 @@ export async function main() {
     clearInterval(bootKeep);
     const mp = new mod.Multiplayer(net, session, def), pitLane = new mod.PitLaneMesh(track, mp.weekend.lane), race = new mod.RaceHud($('hud'));
     scene.add(pitLane.group);
-    race.tyreKey = keysFor(bindings, 'tyre').map(keyLabel)[0] ?? '';
+    race.tyreKey = keysFor(bindings, 'tyre').map(keyLabel)[0] ?? ''; race.pitKey = keysFor(bindings, 'pit').map(keyLabel)[0] ?? '';
+    hud.setPitLane(track, mp.weekend.lane);
     mp.weekend.setStartCompound(startTyre);
     hud.clearLaps();   // (the time trial's laps are not the room's)
     netRt = { mp, view: new mod.RemoteCars(scene, labels), board: new mod.NetHud($('leftCol')), race, pitLane, mod, server, log: new mod.lobby.RoomLog(net) };
@@ -179,6 +180,7 @@ export async function main() {
   const stopNet = (status: NetStatus) => {
     if (!netRt) return;
     netRt.mp.close(); netRt.view.dispose(); netRt.board.dispose(); netRt.race.dispose(); netRt.pitLane.dispose(); netRt = null;
+    hud.setPitLane(track, null);
     session.proxies.length = 0;
     hud.clearLaps();
     netStatus = status;
@@ -330,7 +332,7 @@ export async function main() {
   const cycleSetting = (key: SettingKey, dir = 1) => setSetting(key, nextOption(key, settings[key], dir));
   const setBindings = (b: typeof bindings) => {
     bindings = b; input.bindings = b; saveBindings(b); hud.setKeys(b);
-    if (netRt) netRt.race.tyreKey = keysFor(b, 'tyre').map(keyLabel)[0] ?? '';
+    if (netRt) { netRt.race.tyreKey = keysFor(b, 'tyre').map(keyLabel)[0] ?? ''; netRt.race.pitKey = keysFor(b, 'pit').map(keyLabel)[0] ?? ''; }
   };
   const keyText = (a: Action) => keysFor(bindings, a).map(keyLabel).join(' / ') || 'unbound';
 
@@ -419,6 +421,11 @@ export async function main() {
       if (w && car.compounds.length > 1) { w.cycleCompound(); const c = car.compounds.find((k) => k.id === w.nextCompound)!; hud.showMsg(`Next tyres: ${c.name}<small>Fitted at your next pit stop or restart</small>`, 1.5); }
       else if (!w) hud.showMsg('Tyre choice<small>For pit stops in a multiplayer race weekend</small>', 1.5);
     }
+    if (input.takeAction('pit')) {
+      const w = netRt?.mp.weekend;
+      if (w) hud.showMsg(w.togglePitRequest() ? 'Box this lap<small>Follow the pit guidance into the lane</small>' : 'Pit request off<small>Staying out</small>', 1.5);
+      else hud.showMsg('Pit stops<small>In a multiplayer race weekend</small>', 1.5);
+    }
     if (input.takeAction('restart')) restart();   // back to the start of the lap
     input.pressed.clear();
   };
@@ -479,7 +486,7 @@ export async function main() {
 
     hud.handleEvents(timing);
     hud.update({ car, timing, simTime: session.simTime, alpha, dt: fdt, autoOn, paused, mouseSteer: input.mouse.enabled ? input.mouse.steer : null, ghost: ghost.shown ? ghost.mapPos : null,
-      others: netRt?.view.dots, netGhost: netRt?.mp.noCollide, lapState: netRt?.mp.weekend.lapState });
+      others: netRt?.view.dots, netGhost: netRt?.mp.noCollide, lapState: netRt?.mp.weekend.lapState, pitRequest: !!netRt?.mp.weekend.pitRequest });
     if (netRt && !hud.hidden) { netRt.board.update(netRt.mp, netRt.view.status, fdt, !live); netRt.race.update(netRt.mp, nowS, fdt); }
 
     renderer.render(scene, camera);

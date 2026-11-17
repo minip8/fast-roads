@@ -6,7 +6,9 @@ import { COMPOUND_LETTER, sessionName } from './weekend';
 // The race weekend's HUD (weekend.ts has the state): the start lights over the top of the screen, a strip under them
 // (the race: position, lap and the gaps to the cars ahead and behind; practice and qualifying: the session and its
 // clock, our place on the board), and a pit panel over the dash (pit lane and limiter, the service under way, the
-// tyres the next stop fits, stops made of those required, a recovery's hold). In a race #hud gets the class `race`,
+// tyres the next stop fits, stops made of those required, a recovery's hold), and the pit guidance (#pitGuide, low in
+// the middle: the pit request's steps from the entry to the box and out, a suggested stop, the one-line explanation of
+// pit stops the first time). In a race #hud gets the class `race`,
 // which hides what a race does not need (the delta to a best lap, the optimal lap, the list of laps). Written only
 // when a text changes.
 // ============================================================================
@@ -21,6 +23,7 @@ const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 
 export class RaceHud {
   tyreKey = '';                       // the key that changes the next compound (from the bindings)
+  pitKey = '';                        // the pit request's key
   private readonly top: HTMLElement;
   private readonly lights: HTMLElement;
   private readonly info: HTMLElement;
@@ -28,7 +31,8 @@ export class RaceHud {
   private readonly lamps: HTMLElement[] = [];
   private outFor = 0;                 // s the lights stay shown (all out) after the start
   private wasLit = 0;
-  private html = { info: '', pit: '' };
+  private readonly guide: HTMLElement;
+  private html = { info: '', pit: '', guide: '' };
 
   constructor(private readonly hud: HTMLElement) {
     this.top = document.createElement('div'); this.top.id = 'raceTop';
@@ -37,7 +41,8 @@ export class RaceHud {
     this.info = document.createElement('div'); this.info.id = 'raceInfo'; this.info.className = 'panel';
     this.top.append(this.lights, this.info);
     this.pit = document.createElement('div'); this.pit.id = 'racePit'; this.pit.className = 'panel';
-    hud.append(this.top, this.pit);
+    this.guide = document.createElement('div'); this.guide.id = 'pitGuide';
+    hud.append(this.top, this.pit, this.guide);
   }
 
   update(mp: Multiplayer, now: number, dt: number) {
@@ -54,15 +59,16 @@ export class RaceHud {
     this.lights.classList.toggle('out', this.outFor > 0);
     this.set('info', this.infoHtml(mp, now));
     this.set('pit', this.pitHtml(mp));
+    this.set('guide', this.guideHtml(mp));
   }
 
-  dispose() { this.top.remove(); this.pit.remove(); this.hud.classList.remove('race'); }
+  dispose() { this.top.remove(); this.pit.remove(); this.guide.remove(); this.hud.classList.remove('race'); }
 
   // ------------------------------------------------------------------------
-  private set(k: 'info' | 'pit', html: string) {
+  private set(k: 'info' | 'pit' | 'guide', html: string) {
     if (html === this.html[k]) return;
     this.html[k] = html;
-    const el = k === 'info' ? this.info : this.pit;
+    const el = k === 'info' ? this.info : k === 'pit' ? this.pit : this.guide;
     el.innerHTML = html; el.hidden = !html;
   }
 
@@ -117,20 +123,49 @@ export class RaceHud {
     const w = mp.weekend, p = w.pit, car = mp.session.car, race = w.inRace && !w.spectator && !w.finished;
     const rows: string[] = [];
     if (w.recovering > 0) rows.push(`<div class="prow warn"><span>RECOVERY</span><b class="num">${Math.ceil(w.recovering)} s</b></div>`);
-    if (p.service > 0) {
-      const f = 1 - p.service / Math.max(0.01, p.serviceTotal);
-      rows.push(`<div class="prow box"><span>SERVICE</span><b class="num">${p.service.toFixed(1)} s</b></div><div class="pbar"><i style="width:${(f * 100).toFixed(0)}%"></i></div>`);
-    } else if (p.inLane) {
-      rows.push(`<div class="prow lane${p.limiter ? ' lim' : ''}"><span>PIT LANE</span><b>${p.limiter ? `LIMITER ${Math.round(w.lane.limitMs * 3.6)}` : p.stopped ? 'GO' : 'BOX AHEAD'}</b></div>`);
-    }
+    // (the lane, the limiter and the service are the guidance's, below)
     const stops = w.mandatoryStops;
-    const showTyre = car.compounds.length > 1 && (race || p.inLane || p.zone !== 'track');
+    const showTyre = car.compounds.length > 1 && (race || p.inLane || p.zone !== 'track' || w.pitRequest);
+    if (w.pitRequest && !p.inLane && p.service === 0) rows.push(`<div class="prow lane"><span>PIT${this.pitKey ? ` <kbd>${esc(this.pitKey)}</kbd>` : ''}</span><b>BOX THIS LAP</b></div>`);
     if (showTyre) {
       const c = car.compounds.find((k) => k.id === w.nextCompound) ?? car.compound;
       rows.push(`<div class="prow"><span>NEXT TYRES${this.tyreKey ? ` <kbd>${esc(this.tyreKey)}</kbd>` : ''}</span><b><i class="cchip" style="--cc:${c.colour}">${c.letter}</i> ${esc(c.name.replace(/^GT3 /, ''))}</b></div>`);
     }
     const made = w.order.find((e) => e.self)?.pits ?? p.stops;
-    if (race && stops > 0) rows.push(`<div class="prow${made >= stops ? ' done' : ''}"><span>STOPS</span><b class="num">${made}/${stops}</b></div>`);
+    if (race && stops > 0) rows.push(`<div class="prow${made >= stops ? ' done' : ''}"><span>PIT STOPS${made < stops ? ' OWED' : ''}</span><b class="num">${made}/${stops}</b></div>`);
     return rows.join('');
+  }
+
+  // The pit guidance: one line (and a bar while serviced), what to do next; else a suggested stop; and the one-line
+  // explanation of pit stops for its first seconds.
+  private guideHtml(mp: Multiplayer): string {
+    const w = mp.weekend, g = w.pitGuide, key = this.pitKey ? `<kbd>${esc(this.pitKey)}</kbd>` : '';
+    const side = (sd: 1 | -1) => (sd > 0 ? '<i class="garrow">◀</i> LEFT' : 'RIGHT <i class="garrow">▶</i>');
+    const m = (d: number) => (d >= 1000 ? `${(d / 1000).toFixed(1)} km` : `${Math.max(0, Math.round(d / 10) * 10)} m`);
+    let line = '', cls = '';
+    if (g) {
+      switch (g.step) {
+        case 'entry':
+          cls = g.dist < 400 ? 'now' : '';
+          line = g.dist < 1500 ? `<b>PIT ENTRY ${m(g.dist)}</b><span>${side(g.side)}</span>` : `<b>BOX THIS LAP</b><span>PIT ENTRY IN ${m(g.dist)}</span>`;
+          if (key) line += `<small>${key} cancel</small>`;
+          break;
+        case 'lane': cls = 'lane'; line = `<b>${g.limiter ? 'LIMITER ON' : 'PIT LANE'} · ${Math.round(w.lane.limitMs * 3.6)} KM/H</b><span>BOX ${m(g.box)}</span>`; break;
+        case 'box': cls = 'box'; line = `<b>STOP IN THE BOX</b><span>${g.box > 0.5 ? m(g.box) : 'HERE'}</span><small>the limiter brings you to a stop</small>`; break;
+        case 'service': {
+          cls = 'box';
+          const f = 1 - g.left / Math.max(0.01, g.total);
+          line = `<b>TYRES ON</b><span class="num">${g.left.toFixed(1)} s</span><div class="pbar"><i style="width:${(f * 100).toFixed(0)}%"></i></div>`;
+          break;
+        }
+        case 'go': cls = 'go'; line = '<b>GO</b><span>PIT EXIT <i class="garrow">▶</i></span>'; break;
+        case 'through': cls = 'lane'; line = `<b>PIT LANE · ${Math.round(w.lane.limitMs * 3.6)} KM/H</b><span>DRIVE-THROUGH</span>${key ? `<small>${key} stop in the box</small>` : ''}`; break;
+      }
+    } else {
+      const a = w.pitAdvice;
+      if (a) { cls = 'advice'; line = `<b>BOX THIS LAP?</b><span>${esc(a)}</span>${key ? `<small>${key} pit</small>` : ''}`; }
+    }
+    const help = w.pitHelpFor > 0 && w.pitHelp ? `<div class="ghelp">${esc(w.pitHelp.replace('the pit key', this.pitKey ? this.pitKey : 'the pit key'))}</div>` : '';
+    return line || help ? `${line ? `<div class="gline ${cls}">${line}</div>` : ''}${help}` : '';
   }
 }

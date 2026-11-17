@@ -2,6 +2,7 @@ import { DT, SURF } from './config';
 import { $ } from './dom';
 import { keyLabel, keysFor, MENU_KEY, type Action, type Bindings } from './keys';
 import { Minimap, type Bounds, type MapDot } from './minimap';
+import type { PitLane } from './raceGeometry';
 import type { Timing } from './timing';
 import type { Track } from './track';
 import { TyreWidget } from './tyreHud';
@@ -36,6 +37,7 @@ export interface HudFrame {
   netGhost?: boolean;               // in a room, our car is not collidable yet (just restarted, or back from the menu)
   // A race weekend's word on the lap (Weekend.lapState): the race's lap of its total, or our session over (no clock)
   lapState?: { text: string; clock: boolean } | null;
+  pitRequest?: boolean;             // a race weekend's pit request is on (the minimap's pit lane stands out)
 }
 
 export class Hud {
@@ -47,6 +49,7 @@ export class Hud {
     sec: [0, 1, 2].map((k) => $('sec' + k)), secTime: [0, 1, 2].map((k) => $('sec' + k).querySelector('b')!) };
   private readonly lights: HTMLElement[] = [];
   private readonly minimap: Minimap;
+  private readonly timingRef: Timing;
   private readonly tyres = new TyreWidget($('tyres'));
   private litCount = -1;
   private msgTimer = 0;
@@ -64,7 +67,10 @@ export class Hud {
       this.el.shiftLights.append(d); this.lights.push(d);
     }
     this.minimap = new Minimap($<HTMLCanvasElement>('minimap'), track, bounds, timing);
+    this.timingRef = timing;
   }
+  // The pit lane on the minimap (a room's; null: none).
+  setPitLane(track: Track, lane: PitLane | null) { this.minimap.setPitLane(track, lane, this.timingRef); }
 
   get hidden() { return this.root.hidden === true; }
   set hidden(v: boolean) { this.root.hidden = v; }
@@ -96,12 +102,13 @@ export class Hud {
     this.el.help.innerHTML = [
       `${k('throttle')} throttle · ${k('brake')} brake (auto gears: hold to reverse)`,
       `${k('left')} ${k('right')} steer`,
-      `${k('restart')} restart the lap (flying start; in a race, a recovery) · ${k('tyre')} next pit stop tyres (race weekends)`,
+      `${k('restart')} restart the lap (flying start; in a race, a recovery)`,
+      `${k('pit')} pit request: box this lap · ${k('tyre')} next pit stop tyres (race weekends)`,
       `${k('gearbox')} auto / manual gears · ${k('shiftUp')} ${k('shiftDown')} shift up / down`,
       `${k('steering')} mouse steering (L/R click throttle/brake, scroll shift)`,
       `${k('camera')} camera · ${k('lookBack')} look behind (hold) · ${k('tc')} traction control · ${k('mute')} sound`,
       `<kbd>${keyLabel(MENU_KEY)}</kbd> ${k('menu')} menu and settings · ${k('help')} hide this`,
-      '<span class="muted">Gamepad: RT throttle, LT brake, left stick steer, right stick click look behind, d-pad up next tyres, Start menu</span>',
+      '<span class="muted">Gamepad: RT throttle, LT brake, left stick steer, right stick click look behind, d-pad down pit request, d-pad up next tyres, Start menu</span>',
     ].map((r) => `<div>${r}</div>`).join('');
     this.el.helpChip.innerHTML = `${k('help')} keys · <kbd>${keyLabel(MENU_KEY)}</kbd> menu`;
   }
@@ -167,7 +174,7 @@ export class Hud {
       this.fpsFrames++; this.fpsTime += f.dt;
       if (this.fpsTime >= 0.5) { setText(el.fps, Math.round(this.fpsFrames / this.fpsTime) + ' fps'); this.fpsFrames = 0; this.fpsTime = 0; }
     }
-    if (!el.map.hidden) this.minimap.draw(car, f.ghost, f.others);
+    if (!el.map.hidden) this.minimap.draw(car, f.ghost, f.others, f.pitRequest);
   }
 
   // Shift lights fill from the car's shiftLightsFrom to its auto-upshift point, then all flash; pedal bars.

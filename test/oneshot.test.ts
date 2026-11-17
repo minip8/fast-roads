@@ -83,6 +83,8 @@ describe('one-shot qualifying', () => {
     expect(a.mp.net.session.grid.map((id) => a.mp.net.players.get(id)!.name)).toEqual(['Ann', 'Ben']);
     // a joiner during the race: on track as a ghost spectator, not on the grid
     room.until(() => a.mp.weekend.raceStage === 'racing', 10, 'lights out');
+    // (both were in the pit lane when qualifying ended: leaving it for the grid is no drive-through)
+    for (const x of [a, b]) expect(x.mp.takeNotices().filter((n) => /Drive-through/.test(n.text))).toEqual([]);
     const c = await room.join('Cat', 'drift');
     room.run(0.5);
     expect(c.mp.weekend.spectator).toBe(true);

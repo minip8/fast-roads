@@ -325,11 +325,22 @@ tyre wear, weather, collisions, penalties) are set in the lobby; the relay times
   while one on its lap comes past the start spot, and a car whose lap is done goes back to the pits. The race: two
   staggered columns behind the line, pole on the inside of the first corner, held until the five red lights go out;
   lap 1 runs from the grid. The chequered flag after the winner; a finished car drives on as a ghost.
-- **Pit lane.** A lane along the pit building, marked in white with boards (PIT IN, the 80 km/h limit, PIT OUT) and a
-  yellow box (the start gantry's post on that side stands beyond it). In it your car is a ghost and a limiter holds it to 80 km/h (braking for you if you come in too fast).
-  Stop in the box for a fresh set of the tyres shown as NEXT TYRES (N, or the d-pad up, cycles them): 2.5 s in the
-  F1, 8 s in the GT3, 6 s in the drift car. At Melbourne a stop costs about 20-24 s in all. Driving through without
-  stopping is not a stop.
+- **Pit lane.** A lane along the pit building, on the side the map shows it (a blue line beside the track, the box a
+  yellow square). The way in: blue PIT 300 / 200 / 100 boards on that side, white chevrons on a blue band along the
+  track's edge, blue hatching over the entry and a large PIT IN board; then white lines, the 80 km/h boards, a yellow
+  box under a gantry with a lit BOX sign, and PIT OUT (the start gantry's post on that side stands beyond it). In the
+  lane your car is a ghost and a limiter holds it to 80 km/h (braking for you if you come in too fast).
+  **To pit, press L (or the d-pad down): "box this lap".** The HUD then guides you: the distance to the pit entry and
+  its side, the limiter, "stop in the box", the tyres going on, GO. With the request on, the limiter also stops the
+  car in the box (keep the throttle down: it brakes to a halt at the box's middle), since a 12 m box at 80 km/h is
+  easy to overshoot on a brake key (braking fully between about 10 and 22 m before it is all that stops a GT3 in it).
+  Driving into the lane turns the request on; press L again in the lane to drive through. The car is serviced
+  once stopped in the box: a fresh set of the tyres shown as NEXT TYRES (N, or the d-pad up, cycles them; on the
+  request, tyres for the weather if the fitted ones are wrong and you have not chosen): 2.5 s in the F1, 8 s in the
+  GT3, 6 s in the drift car. At Melbourne a stop costs about 20-24 s in all. In a race the HUD suggests a stop (BOX
+  THIS LAP?) when a required stop is owed and the laps are running out, when the tyres are nearly worn out (75%), or
+  when they are wrong for the track. The first session of a weekend explains pit stops in one line. Going past the
+  box without stopping, in a race you are still in, is a drive-through: not a stop.
 - **Restart in a race** is a recovery: put back on the track where you are, at rest, held 10 s as a ghost. In
   practice and qualifying R is the flying start on a fresh set.
 - **The menu during a race** does not stop it: your car brakes to a stop where it is, a ghost, while the race goes on
@@ -337,7 +348,8 @@ tyre wear, weather, collisions, penalties) are set in the lobby; the relay times
   box, which serves the car as a stop (a fresh set, counted as a stop).
 - **HUD.** The start lights and, under them, your position, lap and the gaps to the cars ahead and behind (practice
   and qualifying: the session and its clock); the board becomes a timing tower (gaps to the leader, tyres, PIT);
-  over the dash the pit panel (pit lane and limiter, the service, NEXT TYRES, stops made of those required);
+  over the dash the pit panel (BOX THIS LAP while the request is on, NEXT TYRES, pit stops made of those required);
+  low in the middle the pit guidance;
   messages for lights out (with the pit stops to make), the final lap ("pit this lap" while a required stop is still
   owed), the flag, penalties and rain. In a race the timing panel counts the race's
   laps (ON THE GRID, LAP 2/5, FINISHED), its BEST is your best lap of this race, and the delta to your best lap and
@@ -384,6 +396,7 @@ The default keys (all but Esc can be changed in the menu's Controls tab):
 | S / ↓ | Brake (automatic gears: hold when stopped to reverse, up to ~40 km/h; W then brakes, and selects first once stopped) |
 | A D / ← → | Steer |
 | R / Enter | Restart the lap: back before the last corners at flying-lap speed (in a multiplayer race: a recovery, held 10 s) |
+| L | Race weekends: pit request, "box this lap" (also the d-pad down) |
 | N | Race weekends: the tyres the next pit stop fits (also the d-pad up) |
 | V | Mouse steering on/off (also in the menu) |
 | C | Cycle camera (onboard / driver / chase / far) |
@@ -395,7 +408,7 @@ The default keys (all but Esc can be changed in the menu's Controls tab):
 | M / H | Mute / show or hide the key help |
 
 Gamepad: RT throttle, LT brake, left stick steer, RB/LB shift up/down, Y camera, right stick click (hold) look behind,
-X or Back restart, d-pad up the next pit stop's tyres (race weekends), Start menu.
+X or Back restart, d-pad down the pit request and d-pad up the next pit stop's tyres (race weekends), Start menu.
 
 Mouse steering: the cursor stays visible, and how far it is left or right of the screen centre sets the wheel
 (in direct proportion, reaching full lock towards the edge). Mouse sensitivity (Low / Medium / High) in the menu sets how far

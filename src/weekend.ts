@@ -24,6 +24,12 @@ const GAP_BUCKET = 10;                // m: the running order's timing loops
 // passed it (from CLEAR_BEHIND m before it to CLEAR_AHEAD m after it), so it never joins in front of a car on its lap
 // nor right behind one; at most ONE_SHOT_WAIT s, in case that car has stopped there.
 const CLEAR_BEHIND = 500, CLEAR_AHEAD = 200, ONE_SHOT_WAIT = 15;
+// The pit request's assisted stop: in the lane the limiter's speed falls as braking at BOX_DECEL m/s² down to a stop at
+// the box's middle allows (docs/net.md, **The pit request**).
+export const BOX_DECEL = 3;
+const WORN = 0.75;                    // tread worn (0..1) from which the HUD suggests a stop
+const PIT_HELP_SECS = 12;             // s the one-line explanation of pit stops stays up
+
 const ordinal = (n: number) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`;
 
 // The relay's compound numbers (race.ts COMPOUND) for ours; the drift car's all-weather tyre has none.
@@ -56,7 +62,17 @@ export interface PitState {
   serviceTotal: number;
   stops: number;                      // stops made this session
   stopped: boolean;                   // this visit: serviced (else a drive-through so far)
+  passedBox: boolean;                 // this visit: the car has gone past the box
 }
+
+// What the HUD shows to guide a pit stop (Weekend.pitGuide): the step and what it needs.
+export type PitGuide =
+  | { step: 'entry'; dist: number; side: 1 | -1 }        // box this lap: the pit entry dist m ahead, on that side
+  | { step: 'lane'; box: number; limiter: boolean }      // in the lane, the box `box` m ahead (the limiter on)
+  | { step: 'box'; box: number }                         // stop in the box (m to its middle; negative: past it)
+  | { step: 'service'; left: number; total: number }     // the service under way (s left)
+  | { step: 'go' }                                       // serviced: drive out
+  | { step: 'through' };                                 // in the lane without a request: driving through
 
 type Notify = (kind: 'flag' | 'race' | 'error', text: string, sub?: string) => void;
 
@@ -73,7 +89,15 @@ export class Weekend {
   // tyres: the set to start each session on (null: by the weather), and the set the next stop or restart fits
   startCompound: CompoundId | null = null;
   nextCompound: CompoundId;
-  readonly pit: PitState = { zone: 'track', inLane: false, limiter: false, dist: 0, service: 0, serviceTotal: 0, stops: 0, stopped: false };
+  readonly pit: PitState = { zone: 'track', inLane: false, limiter: false, dist: 0, service: 0, serviceTotal: 0, stops: 0, stopped: false, passedBox: false };
+  // The pit request ("box this lap", the `pit` key): guidance to the box, and the limiter stops the car in it. Entering
+  // the lane turns it on; the key turns it off again (a drive-through). Off once the stop is made and the car is out.
+  pitRequest = false;
+  pitHelp: string | null = null;      // a one-line explanation of pit stops, the first time in a weekend
+  pitHelpFor = 0;                     // s it stays up
+  private pitExplained = false;
+  private compoundChosen = false;     // the player picked the next tyres this session (else the weather may)
+  private lastLapIn = false;          // a race: our last lap is in (the relay's word on our finish may still be coming)
   held = false;                       // on the grid (or one-shot's start spot) until the release
   recovering = 0;                     // s left held after a recovery
   parked = false;                     // the player is in the menu during a race: the car brakes to a stop, a ghost
@@ -164,6 +188,7 @@ export class Weekend {
   }
   // The compounds our car can fit, the next one in the list (dir -1: the one before), and the set for a start.
   cycleCompound(dir = 1) {
+    this.compoundChosen = true;
     const cs = this.session.car.compounds, k = cs.findIndex((c) => c.id === this.nextCompound);
     this.nextCompound = cs[((k < 0 ? 0 : k) + dir + cs.length) % cs.length].id;
     return this.nextCompound;
@@ -191,7 +216,7 @@ export class Weekend {
   // The player's restart key: a flying start on a fresh set of the next compound, except where a race has no start
   // spot to go back to (a race we are in, one-shot qualifying's lap): there it is a recovery.
   requestRestart() {
-    if (this.held) return;   // (one-shot: waiting in the pits, or the lap done)
+    if (this.held || this.pit.service > 0) return;   // (one-shot: waiting in the pits, or the lap done; a stop under way)
     if (this.recoveryOnly) this.recover(); else this.flyingStart(this.nextCompound);
   }
   private get recoveryOnly() {
@@ -241,7 +266,8 @@ export class Weekend {
     const L = this.lane, tr = this.session.track, room = L.limOut - L.limIn - 16;
     const d = L.limIn + 8 + (n > 1 ? k * Math.min(10, room / (n - 1)) : 0), j = Math.round(d / (tr.L / tr.N));
     this.session.placeCar((L.sStart + d) % tr.L, L.side * (L.inner[j] + L.outer[j]) / 2, 0);
-    Object.assign(this.pit, { service: 0, stopped: true, inLane: true });
+    Object.assign(this.pit, { service: 0, stopped: true, inLane: true, passedBox: false });
+    this.pitRequest = false;
   }
 
   // Events Multiplayer passes on (ours included).
@@ -270,7 +296,9 @@ export class Weekend {
     const stop = { throttle: 0, brake: Math.abs(v) > 0.3 ? 1 : 0, steer: 0, analog: inp.analog, steerAngle: null, autoGears: inp.autoGears };
     if (this.held || this.pit.service > 0 || this.recovering > 0 || this.parked) return stop;
     if (this.pit.inLane) {
-      const vmax = laneLimit(this.lane, this.pit.dist);
+      let vmax = laneLimit(this.lane, this.pit.dist);
+      // the pit request: the limiter brings the car to a stop in the box (BOX_DECEL down to its middle)
+      if (this.pitRequest && !this.pit.stopped && this.serviceAllowed) vmax = Math.min(vmax, Math.sqrt(2 * BOX_DECEL * Math.max(0, this.lane.box - this.pit.dist)));
       this.pit.limiter = vmax < Infinity && v > vmax - 2;
       if (v > vmax + 0.3) return { ...inp, throttle: 0, brake: Math.max(inp.brake, Math.min(1, Math.max(0.15, (v - vmax) / 3))) };
       if (vmax < Infinity) return { ...inp, throttle: Math.min(inp.throttle, Math.max(0, (vmax - v) / 1.5)) };
@@ -286,15 +314,26 @@ export class Weekend {
     p.zone = laneZone(this.lane, tr, car.proj);
     const inLane = p.zone === 'lane' || (p.inLane && p.zone === 'near');
     p.dist = laneDist(this.lane, tr, car.proj.s);
-    if (inLane && !p.inLane) { p.stopped = false; }
-    if (!inLane && p.inLane && !p.stopped && this.phase === 'race' && !this.spectator && !this.finished) this.notify('race', 'Drive-through: no stop made');
+    if (inLane && !p.inLane) {
+      // into the lane: a stop is wanted (the request, turned on by driving in; the key turns it off: a drive-through)
+      p.stopped = false; p.passedBox = false;
+      if (!this.held && !this.pitRequest) this.setPitRequest(true);
+    }
+    if (inLane && p.dist > this.lane.box + PIT.boxLen / 2 && p.dist < this.lane.len) p.passedBox = true;
+    // out of the lane: a drive-through only if the car went past the box without stopping in a race it is still in
+    // (a brush with the lane's edge, a session change or the car's finish in the lane is none)
+    if (!inLane && p.inLane) {
+      if (p.passedBox && !p.stopped && this.racing) this.notify('race', 'Drive-through: no stop made');
+      if (p.stopped || p.passedBox) this.pitRequest = false;
+    }
     p.inLane = inLane;
     if (p.service > 0) {
       p.service = Math.max(0, p.service - DT);
       if (p.service === 0) this.serviced(tickAt);
-    } else if (inLane && !p.stopped && Math.abs(p.dist - this.lane.box) <= PIT.boxLen / 2 && Math.abs(car.speedF) < 0.5 && !this.held) {
+    } else if (inLane && !p.stopped && Math.abs(p.dist - this.lane.box) <= PIT.boxLen / 2 && Math.abs(car.speedF) < 0.5 && !this.held && this.serviceAllowed) {
       p.serviceTotal = p.service = car.spec.race.pitSecs;
     }
+    if (this.pitHelpFor > 0) this.pitHelpFor = Math.max(0, this.pitHelpFor - DT);
     if ((this.orderWait -= DT) <= 0) { this.orderWait = ORDER_EVERY; this.updateOrder(tickAt); }
   }
 
@@ -313,7 +352,70 @@ export class Weekend {
       this.notify('flag', 'Qualifying over', 'Drive on as a ghost');
       return crossing - lap.time <= (s.finishAt ?? Infinity) + 1;
     }
+    // (a race: the lap that ends it for us, whether the winner's or one after the flag; the standings confirm it)
+    if (this.phase === 'race' && !this.spectator && !this.finished && (this.raceLaps + 1 >= this.net.settings.raceLaps || s.stage === 'finishing')) this.lastLapIn = true;
     return !this.finished;
+  }
+
+  // ------------------------------------------------------------------------ the pit request and its guidance
+  // In a race we are still racing in (not finished, not a spectator, past the grid).
+  private get racing() { return this.phase === 'race' && !this.spectator && !this.finished && !this.lastLapIn && this.stage !== 'results'; }
+  // The box serves the car: not once its race is over (the relay would refuse the stop).
+  private get serviceAllowed() { return this.phase !== 'race' || this.racing; }
+  togglePitRequest() { return this.setPitRequest(!this.pitRequest); }
+  setPitRequest(on: boolean) {
+    this.pitRequest = on;
+    if (on) {
+      // tyres for the weather, unless the player chose the next set this session
+      const want = this.autoCompound();
+      if (!this.compoundChosen && this.tyresWrong() && want !== this.nextCompound) this.nextCompound = want;
+      this.explainPits();
+    }
+    return on;
+  }
+  // The one-line explanation, once a weekend (until the lobby).
+  explainPits() {
+    if (this.pitExplained) return;
+    this.pitExplained = true;
+    this.pitHelpFor = PIT_HELP_SECS;
+    const side = this.lane.side > 0 ? 'left' : 'right';
+    this.pitHelp = `Pit stops: press the pit key to box this lap, follow the arrows into the pit lane on the ${side} before the line, `
+      + `and the limiter stops you in your yellow box; new tyres go on, then drive out.`;
+  }
+  // The tyres fitted are wrong for the conditions: slicks on a wet track (or rain tyres on a dry one), intermediates in
+  // standing water, wets on a merely damp track.
+  tyresWrong(): boolean {
+    const id = this.session.car.compound.id, w = this.wetness;
+    if (id === 'allweather') return false;
+    if (id === 'intermediate') return w < 0.1 || w > 0.8;
+    if (id === 'wet') return w < 0.5;
+    return w > 0.3;
+  }
+  // Why a stop is worth making now (the HUD suggests one; null: no reason): a mandatory stop owed with the laps
+  // running out, worn tyres, or tyres wrong for the weather. Only while racing and not on the way in already.
+  get pitAdvice(): string | null {
+    if (!this.racing || this.held || this.pitRequest || this.pit.inLane || this.pit.service > 0) return null;
+    const me = this.net.standings.find((x) => x.player === this.net.selfId);
+    const owed = this.mandatoryStops - (me?.pits ?? this.pit.stops), left = this.net.settings.raceLaps - this.raceLaps;   // laps to go, this one too
+    if (owed > 0 && left <= owed + 1) return `${owed} stop${owed > 1 ? 's' : ''} owed`;
+    if (this.tyresWrong()) return this.wetness > 0.3 && !this.session.car.compound.rain ? 'Rain tyres needed' : 'Wrong tyres for the track';
+    if (this.session.car.tyreWear.some((x) => x >= WORN)) return 'Tyres worn';
+    return null;
+  }
+  // The guidance for the HUD (null: nothing to show).
+  get pitGuide(): PitGuide | null {
+    const p = this.pit, tr = this.session.track;
+    if (p.service > 0) return { step: 'service', left: p.service, total: p.serviceTotal };
+    if (p.inLane) {
+      if (p.stopped) return { step: 'go' };
+      if (!this.pitRequest || !this.serviceAllowed) return { step: 'through' };
+      const box = this.lane.box - p.dist;
+      return box < 40 ? { step: 'box', box } : { step: 'lane', box, limiter: p.limiter };
+    }
+    if (!this.pitRequest || this.held || this.recovering > 0) return null;
+    if (p.zone !== 'track' && p.dist < this.lane.len) return { step: 'lane', box: this.lane.box - p.dist, limiter: false };   // (on the way in)
+    const d = ((this.lane.sStart - this.session.car.proj.s) % tr.L + tr.L) % tr.L;
+    return { step: 'entry', dist: d, side: this.lane.side };
   }
 
   // ------------------------------------------------------------------------
@@ -324,7 +426,9 @@ export class Weekend {
     const ses = this.session, tr = ses.track;
     this.phase = s.phase; this.index = s.index; this.stage = s.stage;
     this.finished = false; this.oneShotGo = false; this.goSim = null; this.recovering = 0; this.raceLaps = 0; this.lastPenalty = 0;
-    Object.assign(this.pit, { service: 0, stops: 0, stopped: false, limiter: false });
+    Object.assign(this.pit, { service: 0, stops: 0, stopped: false, limiter: false, inLane: false, passedBox: false });
+    this.pitRequest = false; this.compoundChosen = false; this.lastLapIn = false;
+    if (s.phase === 'lobby') this.pitExplained = false;   // (once a weekend)
     this.runners.clear(); this.order = []; this.gapAhead = this.gapBehind = null;
     this.oneShotDone.clear(); this.parkPending = false;
     // (a race's best times are this race's: the timing panel's BEST is the best lap of this race, not of earlier ones)
@@ -337,11 +441,13 @@ export class Weekend {
     this.nextCompound = c;
     const slot = this.net.gridSlot();
     if (first && s.phase === 'lobby') return;   // joining a room's lobby: driving on from where we are
+    if (s.phase !== 'lobby' && !s.oneShot && !this.spectator) this.explainPits();   // (the weekend's first session)
     if (s.phase === 'race' && slot != null && s.goAt != null && T >= s.goAt) {
       // back in a race under way (a reload): out of our pit box, on a fresh set
       const k = Math.round(this.lane.box / (tr.L / tr.N));
       ses.car.fitTyres(c, 'blanket');
       ses.placeCar(this.lane.sStart + this.lane.box, this.lane.side * (this.lane.inner[k] + this.lane.outer[k]) / 2, 0);
+      this.standings();   // (the welcome's standings: whether our race is already over)
       this.notify('flag', 'BACK IN THE RACE', 'Out of the pits');
     } else if (s.phase === 'race' && slot != null) {
       this.grid = gridSlots(tr, Math.max(this.net.maxPlayers, s.grid.length, slot + 1));
@@ -410,7 +516,8 @@ export class Weekend {
     if (car.compounds.some((c) => c.id === id)) car.fitTyres(id, heat);
     this.session.restart();
     this.held = false; this.recovering = 0;
-    Object.assign(this.pit, { service: 0, stopped: false, inLane: false });
+    Object.assign(this.pit, { service: 0, stopped: false, inLane: false, passedBox: false });
+    this.pitRequest = false;
   }
 
   // Put back on the track where the car is (the nearest point, a lane's middle in the pit lane, else at most 2 m
