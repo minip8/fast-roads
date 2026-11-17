@@ -98,7 +98,7 @@ export class RaceHud {
   }
 
   private pitHtml(mp: Multiplayer): string {
-    const w = mp.weekend, p = w.pit, car = mp.session.car, race = w.inRace && !w.spectator;
+    const w = mp.weekend, p = w.pit, car = mp.session.car, race = w.inRace && !w.spectator && !w.finished;
     const rows: string[] = [];
     if (w.recovering > 0) rows.push(`<div class="prow warn"><span>RECOVERY</span><b class="num">${Math.ceil(w.recovering)} s</b></div>`);
     if (p.service > 0) {

@@ -4,7 +4,7 @@ import { autopilot } from './autopilot';
 import { CameraRig } from './camera';
 import { CARS, type CarId } from './cars';
 import { CockpitDisplay } from './cockpitDisplay';
-import { conditionsFromUrl } from './conditions';
+import { conditionsFromUrl, type CompoundId } from './conditions';
 import { DT, MAX_STEPS_PER_FRAME } from './config';
 import { $ } from './dom';
 import { Dust } from './dust';
@@ -149,7 +149,7 @@ export async function main() {
   let lastAttempt: (() => void) | null = link ? () => { void enterRoom('join', link.room, serverFor(link.server)); } : null;
   // The starting compound chosen in the menu's room tab (null: the weekend picks by the weather). The weekend fits it
   // whenever a session puts the car on track; kept here too so it survives leaving and rejoining.
-  let startTyre: string | null = null;
+  let startTyre: CompoundId | null = null;
   const labels = document.createElement('div');
   labels.id = 'netLabels';
   $('hud').before(labels);   // under the HUD: a tag passes behind a panel, as the car it names does
@@ -262,7 +262,7 @@ export async function main() {
     tyre: {
       options: () => session.car.compounds.map((c) => ({ id: c.id, name: c.name, letter: c.letter, colour: c.colour })),
       get: () => netRt?.mp.weekend.startCompound ?? netRt?.mp.weekend.autoCompound() ?? session.car.compounds[0]?.id ?? '',
-      set: (id) => { startTyre = id; netRt?.mp.weekend.setStartCompound(id); },
+      set: (id) => { startTyre = id as CompoundId; netRt?.mp.weekend.setStartCompound(startTyre); },
     },
   };
 

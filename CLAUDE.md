@@ -100,6 +100,11 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   false` on the other: every event applied once), momentum equal and opposite within 35%, restarting onto an
   occupied spot, pausing, joins, car changes, leaving, a lap (driven by placing the car before each timing line) on
   the board. About 5 s. `NET_REPORT=1` prints the measurements quoted in docs/net.md.
+  `test/race-weekend.test.ts` runs whole race weekends the same way (relay durations shortened, laps driven by
+  placing the car before each timing line, about 15 s): qualifying setting the grid, cars held on their slots until
+  lights out, a pit stop, a recovery, the finish and classification, one-shot qualifying, the weather in the physics,
+  a spectator. `test/raceGeometry.test.ts` checks the grid and the pit lane at every circuit. `test/pit-loss.test.ts`
+  is a tool (`PITLOSS=melbourne`): the time a pit stop costs each car.
 - In the browser, `window.__game` exposes `simulate(seconds, driver, probeSecs)`, `car` (a getter: the car object is
   replaced when you switch cars), `simTime`, `session`, `timing`, `track`, `input`, `setSetting(key, value)` and
   `setAutopilot`, `stage` (renderer, scene, camera; the `GameHook` type in `main.ts`) and `multiplayer` (the
@@ -286,14 +291,26 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
     `src/net/` must stay free of DOM and game imports: `ids.ts` imports nothing). The client connects to
     `relayUrl(server, room)` (`<server>/room/CODE`); the Node relay accepts any path and checks a `/room/` one.
     docs/net.md **On Cloudflare** has the limits (dated), the clock and the go-live steps.
-  - `multiplayer.ts` `Multiplayer(net, session)`: the glue, no DOM or rendering (the tests run it as the game does).
-    `tick(input, autopilot, tickAt)` replaces `session.tick`: each player's `RemoteCar` sampled at `tickAt` into a
+  - `multiplayer.ts` `Multiplayer(net, session, def)`: the glue, no DOM or rendering (the tests run it as the game does).
+    `tick(input, autopilot, tickAt, parked)` replaces `session.tick`: each player's `RemoteCar` sampled at `tickAt` into a
     `ContactBody` (shape from `shapeOf`: one throwaway car per car id), put in `session.proxies` only while
     collidable; then our contacts summed into events, laps from `Timing.lastLap`, our state. `idle(now)` while paused.
     Our car is `noCollide` from joining, after each restart (`Session.resets`, which also bumps the epoch) and while
     paused, until clear of every car for `CLEAR_SECS`; the contact rule (each side applies its own half; an event is
     applied only if our simulation had no contact with that car within the window `W` about a round trip, then that
     proxy is not collided with until `W` after the hit) is in docs/net.md.
+  - `weekend.ts` `Weekend` (`Multiplayer.weekend`): the race weekend in the car (docs/net.md **Race weekends in the
+    game**): follows `net.session` (placement at each session: flying start, one-shot's start spot, the grid slot;
+    held until `goAt`; the race's standing lap 1, `Timing.startStanding`), conditions (the room's wear x
+    `CarInfo.race.wearScale`, the relay's weather into `Session.setConditions`), store tags (`.mp`, `.race`: never the
+    time trial's bests), the input it overrides (held, recovering, parked, the pit limiter and service), the pit
+    lane (box, service `CarInfo.race.pitSecs`, `sendPit`), restarts (`requestRestart`; `Session.autoReset`): a flying
+    start on fresh tyres, or in a race a recovery (`RECOVERY_SECS`), which laps are sent, and the live running order.
+    Plain state for the HUD and the menu (`startCompound`, `nextCompound`, `pit`, `order`, `tyreLife`...).
+    `raceGeometry.ts` (pure): `gridSlots`, `buildPitLane` (a 4 m strip on the pit building's side, on the run-off
+    or up to 1.1 m into a street circuit's road), `enablePitLane` (`Track.pitLane`: asphalt and inside the track
+    limits, only in a room, so single-player is untouched). `pitLaneMesh.ts` draws the lane; `raceHud.ts` the lights,
+    race strip and pit panel (`#hud.race` declutters); the board turns into a timing tower in a race.
   - `remoteCars.ts` `RemoteCars`: the other cars drawn (the spec's own mesh, own material copies so one car can turn
     translucent, wheels and cockpit posed from the state), name tags (`#netLabels`, DOM, before `#hud` in the page so a tag passes behind the HUD's panels), minimap dots (`MapDot`).
     `netHud.ts` `NetHud`: the board and notice feed in `#leftCol` under the timing panel. `netGame.ts`: what main.ts
@@ -315,8 +332,10 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
     timeout) opens the menu with Try again (the seat is kept; Leave clears it). In a room, every frame runs
     `mp.update`, the ticks go through `mp.tick` (`tickAt = now - (acc - DT)`), paused frames call `mp.idle`, a 1 s
     timer keeps the link alive while a hidden tab gets no frames, and other cars are drawn at `now - DT`.
-    `MenuHost.net` (`NetHost` in menu.ts) is the menu's whole view of multiplayer; its `tyre` (the starting compound)
-    is held in main.ts until the in-car side takes it (marked CONNECT).
+    In a race we are in the ticks go on while the menu is open (`parked`: `weekend.keepsRunning`), R goes to
+    `mp.requestRestart`, the `tyre` action cycles `weekend.nextCompound`, the weather drawn is the room's and the
+    ghost car is off in a race. `MenuHost.net` (`NetHost` in menu.ts) is the menu's whole view of multiplayer; its
+    `tyre` (the starting compound) is kept in main.ts and handed to `weekend.setStartCompound`.
 - **RL environment** (`src/ai/`, `ai/`, `docs/ai-env.md`, which the trainer is written from: keep it exact):
   - `src/ai/env.ts` `RaceEnv`: reset/step over a `Session` per circuit (the last `cacheSessions` kept). A step holds
     the action for `120 / actionHz` ticks of `stepPhysics`, without `Session.tick`'s restarts (a stuck or flipped

@@ -177,7 +177,8 @@ track does not rubber in.
 The autopilot plans its speed from the grip that is left (worn tyres, a wet track, another compound), lifts off and
 catches the car when the tail steps out, and starts the flying lap slower when the run-up's corners need it.
 
-**Trying it.** Race sessions do not exist yet; for development the URL takes the conditions: `?wear=3` (the wear
+**Trying it.** A multiplayer room runs with them (**Race weekends**, below); for development the URL also takes the
+conditions single-player: `?wear=3` (the wear
 rate: 1 is real, more makes a short run wear like a long one), `wet=0.6` (track wetness 0–1), `rain=0.5` (0–1; the
 physics only reads the wetness), `compound=medium` (`soft`, `medium`, `hard`, `intermediate`, `wet`; the drift car's
 is `allweather`), `airc=18&trackc=24` (°C). For example `?autopilot&wear=20&wet=0.3&compound=intermediate`. Laps
@@ -226,9 +227,9 @@ intermediates from about 0.65–0.7 (standing water from 0.71).
 
 ## Multiplayer
 
-Everyone in a room drives the same circuit at once. Until the host starts a weekend the room is a lobby: hot laps
-with the game's flying start and restarts, and a board of best laps. A weekend is the practice sessions, qualifying
-and race the host chose, timed by the relay for everyone at once, then the lobby again with the results.
+Hot laps together, and race weekends: everyone in a room drives the same circuit at once. Until the host starts a
+weekend the room is a lobby (flying starts and restarts, a board of best laps); a weekend is practice sessions,
+qualifying and a race from a grid with start lights, pit stops and the room's weather (**Race weekends**, below).
 
 Someone runs the relay (`npm run server`, a small Node WebSocket server on port 8787, or the same relay on
 Cloudflare, below; it runs no physics). The menu's **Online** tab:
@@ -280,6 +281,35 @@ offers to open it again or go back to time trial. If the connection drops, the m
 The Node relay speaks plain `ws://`; a page served over https needs a `wss://` address, so put it behind a TLS
 reverse proxy, or host the relay on Cloudflare. Without a room joined the game is single-player as before, and does not download the networking code.
 
+### Race weekends
+
+The host's settings (circuit, car, practice and qualifying sessions, race laps, grid order, mandatory pit stops,
+tyre wear, weather, collisions, penalties) are set in the lobby; the relay times each session. In the car
+(docs/net.md, **Race weekends in the game**, has every rule):
+
+- **Conditions.** Every room runs with tyre wear (the room's rate: 0.5-20, as fast as the F1's tyres wear; each car's
+  is scaled so a rate means about the same number of laps in every car: at 12 an F1 soft lasts about 4 laps of
+  Melbourne, a medium 5, a hard 7-8) and the relay's weather, rain and a track that gets wet and dries. Laps in a
+  room keep best times of their own, never the time trial's.
+- **Sessions.** At each session's start the car is put at the flying start on a fresh set (the one you chose for the
+  weekend, or the weather's: wets or intermediates on a wet track, else softs, mediums for the race). One-shot
+  qualifying holds everyone at the start spot and releases them together for one flying lap each. The race: two
+  staggered columns behind the line, pole on the inside of the first corner, held until the five red lights go out;
+  lap 1 runs from the grid. The chequered flag after the winner; a finished car drives on as a ghost.
+- **Pit lane.** A lane along the pit building, marked in white with boards (PIT IN, the 80 km/h limit, PIT OUT) and a
+  yellow box. In it your car is a ghost and a limiter holds it to 80 km/h (braking for you if you come in too fast).
+  Stop in the box for a fresh set of the tyres shown as NEXT TYRES (N, or the d-pad up, cycles them): 2.5 s in the
+  F1, 8 s in the GT3, 6 s in the drift car. At Melbourne a stop costs about 20-24 s in all. Driving through without
+  stopping is not a stop.
+- **Restart in a race** is a recovery: put back on the track where you are, at rest, held 10 s as a ghost. In
+  practice and qualifying R is the flying start on a fresh set.
+- **The menu during a race** does not stop it: your car brakes to a stop where it is, a ghost, while the race goes on.
+- **HUD.** The start lights and, under them, your position, lap and the gaps to the cars ahead and behind (practice
+  and qualifying: the session and its clock); the board becomes a timing tower (gaps to the leader, tyres, PIT);
+  over the dash the pit panel (pit lane and limiter, the service, NEXT TYRES, stops made of those required);
+  messages for lights out, the final lap, the flag, penalties and rain. In a race the delta to your best lap and the
+  list of laps are hidden.
+
 ### Hosting it free on Cloudflare
 
 The site on Cloudflare Pages and the relay as a Worker with one Durable Object per room, both on the Free plan
@@ -320,7 +350,8 @@ The default keys (all but Esc can be changed in the menu's Controls tab):
 | W / ↑ | Throttle |
 | S / ↓ | Brake (automatic gears: hold when stopped to reverse, up to ~40 km/h; W then brakes, and selects first once stopped) |
 | A D / ← → | Steer |
-| R / Enter | Restart the lap: back before the last corners at flying-lap speed |
+| R / Enter | Restart the lap: back before the last corners at flying-lap speed (in a multiplayer race: a recovery, held 10 s) |
+| N | Race weekends: the tyres the next pit stop fits (also the d-pad up) |
 | V | Mouse steering on/off (also in the menu) |
 | C | Cycle camera (onboard / driver / chase / far) |
 | B | Look behind (hold) |
@@ -497,7 +528,7 @@ the game is not affiliated with or endorsed by Mercedes-AMG, Mercedes-Benz or Re
 
 ## Not yet
 
-Elevation (every circuit is flat: Spa, COTA, Interlagos and the Red Bull Ring will need SRTM data, and Suzuka's crossover a bridge), pit lane, online leaderboards, multiplayer races (grid starts, race rules, pit stops: the tyres and weather they need are in, see **Race conditions**).
+Elevation (every circuit is flat: Spa, COTA, Interlagos and the Red Bull Ring will need SRTM data, and Suzuka's crossover a bridge), online leaderboards, a pit lane of its own (the race weekends' is a marked strip beside the start straight), fuel, damage, a safety car.
 
 Track data: [TUMFTM/racetrack-database](https://github.com/TUMFTM/racetrack-database) (LGPL-3.0): Melbourne,
 Shanghai, Suzuka, Montreal, Spielberg, Silverstone, Spa, Budapest, Monza, Austin, Mexico City, São Paulo and Sakhir,

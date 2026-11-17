@@ -490,14 +490,17 @@ kbd { font: inherit; font-weight: 700; color: var(--text); background: rgba(255,
 #racePit .pbar i { display: block; height: 100%; background: var(--yellow); }
 .cchip { display: inline-block; width: 16px; height: 16px; border-radius: 50%; vertical-align: -3px; text-align: center; font: 800 10px/16px system-ui, sans-serif;
   font-style: normal; color: #111; background: var(--cc, #ccc); box-shadow: 0 0 0 2px rgba(0,0,0,.5); margin-right: 3px; }
-#board .bcar .cchip { width: 14px; height: 14px; font-size: 9px; line-height: 14px; vertical-align: -2px; }
+#board .brow i.cchip { width: 14px; height: 14px; font-size: 9px; line-height: 14px; vertical-align: -2px; background: var(--cc); }
 #hud.race #delta, #hud.race #timing .row:has(#optLap), #hud.race #lapList { display: none; }
 @media (max-width: 700px) {
-  #raceTop { top: auto; bottom: 168px; }
+  /* above the pit panel, which sits above the tyres (bottom left); the mirror is not shown here */
+  #hud #raceTop, #hud:has(#mirror:not([hidden])) #raceTop { top: auto; bottom: 340px; }
   #raceLights { order: 2; }
   #raceLights i { width: 22px; height: 22px; }
-  #racePit { right: auto; left: 16px; bottom: 150px; width: 190px; }
+  #racePit { right: auto; left: 16px; bottom: 252px; width: 190px; }
   #hud.race #timing { display: none; }   /* the tower and the strip carry the race */
 }
 .nametag .cchip { width: 14px; height: 14px; font-size: 9px; line-height: 14px; vertical-align: -2px; margin: 0 0 0 2px; box-shadow: 0 0 0 1.5px rgba(0,0,0,.6); }
 .nametag .tpit { font-size: 10px; margin-left: 4px; letter-spacing: .06em; }
+/* a message clear of the race strip under the mirror / at the top */
+#hud:has(#raceInfo:not([hidden])) #msg { margin-top: 52px; }

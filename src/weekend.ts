@@ -421,7 +421,7 @@ export class Weekend {
       if (k > 0 && lead && r) {
         if (st.status === 'racing') {
           const t = passed(lead, dist);
-          if (t != null) gap = T - t; else down = Math.max(1, Math.floor((lead.dist - dist) / L));
+          if (t != null) gap = T - t; else down = Math.max(0, Math.floor((lead.dist - dist) / L));   // (0: the leader has not been there yet)
         } else if (fin[0] && st.laps === fin[0].laps && st.time != null && fin[0].time != null) gap = st.time + st.penalty - (fin[0].time + fin[0].penalty);
         else down = (all[0].laps - st.laps);
       }
