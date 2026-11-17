@@ -1,8 +1,8 @@
 # Multiplayer networking
 
 The networking layer for multiplayer: `src/net/` (browser-safe, shared by the game and the relay) and `server/`
-(the Node relay). Nothing in the game uses it yet; this document is what the integration is written from. The
-source of truth for the byte layout is `src/net/protocol.ts`: keep the two in step.
+(the Node relay). The game uses it through `src/multiplayer.ts` (**In the game**, below). The source of truth for
+the byte layout is `src/net/protocol.ts`: keep the two in step.
 
 ## Model
 
@@ -241,10 +241,69 @@ function frame(nowMs: number) {
 // on a lap:    net.sendLap({ time: lap.time, sectors: lap.sectors, valid: lap.valid });
 ```
 
-Contacts: when the other car's client resolves a hit, ours receives a `contact` event a round trip later. If our
-own simulation saw a contact with that car around `e.time` (within a window of about the RTT), it was already
-applied and the event is to be ignored; otherwise apply `e.impulse` at `e.point`. Deciding that window, and
-whether to split hits by mass, is the integration's job; nothing here applies anything.
+Contacts: when the other car's client resolves a hit, ours receives a `contact` event about a one-way trip later.
+NetClient applies nothing; the game's rule is under **In the game** below.
+
+## In the game (`src/multiplayer.ts`)
+
+`Multiplayer(net, session)` joins one game `Session` to a room. It has no DOM and no rendering, so
+`test/multiplayer.test.ts` runs exactly this code with several Sessions in Node; the game adds `remoteCars.ts`
+(the other cars drawn, name tags, minimap dots) and `netHud.ts` (the board), all loaded with `netGame.ts` by a
+dynamic import, so a single-player page never downloads `src/net`.
+
+| Member | |
+|---|---|
+| `update(now, paused)` | every frame, before the ticks: `net.update`, the events handled (roster, cars, contacts, laps), and returned for the game's own use (the circuit, errors, `closed`). `paused`: the game is not simulating (menu, before the first Drive) |
+| `tick(input, autopilot, tickAt)` | in place of `session.tick`: proxies sampled at `tickAt` into `session.proxies`, the tick, then contacts, laps and our state sent. `tickAt` is the local time the tick's result is for (`now - (acc - DT)` in the frame loop) |
+| `idle(now)` | a frame without ticks: our state, held, sent as paused |
+| `players` | everyone else: `RemotePlayer` (info, spec, the proxy `body` and its `sample` at the last tick, `collidable`) |
+| `noCollide`, `epoch`, `stats` | ours; `stats` counts contact ticks, events sent, applied, ignored, dropped, laps sent |
+| `sampleAt(id, now, out)` | for drawing; the game draws other cars at `now - DT`, where the player's own car is drawn (interpolated a tick behind) |
+| `takeNotices()` | joins, leaves, car changes, best laps, non-fatal errors, as text for the HUD |
+
+Our car: the state after every tick (velocity and pedals zeroed while paused, so nobody extrapolates a parked car
+down the road), the epoch bumped and `restart` sent whenever the Session puts the car at the start spot
+(`Session.resets`: the player's restart, a stuck or flipped car, a car switch), a car switch told with `setPlayer`,
+and every lap the timing completes (`Timing.lastLap`) sent, except one started before we joined (the relay would
+refuse it).
+
+Proxies: each player's `RemoteCar` sampled at the tick's time becomes a `ContactBody` (heading from the
+quaternion's +z, yaw rate `wy`) with the shape of that player's car (`shapeOf`: a car of that spec built once and
+destroyed). It is in `session.proxies` only while it is collidable: `sample.collidable` (fresh, owner has not set
+`noCollide`), not `paused`, not suppressed (below), and our car is collidable itself.
+
+Not collidable (`noCollide`), ours: from joining, after every restart, and while paused, until our box grown by
+`CLEAR_MARGIN` (0.5 m) has overlapped no other car heard from in the last `collideAge`, collidable or not, for
+`CLEAR_SECS` (1 s). So several players restarting onto the same spot at once are ghosts to each other until they
+have spread out, and a player back from the menu cannot land on someone. While ours is not collidable we collide
+with nothing and drop contact events.
+
+Contacts, the rule:
+
+1. Each client resolves its own car against the proxies (`Session.resolveContacts`) and applies its own half at
+   once. It sums the impulse its car received over each `CHUNK_SECS` (0.1 s) of contact with one car and sends that
+   as one `contact` event (time: the chunk's first tick), so a long lean costs 10 messages a second, not 120.
+2. A received event is applied only if our simulation had no contact with that car from `W` before the event's
+   time to the moment it arrived, where `W = clamp(0.08 + rtt + 2 jitter, 0.12, 0.5)` s. Otherwise our simulation
+   already gave us our half, and the event is ignored.
+3. Having applied one, we do not collide with that car's proxy until `W` after the event's time, so our own late
+   detection of the same hit cannot add a second half. A sustained contact our simulation missed is carried on by
+   the events.
+4. Applying: the impulse (the opposite of what the sender's car received; the solver already split it by the two
+   masses) becomes a velocity change `I / m` and a yaw-rate change from its lever arm, taken in our car's frame at
+   the event's time (our pose is kept for 128 ticks) and turned to our heading now; no positional push. Capped at 20
+   m/s and 3 rad/s. Events older than 1 s on arrival are dropped.
+
+So every hit is applied once on each side: by both simulations when both see it (the usual case), and from the
+event on the side that missed it. A hit both sides see at different moments more than `W` apart counts twice; one
+seen by neither (both proxies wrong the same way) is lost.
+
+Measured (`test/multiplayer.test.ts`, `NET_REPORT=1`; 40 ms + 0-10 ms each way, 2% loss, the relay in-process):
+the proxy at the tick's time against the other client's real car, the F1 and GT3 on autopilot at Melbourne up to
+300 km/h for 10 s: mean 0.06 m, p95 0.17 m, max 0.26 m. A GT3 at full throttle into a GT3 at rest: both simulations
+saw the hit (8 ticks each), every event was ignored, and the momentum the two cars gained were 28.7 and 29.2 kN s
+(sum 0.5 kN s, 2%). The same with the struck car's simulation blind to proxies: all 8 events applied, once each,
+30.3 and 31.1 kN s (sum 0.8 kN s).
 
 ## Remote cars (`RemoteCar`)
 
@@ -382,3 +441,6 @@ front of it with a reverse proxy.
   timing out, a full room, other versions and bad hellos, garbage and oversized messages, floods, bandwidth.
 - `test/net-ws.test.ts`: the real `listen()` on an ephemeral port: NetClients over `WebSocketTransport`, raw `ws`
   sockets sending text, oversized frames, garbage, another version, or nothing.
+- `test/multiplayer.test.ts`: game Sessions joined through the relay with `Multiplayer` (above): proxy accuracy,
+  a rear-end hit seen by both sides and by one, restarting onto an occupied spot, pausing, joins, car changes,
+  leaving, a lap reaching the board.

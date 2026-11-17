@@ -83,6 +83,7 @@ export class Session {
   car: Vehicle;                 // replaced by setCar: read it at call time, never keep a reference
   simTime = 0;
   onReset = () => {};           // after the car is moved (restart, new car): the game snaps its camera
+  resets = 0;                   // +1 each time the car is put at the start spot (multiplayer.ts watches it)
   readonly others: ExtraCar[] = [];   // the cars besides `car` (addCar / removeCar)
   // Bodies simulated elsewhere (another player's car), as of this tick: the caller keeps them up to date. The session's
   // cars are pushed off them; they are never moved here.
@@ -206,6 +207,7 @@ export class Session {
   private place() {
     this.car.placeAt(this.startS, 0, (this.def.flying?.[this.car.spec.id] ?? 0) / 3.6);
     this.stuck = 0;
+    this.resets++;
     this.onReset();
   }
 
