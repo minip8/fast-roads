@@ -153,8 +153,9 @@ describe('Cloudflare relay (local workerd)', () => {
       expect(guest.c.session.start).toBe(p.end);
       expect(guest.c.session.grid).toEqual([host.c.selfId, guest.c.selfId]);
       host.c.skipSession();
-      await until(() => guest.c.session.stage === 'results');
-      expect(guest.c.standingsFinal).toBe(true);
+      // the relay sends the session (stage results) and then the final standings, two WebSocket messages: under load
+      // the client can have read the first and not yet the second, so wait for both
+      await until(() => guest.c.session.stage === 'results' && guest.c.standingsFinal);
       await until(() => guest.c.session.phase === 'lobby', 4000);   // the results' 1.5 s
       expect(guest.c.standings.map((s) => s.status)).toEqual(['outOfTime', 'outOfTime']);
       host.c.close();

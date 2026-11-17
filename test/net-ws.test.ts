@@ -72,7 +72,9 @@ describe('WebSocket relay', () => {
   it('creates a room and times its sessions with a deadline timer', async () => {
     const mk = (name: string, mode: 'create' | 'join') => new NetClient(new WebSocketTransport(relayUrl(url, 'WS4')), { room: 'WS4', name, car: 'lcf1', mode, clock: now });
     const a = mk('Ann', 'create'), b = mk('Ben', 'create');
-    const timer = setInterval(() => { a.update(now()); b.update(now()); }, 5);
+    // this process's event-loop lag (the relay runs in it): how late a 5 ms poll comes, at worst
+    let lag = 0, last = now();
+    const timer = setInterval(() => { const t = now(); lag = Math.max(lag, t - last - 0.005); last = t; a.update(t); b.update(t); }, 5);
     try {
       await until(() => a.status === 'joined' && b.status === 'closed');
       expect(b.takeEvents().some((e) => e.type === 'error' && e.code === ERROR.roomTaken)).toBe(true);
@@ -81,9 +83,11 @@ describe('WebSocket relay', () => {
       a.startWeekend();
       await until(() => a.session.phase === 'practice');
       const p = a.session;
+      lag = 0;
       await until(() => a.session.phase === 'race', 2000);
       expect(a.session.start).toBe(p.end);
-      expect(a.serverTime(now()) - p.end!).toBeLessThan(0.15);   // seen within a few ms (and the poll), not at the next tick
+      // seen within a few ms (and the poll), not at the next tick; on a busy machine the event loop's lag on top
+      expect(a.serverTime(now()) - p.end!).toBeLessThan(0.15 + 2 * lag);
     } finally {
       clearInterval(timer);
       a.close(); b.close();
