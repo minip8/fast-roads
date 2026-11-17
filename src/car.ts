@@ -4,6 +4,7 @@ import { G_CAR, G_CARPART, G_GROUND, G_RAY, G_WALL, PLOUGH_FADE_V, PLOUGH_WHEEL_
 import { type CarMesh, poseCockpit } from './carMeshes';
 import type { ContactDelta, ContactShape } from './collide';
 import type { CarSpec } from './cars';
+import { COMPOUND_COLOURS, TIME_TRIAL, type Compound, type CompoundId, type Conditions, type GripPlan } from './conditions';
 import { pointAt, projectOnTrack, surfaceAt, trackLimitOut, type SurfaceRes, type Track, type TrackPos } from './track';
 import { clamp, lerp } from './util';
 import type { DriveInput, Vehicle } from './vehicle';
@@ -25,6 +26,7 @@ export interface Wheel {
   surf: number; out: boolean;        // surface index; past the track limits
   slip: number;                      // slip against the tyre's grip peak (VehicleWheel.slip)
   spin: number; omega: number;       // visual rotation and angular speed
+  wear: number;                      // tread worn, 0 new .. 1 finished (DRIFT_TYRE)
   proj: TrackPos; sres: SurfaceRes;
   contact: THREE.Vector3; normal: THREE.Vector3;
 }
@@ -46,6 +48,28 @@ export function engineTorque(spec: CarSpec, rpm: number) {
   for (let k = 1; k < T.length; k++) if (rpm <= T[k][0]) return lerp(T[k - 1][1], T[k][1], (rpm - T[k - 1][0]) / (T[k][0] - T[k - 1][0]));
   return 0;
 }
+
+// The drift car's tyres in a race (conditions.ts), kept deliberately simple: our physics has no tyre temperature,
+// wear or water model, so a race gets one all-weather compound and a grip scale on each tyre,
+//   grip = (1 - WEAR_GRIP x wear) x (1 - WET_GRIP x wetness),
+// with wear growing with the distance rolled, faster as the tyre slips, and no heat, warm-up, graining or
+// aquaplaning. Each number is a choice, set against the LibreCorsa cars at Melbourne (measured with the autopilot:
+// test/tyres-report.test.ts):
+export const DRIFT_TYRE = {
+  compound: { id: 'allweather', name: 'All-weather', letter: 'A', colour: COMPOUND_COLOURS.allweather, rain: false } satisfies Compound,
+  // Metres a tyre rolls without slipping before it is finished, at wear scale 1. The autopilot's lap at Melbourne
+  // takes 1.6 % of the rears (the fronts, which slip less, last longer): about 60 laps, as the F1's medium (64).
+  lifeM: 500_000,
+  // ...wearing (1 + slipWear x slip) times as fast while it slips (VehicleWheel.slip, 1 at the grip peak; counted
+  // up to 3): a slide is what wears a tyre, so the drift car's sliding rears wear first
+  slipWear: 2,
+  // Grip a finished tyre has lost: half the LibreCorsa tyres' loss at the end of their wear curves (18-20 %), as the
+  // tyre is not a slick and its grip falls steadily (linear in wear) rather than over a cliff
+  wearGrip: 0.1,
+  // Grip lost on a flooded track (wetness 1), in proportion below that: one tyre for all weather, so it keeps more
+  // than a slick does on a wet film (the engine: 54 %, before aquaplaning) and less than an intermediate (89 %)
+  wetGrip: 0.35,
+} as const;
 
 // Our physics: a Rapier rigid body with raycast suspension and our own tyre, engine and gearbox model on top.
 export class Car implements Vehicle {
@@ -69,6 +93,12 @@ export class Car implements Vehicle {
   shiftTimer = 0; private revTimer = 0;
   forceSurface?: number;                    // testing: pretend every wheel is on this surface
   tipped = 0;                               // seconds spent on its side or roof at walking pace (see needsReset)
+  // tyres and conditions (DRIFT_TYRE)
+  readonly compounds: readonly Compound[] = [DRIFT_TYRE.compound];
+  readonly compound: Compound = DRIFT_TYRE.compound;
+  readonly tyreWear = [0, 0, 0, 0];
+  private conditions: Readonly<Conditions> = TIME_TRIAL;
+  private plan: GripPlan | null = null;
   // physics state, refreshed by readState()
   proj: TrackPos = { i: -1, lat: 0, s: 0 };
   pos = new THREE.Vector3(); quat = new THREE.Quaternion(); vel = new THREE.Vector3(); angv = new THREE.Vector3();
@@ -86,7 +116,7 @@ export class Car implements Vehicle {
       name, front, local: new THREE.Vector3(x, this.mountY, z), k: front ? this.spec.kFront : this.spec.kRear,
       comp: staticComp, prevComp: staticComp, Fz: 0, grounded: false, L: this.spec.suspLen - staticComp,
       muBlend: SURF[S_ASPHALT].mu, rrBlend: SURF[S_ASPHALT].rr, decelBlend: 0,
-      surf: S_ASPHALT, slip: 0, spin: 0, omega: 0, out: false, proj: { i: 0, lat: 0, s: 0 }, sres: { surf: 0, h: 0 },
+      surf: S_ASPHALT, slip: 0, spin: 0, omega: 0, wear: 0, out: false, proj: { i: 0, lat: 0, s: 0 }, sres: { surf: 0, h: 0 },
       contact: new THREE.Vector3(), normal: new THREE.Vector3(0, 1, 0),
     });
     this.wheels = [
@@ -125,6 +155,31 @@ export class Car implements Vehicle {
     this.world.removeRigidBody(this.body);   // also removes its colliders
     this.scene.remove(this.mesh.root);
     this.mesh.dispose();
+  }
+
+  // A fresh set: the all-weather tyre is the only one, and has no heat to set.
+  fitTyres(id: CompoundId) {
+    if (id !== DRIFT_TYRE.compound.id) throw new Error(`${this.spec.name} has no ${id} tyres (it has ${DRIFT_TYRE.compound.id})`);
+    for (const w of this.wheels) w.wear = 0;
+    this.tyreWear.fill(0);
+    this.plan = null;
+  }
+
+  setConditions(c: Readonly<Conditions>) { this.conditions = c; this.plan = null; }
+  get wearing() { return this.conditions.wearScale > 0; }
+
+  // The tyre grip scale (DRIFT_TYRE) at a wear and wetness: exactly 1 in the time trial.
+  private static grip(wear: number, wetness: number) { return (1 - DRIFT_TYRE.wearGrip * wear) * (1 - DRIFT_TYRE.wetGrip * wetness); }
+
+  // The autopilot's plan: the same grip scale at the mean wear (in steps of 0.02, as the wetness), with no margin: the
+  // scale is the whole model, and the drift car's plan already keeps to 0.6 of its grip (autoGrip).
+  gripPlan(): GripPlan | null {
+    const W = this.wheels, wq = Math.round(12.5 * (W[0].wear + W[1].wear + W[2].wear + W[3].wear)) / 50;
+    const wetQ = Math.round(this.conditions.wetness * 50) / 50;
+    if (wq === 0 && wetQ === 0) return null;
+    const key = `${wq}:${wetQ}`;
+    if (this.plan?.key !== key) { const g = Car.grip(wq, wetQ); this.plan = { key, at: () => g }; }
+    return this.plan;
   }
 
   // Whether forward gear g would turn the engine past its over-rev limit at this road speed.
@@ -347,6 +402,7 @@ export class Car implements Vehicle {
     const looseK = 1 - loose * (1 - dug) * clamp(1 - Math.abs(vF) / looseV, 0, 1) * this.looseAsk;
     const rearGrip = (1 - this.spec.brakeKick * clamp(brake, 0, 1) * clamp(Math.abs(this.steerIn) / 0.15, 0, 1)) * looseK * (1 + catchExtra * dug);
     let plough = 0, tcOn = false, absOn = false;
+    const wetness = this.conditions.wetness, wearScale = this.conditions.wearScale;
     for (const w of this.wheels) {
       if (!w.grounded) { w.slip = 0; w.omega *= 0.99; continue; }
       const n = w.normal;
@@ -367,7 +423,7 @@ export class Car implements Vehicle {
       plough += wPlough * (1 - PLOUGH_WHEEL_SHARE);
       const alpha = Math.atan2(vy, Math.max(Math.abs(vx), 7));
       const loadSens = clamp(1.08 - 0.08 * (w.Fz / 2000), 0.72, 1.1);
-      const Fmax = w.muBlend * loadSens * w.Fz * (w.front ? this.spec.gripFront : this.spec.gripRear * rearGrip);
+      const Fmax = w.muBlend * loadSens * w.Fz * (w.front ? this.spec.gripFront : this.spec.gripRear * rearGrip) * Car.grip(w.wear, wetness);
       let Fy = -Fmax * pacejka(this.spec, alpha, w.front);
 
       // longitudinal: drive (rear), brakes, rolling + surface drag
@@ -417,7 +473,9 @@ export class Car implements Vehicle {
       // which a real ABS would release with the brake).
       w.slip = Math.max(Math.abs(alpha) / this.slipPeak[w.front ? 0 : 1], slide > 0 ? SLIP_ON_CIRCLE + (brakeF < brakeAsked ? 0 : slide) : 0);
       w.omega = vx / this.spec.wheelRadius * (1 + (!w.front && Fdrive > 0 ? slide * 0.8 : 0)) * (brake > 0.9 && slide > 0.3 ? 0.2 : 1);
+      if (wearScale > 0) w.wear = Math.min(1, w.wear + wearScale * Math.abs(vx) * dt * (1 + DRIFT_TYRE.slipWear * Math.min(3, w.slip)) / DRIFT_TYRE.lifeM);
     }
+    for (let k = 0; k < 4; k++) this.tyreWear[k] = this.wheels[k].wear;
     this.tcActive = tcOn; this.absActive = absOn;
     // CoM share of the ploughing resistance, along -velocity in the ground plane; never reverses the car in one tick
     const vh = Math.hypot(this.vel.x, this.vel.z);

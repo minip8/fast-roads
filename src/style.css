@@ -123,6 +123,12 @@ body:has(#hud[hidden]) #netLabels { display: none; }
 .tyre .strip i { flex: 1; border-radius: 2px; background: var(--t); }
 .tyre.cold, .strip .cold { --t: #3d8bff; } .tyre.cool, .strip .cool { --t: #5cc8e8; } .tyre.ok, .strip .ok { --t: var(--green); }
 .tyre.warm, .strip .warm { --t: #ffa53f; } .tyre.hot, .strip .hot { --t: var(--red); }
+.tyre .wr { color: #fff; font-weight: 700; }
+/* the compound fitted, between the tyres, once it matters (wear on, or not the default) */
+.tgrid .cmp { position: absolute; left: 50%; top: 50%; width: 20px; height: 20px; margin: -10px 0 0 -10px; border-radius: 50%;
+  font: 800 12px/20px system-ui, sans-serif; font-style: normal; text-align: center; color: #111; box-shadow: 0 0 0 2px rgba(0,0,0,.55); }
+/* a car with wear but no tyre heat: the tread left only */
+#tyres.lifeOnly .tyre .strip, #tyres.lifeOnly .tyre span, #tyres.lifeOnly .thead span { display: none; }
 
 #msg { position: fixed; top: 18%; left: 50%; transform: translate(-50%, -6px); text-align: center; pointer-events: none;
   font-size: 22px; font-weight: 700; padding: 10px 18px; opacity: 0; transition: opacity .25s, transform .25s;

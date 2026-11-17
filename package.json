@@ -14,7 +14,8 @@
     "test": "vitest run --project unit",
     "test:laps": "vitest run --project laps",
     "tracks:outlines": "UPDATE_OUTLINES=1 vitest run --project unit test/tracks.test.ts -t outline",
-    "tracks:flying": "vitest run --project unit test/flying.test.ts"
+    "tracks:flying": "vitest run --project unit test/flying.test.ts",
+    "tyres:report": "vitest run --project unit test/tyres-report.test.ts"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "0.19.3",

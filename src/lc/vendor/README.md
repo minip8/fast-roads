@@ -61,9 +61,12 @@ Every file is a verbatim copy except for the edits below. Edits 1-3 leave line n
 
 4. **Third-party rain-tyre data removed**: in `sim/wet-tyres.ts`, the values of `F1_RAIN_TYRE_PACK` (two
    temperature curves, their peak temperatures and a wear ratio) are replaced by neutral placeholders (a flat curve,
-   70 degC, ratio 1). They are another author's data under CC BY-NC-SA 4.0 (see *Licence*). This game has no rain and
-   never fits the intermediate or wet compounds, which those values only affect; the placeholders keep the compounds
-   constructible. Dry running is unchanged (`test/lc-engine.test.ts` still matches upstream to four decimals).
+   70 degC, ratio 1). They are another author's data under CC BY-NC-SA 4.0 (see *Licence*). Only the LC26's
+   intermediate and wet compounds use those values; the placeholders keep them constructible (the comment left in
+   the file, "this game has no rain", predates the game's wet weather). The game does not fit them: `src/cars.ts`
+   (`withGenericRainTyres`) replaces the F1's two rain compounds, in its own copy of the config, by the ones
+   `deriveRainCompound` builds without the pack, as the GT3's are built. Dry running is unchanged
+   (`test/lc-engine.test.ts` still matches upstream to four decimals).
 
 No other change was needed for our compiler flags (`strict`, `noUnusedLocals`, `noFallthroughCasesInSwitch`).
 No code was trimmed: the files still hold code our cars do not reach (DRS, ERS, wet tyres, track colliders, ...).

@@ -8,6 +8,9 @@ import type { Vehicle } from './vehicle';
 // tread reacts within seconds (it heats in a corner and cools on a straight). Only cars whose physics models tyre heat
 // (Vehicle.tyres) have it; for the others it hides. Degrees C whatever the speed unit (mph is no sign of Fahrenheit),
 // pressures in psi as the cars' data.
+// While the tyres wear (Vehicle.wearing) or a compound other than the car's default is fitted, a badge between the
+// tyres shows the compound (letter on its colour) and each tile the tread left. A car with wear but no tyre heat (the
+// drift car) gets the tiles with the tread left alone, coloured by it.
 // ============================================================================
 export type TyreBand = 'cold' | 'cool' | 'ok' | 'warm' | 'hot';
 const NEAR = 10;           // deg C either side of the window shown as nearly there (cool) or a little over (warm)
@@ -21,6 +24,9 @@ export function tyreBand(c: number, [lo, hi]: readonly [number, number], near = 
   return c < lo - near ? 'cold' : c < lo ? 'cool' : c <= hi ? 'ok' : c <= hi + near ? 'warm' : 'hot';
 }
 export const treadBand = (c: number, win: readonly [number, number]) => tyreBand(c, win, NEAR_SURFACE);
+// The tread left (0..1) as a band: plenty, getting low (a quarter of the way to the cliff on the GT3's curve), nearly
+// finished.
+export const lifeBand = (life: number): TyreBand => (life > 0.5 ? 'ok' : life > 0.2 ? 'warm' : 'hot');
 
 interface Cell {
   root: HTMLElement; seg: HTMLElement[]; temp: HTMLElement; tread: HTMLElement; psi: HTMLElement; brake: HTMLElement; wear: HTMLElement;
@@ -29,12 +35,19 @@ interface Cell {
 
 export class TyreWidget {
   private readonly cells: Cell[] = [];
+  private readonly badge: HTMLElement;
   private enabled = true;
   private shown: boolean;
+  private mode = '';                        // '' heat, 'life' tread left only (no heat); class on the root
+  private cmp = '';                         // the badge's compound id, '' hidden
 
   constructor(private readonly root: HTMLElement) {
     root.innerHTML = '<div class="thead">TYRES <span>°C · T tread · psi · B brake</span></div><div class="tgrid"></div>';
     const grid = root.querySelector('.tgrid')!;
+    this.badge = document.createElement('i');
+    this.badge.className = 'cmp';
+    this.badge.hidden = true;
+    grid.append(this.badge);
     for (let k = 0; k < 4; k++) {
       const c = document.createElement('div');
       c.className = 'tyre';
@@ -54,9 +67,24 @@ export class TyreWidget {
 
   // Writes only what changed (the numbers move a few times a second at most).
   update(car: Vehicle) {
-    const ty = car.tyres, show = this.enabled && ty !== undefined;
+    const ty = car.tyres, show = this.enabled && (ty !== undefined || car.wearing);
     if (show !== this.shown) { this.root.hidden = !show; this.shown = show; }
     if (!show) return;
+    const cmp = car.wearing || car.compound !== car.compounds[0] ? car.compound.id : '';
+    if (cmp !== this.cmp) {
+      this.cmp = cmp; this.badge.hidden = cmp === '';
+      this.badge.textContent = car.compound.letter; this.badge.title = car.compound.name; this.badge.style.background = car.compound.colour;
+    }
+    const mode = ty ? '' : 'life';
+    if (mode !== this.mode) { this.mode = mode; this.root.classList.toggle('lifeOnly', mode === 'life'); }
+    if (!ty) {
+      for (let k = 0; k < 4; k++) {
+        const c = this.cells[k], life = 1 - car.tyreWear[k], band = 'tyre ' + lifeBand(life), t = Math.round(life * 100) + '%';
+        if (band !== c.band) { c.band = band; c.root.className = band; }
+        if (t !== c.t) { c.t = t; c.temp.textContent = t; }
+      }
+      return;
+    }
     for (let k = 0; k < 4; k++) {
       const c = this.cells[k], s = ty.wheels[k], win = ty.windowC[k < 2 ? 0 : 1];
       const band = 'tyre ' + tyreBand(s.coreC, win);

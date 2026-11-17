@@ -2,8 +2,10 @@ import type { EngineVoice } from './audioGraph';
 import { buildCarMesh, buildDriftMesh, buildGt3Mesh, type CarMesh, LC_GT3_MODEL, type Paint } from './carMeshes';
 import type { EngineDriverFactory } from './lc/engineDriver';
 import { f1Driver, gt3Driver } from './lc/driver';
-import { compoundData, type CarPhysicsConfig } from './lc/vendor/sim/f12026-car/F12026CarConfig';
+import type { CompoundId } from './conditions';
+import { compoundData, deriveRainCompound, type CarPhysicsConfig } from './lc/vendor/sim/f12026-car/F12026CarConfig';
 import { LC26_TUNED_CONFIG } from './lc/vendor/sim/f12026-car/Lc26Tune';
+import { LC26_TYRES } from './lc/vendor/sim/lc26-data';
 import { AMG_GT3_CONFIG } from './lc/vendor/sim/gt3/AmgGt3Config';
 
 export interface PacejkaCoeffs { B: number; C: number; E: number }
@@ -102,6 +104,9 @@ export interface LcSpec extends CarInfo {
   // The tyres' heat when the car is placed (LcCar.warmTyres): as on a lap, not out of the blankets. Per axle, the
   // engine's three nodes of each tread band (inner, middle, outer: surface, bulk, core; deg C).
   warmTyres: { front: TyreHeat; rear: TyreHeat };
+  // Multiplier on the engine's wear rate per compound (absent: 1), for a car whose compounds have no wear data of
+  // their own in the engine (the F1's: see F1_COMPOUND_WEAR).
+  compoundWear: Partial<Record<CompoundId, number>>;
 }
 export interface TyreHeat { surface: Band3; bulk: Band3; core: Band3 }
 type Band3 = [inner: number, middle: number, outer: number];
@@ -148,6 +153,33 @@ function lcBody(config: CarPhysicsConfig, fuelKg: number) {
     tyreW: [t.front.width, t.rear.width] as [number, number],
   };
 }
+// The F1's rain tyres. LibreCorsa builds them from the medium with a third-party temperature curve (CC BY-NC-SA) that
+// is not vendored (src/lc/vendor/README.md, edit 4); on the placeholder left in its place the intermediate and wet
+// would grip the same at any temperature, cold or overheated. They are built here instead as the engine builds the
+// GT3's: deriveRainCompound without that pack, so they take the engine's generic rain-tyre traits (WET_TYRE_TRAITS)
+// and the medium's own temperature curve moved down to the rain tyre's window (70-95 deg C intermediate, 58-83 wet).
+function withGenericRainTyres(cfg: CarPhysicsConfig): CarPhysicsConfig {
+  const slots = cfg.compoundSlots, medium = compoundData(cfg, slots.medium);
+  return {
+    ...cfg,
+    tyreCompounds: {
+      ...cfg.tyreCompounds,
+      [slots.intermediate]: deriveRainCompound(medium, 'intermediate', slots.intermediate, 'Intermediate'),
+      [slots.wet]: deriveRainCompound(medium, 'wet', slots.wet, 'Full Wet'),
+    },
+  };
+}
+const LC26_CONFIG = withGenericRainTyres(LC26_TUNED_CONFIG);
+
+// The F1's compounds have no wear data in the engine (VehiclePhysics wears them all at its one generic rate), but
+// LibreCorsa's LC26 data gives each a wear rate (lc26-data.ts wearPerJ: the medium 0.65 and the hard 0.45 of the
+// soft's; its rain tyres the medium's). Those ratios scale the engine's rate here, about the medium: the rain tyres are
+// built on the medium, and the generic rate is the engine's for a tyre with no data of its own.
+const wearPerJ = (c: 'soft' | 'medium' | 'hard') => LC26_TYRES[c].front.wearPerJ;
+const F1_COMPOUND_WEAR: Partial<Record<CompoundId, number>> = {
+  soft: wearPerJ('soft') / wearPerJ('medium'), hard: wearPerJ('hard') / wearPerJ('medium'),
+};
+
 const LC_GT3_PAINT: Paint = { body: 0xc3c7cc, accent: 0x00a19b, stripe: 0x00a19b };   // silver, teal (the built body, until its model loads)
 const LC_F1_PAINT: Paint = { body: 0x1b2a4e, accent: 0xe8112d, stripe: 0xf5f5f5 };   // navy, red
 
@@ -158,14 +190,14 @@ export const CARS: Record<CarId, AnyCarSpec> = {
     id: 'lcf1', name: 'F1 2026', storeKey: '.lcf1', physics: 'lc', mesh: (spec) => buildCarMesh(spec, LC_F1_PAINT),
     blurb: 'Hybrid single-seater with active aero', powerKw: 771,   // 421 kW engine (Lc26Tune) + 350 kW MGU-K
     hint: 'LibreCorsa physics: hybrid and flaps work themselves · ABS always on · keep TC on unless you like spinning',
-    config: LC26_TUNED_CONFIG, driver: f1Driver, fuelKg: 35, turbo: true, straightMode: true,
+    config: LC26_CONFIG, driver: f1Driver, fuelKg: 35, turbo: true, straightMode: true, compoundWear: F1_COMPOUND_WEAR,
     // The autopilot's tyres passing the start spot after seven laps (Melbourne, Silverstone, Monza averaged): carcass
     // 91 deg C, 4 under the window (it heats on to 95-97 driven harder), the tread 64-69
     warmTyres: {
       front: { surface: [65, 64.5, 64], bulk: [78, 76.5, 75], core: [93.5, 91.5, 88] },
       rear: { surface: [69, 69, 69], bulk: [79.5, 79.5, 78.5], core: [92, 91.5, 90.5] },
     },
-    ...lcBody(LC26_TUNED_CONFIG, 35),
+    ...lcBody(LC26_CONFIG, 35),
     rho: 1.225,
     ClA: 5.0,                                 // measured on the engine, flaps shut: 2.75 N per (m/s)^2 at 108 km/h, 3.19 from 180
     gripFront: 1.63 / 1.65, gripRear: 1.63 / 1.65,   // their autopilot's cornering mu 1.63 (Lc26Sim)
@@ -182,6 +214,7 @@ export const CARS: Record<CarId, AnyCarSpec> = {
     blurb: 'Front-engined V8 GT racer', powerKw: 406,   // AmgGt3Config's crank power
     hint: 'LibreCorsa physics: tyre heat and pressure change the grip · ABS always on · with TC off the throttle steers it',
     config: AMG_GT3_CONFIG, driver: gt3Driver, fuelKg: 50, turbo: false, straightMode: false,
+    compoundWear: {},                         // each compound has its own wear curve in the car's data
     // As the F1's: carcass 64 front, 67 rear, a few degrees under the 70-85 window (driven at the limit it gets there)
     warmTyres: {
       front: { surface: [60.5, 59, 56], bulk: [63.5, 61, 58], core: [66.5, 64, 61] },

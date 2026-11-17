@@ -4,14 +4,17 @@ import { S_ASPHALT } from '../config';
 import { type CarMesh, poseCockpit } from '../carMeshes';
 import type { LcSpec } from '../cars';
 import type { ContactDelta, ContactShape } from '../collide';
+import { COMPOUND_COLOURS, TIME_TRIAL, waterMm, type Compound, type CompoundId, type Conditions, type FitHeat, type GripPlan } from '../conditions';
 import { pointAt, projectOnTrack, surfaceAt, trackLimitOut, type SurfaceRes, type Track, type TrackPos } from '../track';
 import type { DriveInput, TyreState, Vehicle, VehicleTyres, VehicleWheel } from '../vehicle';
 import type { EngineDriver } from './engineDriver';
 import { trackGround, trackWalls } from './ground';
+import { wearGripMultiplier } from './vendor/sim/ac-tyre';
 import { resetBrakeDiscState } from './vendor/sim/brake-physics';
-import { compoundData, type TyresCompoundData } from './vendor/sim/f12026-car/F12026CarConfig';
-import { createTyreRuntime, defaultColdPressurePsi, VehiclePhysics, type VehicleInputs, type WheelState } from './vendor/sim/f12026-car/VehiclePhysics';
+import { compoundData, type CarPhysicsConfig, type CompoundSlot, type TyresCompoundData } from './vendor/sim/f12026-car/F12026CarConfig';
+import { createTyreRuntime, defaultColdPressurePsi, VehiclePhysics, type TyreRuntime, type VehicleInputs, type WheelState } from './vendor/sim/f12026-car/VehiclePhysics';
 import { tyreGaugePressureAtTemperature } from './vendor/sim/tyre-pressure';
+import { SLICK_TRAITS, wetGripFactor, wetnessFromWater } from './vendor/sim/wet-tyres';
 
 // ============================================================================
 // A car on LibreCorsa's engine (src/lc/vendor), as the game sees any car. The engine runs its own fixed 500 Hz
@@ -55,6 +58,35 @@ export function straightWindows(tr: Track): readonly { start: number; end: numbe
   return out;
 }
 
+// The compounds a LibreCorsa car can fit: its data's slots that it has, soft first (the time trial's).
+const SLOTS: readonly CompoundSlot[] = ['soft', 'medium', 'hard', 'intermediate', 'wet'];
+const compoundLists = new WeakMap<CarPhysicsConfig, Compound[]>();
+function lcCompounds(cfg: CarPhysicsConfig): Compound[] {
+  let out = compoundLists.get(cfg);
+  if (!out) {
+    out = SLOTS.filter((k) => cfg.tyreCompounds[cfg.compoundSlots[k]]).map((id) => {
+      const d = compoundData(cfg, cfg.compoundSlots[id]);
+      return { id, name: d.name, letter: d.shortName, colour: COMPOUND_COLOURS[id], rain: (d.wetTraits?.treadDepthMm ?? 0) > 0 };
+    });
+    compoundLists.set(cfg, out);
+  }
+  return out;
+}
+
+// The tyre state a restart carries into the rebuilt engine while wear is on (all that setTyreBlanketState sets).
+const TYRE_NUMS = ['surfaceTempC', 'coreTempC', 'wear', 'flatSpotSeverity', 'grainLevel', 'blisterLevel', 'dirtyLevel', 'coldPressurePsi', 'pressurePsi'] as const;
+const TYRE_ARRAYS = ['bandTempsC', 'bandCarcassTempsC', 'bandCoreTempsC', 'circumferentialTempsC', 'circumferentialWear'] as const;
+function copyTyre(from: WheelState, to: WheelState) {
+  for (const k of TYRE_NUMS) to[k] = from[k];
+  for (const k of TYRE_ARRAYS) for (let i = 0; i < from[k].length; i++) to[k][i] = from[k][i];
+  Object.assign(to.brakeDisc, from.brakeDisc);
+}
+
+// The autopilot's grip plan in the wet (gripPlan): the engine's own water factor for the fitted tyre, less this share
+// per unit of the engine's wetness, for what that factor leaves out (a slick cooling out of its window, kerbs and
+// paint going slicker than the asphalt).
+const WET_PLAN_MARGIN = 0.1;
+
 class LcWheel implements VehicleWheel {
   grounded = false; surf = S_ASPHALT; out = false; slip = 0;
   readonly contact = new THREE.Vector3();
@@ -95,8 +127,17 @@ export class LcCar implements Vehicle {
   private readonly progress: TrackPos = { i: -1, s: 0, lat: 0 };
   private readonly inp: VehicleInputs = { throttle: 0, brake: 0, steer: 0 };
   private readonly swapped: DriveInput = { throttle: 0, brake: 0, steer: 0, analog: false };
-  private readonly longMult: [front: number, rear: number];   // the tyres' lateral over longitudinal peak slip (peakSlip)
-  private readonly tyreData: [front: TyresCompoundData, rear: TyresCompoundData];   // the compound, as each axle has it
+  // The fitted compound (fitTyres) and, per axle, its data, runtime (wear curve) and the tyres' lateral over
+  // longitudinal peak slip (peakSlip)
+  readonly compounds: readonly Compound[];
+  compound!: Compound;
+  private longMult: [front: number, rear: number] = [1, 1];
+  private tyreData!: [front: TyresCompoundData, rear: TyresCompoundData];
+  private runtimes!: [front: TyreRuntime, rear: TyreRuntime];
+  private heatShift: [front: number, rear: number] = [0, 0];   // the compound's window centre over the soft's (warmTyres)
+  private conditions: Readonly<Conditions> = TIME_TRIAL;
+  readonly tyreWear = [0, 0, 0, 0];
+  private plan: GripPlan | null = null;
   // physics state, refreshed by readState()
   proj: TrackPos = { i: -1, lat: 0, s: 0 };
   pos = new THREE.Vector3(); quat = new THREE.Quaternion(); vel = new THREE.Vector3(); angv = new THREE.Vector3();
@@ -106,9 +147,8 @@ export class LcCar implements Vehicle {
 
   // The Rapier world is not used: the engine has its own body, and meets our walls through trackWalls.
   constructor(_world: RAPIER.World, readonly track: Track, readonly scene: THREE.Scene, readonly spec: LcSpec) {
-    const tyre = compoundData(spec.config, spec.config.compoundSlots.soft), axles = [createTyreRuntime(tyre), createTyreRuntime(tyre, true)];
-    this.longMult = [axles[0].brush?.longStiffnessMult ?? 1, axles[1].brush?.longStiffnessMult ?? 1];
-    this.tyreData = [axles[0].data, axles[1].data];
+    this.compounds = lcCompounds(spec.config);
+    this.useCompound(this.compounds[0].id);
     this.build();
     const v = this.vehicle, ch = spec.config.chassis, probes = v.wallProbePoints;
     this.shape = {
@@ -126,7 +166,7 @@ export class LcCar implements Vehicle {
     const sp = this.spec, tr = this.track;
     const v = new VehiclePhysics({
       ground: trackGround(tr, this.forceSurface), walls: this.barriers ? trackWalls(tr) : undefined,
-      config: structuredClone(sp.config), compound: sp.config.compoundSlots.soft, performanceMode: 'RAC',
+      config: structuredClone(sp.config), compound: sp.config.compoundSlots[this.compound.id as CompoundSlot], performanceMode: 'RAC',
       airDensity: sp.rho, ambientC: 27,
       drsZones: [], straightZones: sp.straightMode ? straightWindows(tr) : [],
       // lap progress: the per-lap energy allowances reset when it wraps, and the straights are found by it
@@ -141,12 +181,10 @@ export class LcCar implements Vehicle {
     v.drsFlaps = 'front-rear';
     v.drsGatedByDetection = false;          // 2026: every straight, no detection point (gated, the windows never open)
     v.realism = { tyreWearScale: 0, thermalGripScale: 1, fuelUse: false, wetSeverity: 1 };
+    this.applyConditions(v);
     v.setFuelMass(sp.fuelKg);
     v.refreshStaticGeometry();              // spring preloads for that load
-    for (const axle of [0, 1] as const) {
-      const o = v.tyreOptimum(axle);
-      this.tyres.windowC[axle] = [o.tempC[0], o.tempC[1]]; this.tyres.optimalPsi[axle] = o.psi;
-    }
+    this.readWindows(v);
     this.vehicle = v;
     this.groundFor = this.forceSurface;
     this.driver = sp.driver(v);
@@ -158,19 +196,93 @@ export class LcCar implements Vehicle {
   // node) and their pressure at that heat by the engine's own gas law. The engine then places the car keeping that
   // state (reset's keepTyres), so its settle runs on these tyres; the state is the same on every placement, which
   // keeps the settle memo's reuse.
-  private warmTyres() {
+  // A compound other than the soft (whose heat spec.warmTyres is) gets that heat moved by the difference of their
+  // windows' centres: a rough start, which a lap then corrects. `discs`: the brake discs too (false keeps their heat).
+  private warmTyres(discs = true) {
     const v = this.vehicle, br = v.config.brakes, mean = (a: readonly number[]) => (a[0] + a[1] + a[2]) / 3;
     for (const w of v.wheels) {
-      const d = this.tyreData[w.isFront ? 0 : 1], h = this.spec.warmTyres[w.isFront ? 'front' : 'rear'];
-      for (let b = 0; b < 3; b++) { w.bandTempsC[b] = h.surface[b]; w.bandCarcassTempsC[b] = h.bulk[b]; w.bandCoreTempsC[b] = h.core[b]; }
-      w.surfaceTempC = mean(h.surface); w.coreTempC = mean(h.core);
+      const d = this.tyreData[w.isFront ? 0 : 1], h = this.spec.warmTyres[w.isFront ? 'front' : 'rear'], dc = this.heatShift[w.isFront ? 0 : 1];
+      for (let b = 0; b < 3; b++) { w.bandTempsC[b] = h.surface[b] + dc; w.bandCarcassTempsC[b] = h.bulk[b] + dc; w.bandCoreTempsC[b] = h.core[b] + dc; }
+      w.surfaceTempC = mean(h.surface) + dc; w.coreTempC = mean(h.core) + dc;
       w.circumferentialTempsC.fill(w.surfaceTempC);
       w.circumferentialWear.fill(0);
       w.wear = 0; w.flatSpotSeverity = 0; w.grainLevel = 0; w.blisterLevel = 0; w.dirtyLevel = 0;
-      resetBrakeDiscState(w.brakeDisc, br.discStartTempC ?? 380, br.discMaterial ?? 'carbon-ceramic', br.padMuCurve);
+      if (discs) resetBrakeDiscState(w.brakeDisc, br.discStartTempC ?? 380, br.discMaterial ?? 'carbon-ceramic', br.padMuCurve);
       w.coldPressurePsi = defaultColdPressurePsi(d);
       w.pressurePsi = tyreGaugePressureAtTemperature(w.coldPressurePsi, d.pressureData.coldRefC, Math.max(v.ambientC - 5, w.coreTempC));
     }
+  }
+
+  // The fitted compound's data and runtimes, and what is derived from them (peakSlip, warmTyres, the plan).
+  private useCompound(id: CompoundId) {
+    const c = this.compounds.find((k) => k.id === id);
+    if (!c) throw new Error(`${this.spec.name} has no ${id} tyres (it has ${this.compounds.map((k) => k.id).join(', ')})`);
+    const cfg = this.spec.config, rt = (t: TyresCompoundData) => [createTyreRuntime(t), createTyreRuntime(t, true)] as [TyreRuntime, TyreRuntime];
+    const mid = (r: TyreRuntime) => (r.data.thermalData.optimalTempC[0] + r.data.thermalData.optimalTempC[1]) / 2;
+    const soft = rt(compoundData(cfg, cfg.compoundSlots.soft));
+    this.compound = c;
+    this.runtimes = rt(compoundData(cfg, cfg.compoundSlots[id as CompoundSlot]));
+    this.tyreData = [this.runtimes[0].data, this.runtimes[1].data];
+    this.longMult = [this.runtimes[0].brush?.longStiffnessMult ?? 1, this.runtimes[1].brush?.longStiffnessMult ?? 1];
+    this.heatShift = [mid(this.runtimes[0]) - mid(soft[0]), mid(this.runtimes[1]) - mid(soft[1])];
+    this.plan = null;
+  }
+
+  // A fresh set (Vehicle.fitTyres). 'blanket' is the engine's own fitting (setCompound: its blanket temperature, the
+  // cold pressures that reach the optimum with the carcass mid-window, no wear); 'lap' is the heat of a lap
+  // (warmTyres). The brake discs keep their heat either way: a pit stop does not cool them.
+  fitTyres(id: CompoundId, heat: FitHeat = 'blanket') {
+    this.useCompound(id);
+    const v = this.vehicle, discs = v.wheels.map((w) => ({ ...w.brakeDisc }));
+    v.setCompound(this.spec.config.compoundSlots[id as CompoundSlot]);
+    v.wheels.forEach((w, k) => Object.assign(w.brakeDisc, discs[k]));
+    this.readWindows(v);
+    if (heat === 'lap') this.warmTyres(false);
+    this.applyConditions(v);
+    this.refresh();
+  }
+
+  // The fitted compound's working windows and optimum pressures, for the HUD.
+  private readWindows(v: VehiclePhysics) {
+    for (const axle of [0, 1] as const) {
+      const o = v.tyreOptimum(axle);
+      this.tyres.windowC[axle] = [o.tempC[0], o.tempC[1]]; this.tyres.optimalPsi[axle] = o.psi;
+    }
+  }
+
+  get wearing() { return this.conditions.wearScale > 0; }
+
+  setConditions(c: Readonly<Conditions>) {
+    this.conditions = c;
+    this.plan = null;
+    this.applyConditions(this.vehicle);
+  }
+
+  // The conditions as the engine takes them: its wear scale (times the compound's rate where the car's data has no
+  // wear of its own: LcSpec.compoundWear), the water film on the road and how wet that makes it act, the air and track
+  // temperatures. The time trial's are what build() always gave the engine, so its laps are unchanged.
+  private applyConditions(v: VehiclePhysics) {
+    const c = this.conditions, mm = waterMm(c.wetness);
+    v.realism.tyreWearScale = c.wearScale * (this.spec.compoundWear[this.compound.id] ?? 1);
+    v.waterMm = mm; v.wetness = wetnessFromWater(mm);
+    v.ambientC = c.airC; v.trackTempC = c.trackC;
+  }
+
+  // The autopilot's plan (Vehicle.gripPlan): the fitted compound's peak grip over the soft's, the grip left at the
+  // mean wear (the compound's own wear curve, else the engine's generic one) and the engine's water factor at the
+  // speed (film, a slick's boundary loss, aquaplaning past what the tread clears), less WET_PLAN_MARGIN. Wear and
+  // wetness go in steps of 0.02, so over a race the plan (and the profile built from it) changes a few dozen times.
+  gripPlan(): GripPlan | null {
+    const W = this.vehicle.wheels, wq = Math.round(12.5 * (W[0].wear + W[1].wear + W[2].wear + W[3].wear)) / 50;
+    const wetQ = Math.round(this.conditions.wetness * 50) / 50, key = `${this.compound.id}:${wq}:${wetQ}`;
+    if (this.compound === this.compounds[0] && wq === 0 && wetQ === 0) return null;
+    if (this.plan?.key === key) return this.plan;
+    const cfg = this.spec.config, base = this.tyreData[0].modelData.Dy0 / compoundData(cfg, cfg.compoundSlots.soft).modelData.Dy0;
+    const wearG = Math.min(...this.runtimes.map((rt) => rt.wearCurve ? rt.wearCurve.evaluate(wq * rt.wearOutKm) : wearGripMultiplier(wq)));
+    const traits = this.tyreData[0].wetTraits ?? SLICK_TRAITS, mm = waterMm(wetQ);
+    const margin = 1 - WET_PLAN_MARGIN * wetnessFromWater(mm);
+    this.plan = { key, at: (v) => base * wearG * margin * wetGripFactor(traits, mm, v, 1, wq) };
+    return this.plan;
   }
 
   // Testing: without barriers, as a session whose Rapier walls were removed.
@@ -196,10 +308,18 @@ export class LcCar implements Vehicle {
   placeAt(s: number, lat = 0, speed = 0, heading = 0) {
     const tr = this.track, p = pointAt(tr, s, lat);
     let spawn = this.spawnS === undefined;
+    // While wear is on the tyres are part of the race: a placement (a restart, a stuck car put back) keeps them as they
+    // are, wear and heat, into the rebuilt engine too. Only a new car's first placement fits them fresh.
+    const keep = !spawn && this.conditions.wearScale > 0;
     if (spawn) this.spawnS = s;
-    else if (s === this.spawnS && lat === 0) { this.build(); spawn = true; }
+    else if (s === this.spawnS && lat === 0) {
+      const old = this.vehicle;
+      this.build();
+      if (keep) old.wheels.forEach((w, k) => copyTyre(w, this.vehicle.wheels[k]));
+      spawn = true;
+    }
     if (this.groundFor !== this.forceSurface) { this.vehicle.setGround(trackGround(tr, this.forceSurface)); this.groundFor = this.forceSurface; }
-    this.warmTyres();
+    if (!keep) this.warmTyres();
     this.vehicle.reset(p.x, p.z, Math.atan2(tr.TX[p.i], tr.TZ[p.i]) + heading, speed > 0 ? speed : spawn ? 0 : 1e-3, true);
     this.driver.reset();
     this.revTimer = 0; this.shiftBusy = 0; this.neutral = false; this.flapAsked = false; this.tipped = 0; this.ticks = 0; this.progressI = -1;
@@ -351,7 +471,8 @@ export class LcCar implements Vehicle {
       const t = this.tyres.wheels[k];
       t.coreC = e.coreTempC; t.surfaceC = e.surfaceTempC; t.pressurePsi = e.pressurePsi; t.brakeC = e.brakeDisc.surfaceTempC;
       t.bandsC[0] = e.bandTempsC[0]; t.bandsC[1] = e.bandTempsC[1]; t.bandsC[2] = e.bandTempsC[2];
-      t.wear = v.realism.tyreWearScale > 0 ? e.wear : undefined;   // wear is off (build): no number that never moves
+      this.tyreWear[k] = e.wear;
+      t.wear = this.conditions.wearScale > 0 || e.wear > 0 ? e.wear : undefined;   // wear off and none yet: no number that never moves
     }
   }
 

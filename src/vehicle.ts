@@ -2,6 +2,7 @@ import type * as THREE from 'three';
 import type { CarMesh } from './carMeshes';
 import type { ContactDelta, ContactShape } from './collide';
 import type { CarInfo } from './cars';
+import type { Compound, CompoundId, Conditions, FitHeat, GripPlan } from './conditions';
 import type { TrackPos } from './track';
 
 // ============================================================================
@@ -68,6 +69,18 @@ export interface Vehicle {
   readonly flapsOpen?: boolean;      // movable wings open (cars that have them)
   readonly tyres?: VehicleTyres;     // tyre temperatures and pressures (cars whose physics models them)
   readonly shape: ContactShape;      // footprint and mass for car-to-car contact (collide.ts)
+  // Tyres and conditions (conditions.ts). The time trial's defaults change nothing: no wear, dry, the first compound.
+  readonly compounds: readonly Compound[];   // the compounds this car can fit; the first is its default
+  readonly compound: Compound;       // the compound fitted
+  readonly tyreWear: readonly number[];   // tread worn per wheel (order as `wheels`), 0 new .. 1 finished; 0 while wear is off
+  readonly wearing: boolean;         // the conditions wear the tyres (wearScale > 0): the HUD shows the wear
+  // A fresh set of `compound` (one of `compounds`): no wear, at `heat` ('blanket' by default). The car stays where it
+  // is, moving as it was. Placements (placeAt, so restarts) keep the set fitted.
+  fitTyres(compound: CompoundId, heat?: FitHeat): void;
+  // The session's conditions, applied from the next tick (the Session calls it: use Session.setConditions).
+  setConditions(c: Readonly<Conditions>): void;
+  // The grip the autopilot should plan with, or null while that is the dry, fresh grip its profile assumes.
+  gripPlan(): GripPlan | null;
 
   step(dt: number, input: DriveInput): void;   // before world.step(): apply this tick's forces
   readState(): void;                 // after world.step(): refresh the physics state above

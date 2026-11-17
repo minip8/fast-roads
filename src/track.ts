@@ -23,6 +23,7 @@ export interface Track {
   barLValid: Uint8Array; barRValid: Uint8Array;
   nearestDist: (x: number, z: number) => number;
   speedProfiles?: Partial<Record<CarId, Float64Array>>;   // autopilot cache
+  gripProfiles?: Map<string, Float64Array>;   // ...for worn tyres or a wet track (speedPlan)
 }
 
 // Where a point is on the track: nearest sample i, arc length s, lateral offset lat (positive = left).

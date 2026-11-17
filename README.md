@@ -115,8 +115,9 @@ and Driver cameras or hide it. It hides while you look back, in the menu, and on
     70–85 °C on the GT3, 95–110 °C on the F1) and the pressure. At the autopilot's pace they stay a little short of
     that window (about 1–2% of grip lost, as in LibreCorsa itself); driven at the limit they reach it (the GT3 at
     Silverstone 72–78 °C, the F1 93–97 °C). The brake discs heat too, and their pads bite less when cold. A restart
-    fits fresh tyres (at that start heat) and brakes, and gives the F1 a full battery. The
-    tyres do not wear (nor grain, blister or flat-spot) and no fuel is burnt.
+    fits fresh tyres (at that start heat) and brakes, and gives the F1 a full battery. In the time trial the
+    tyres do not wear (nor grain, blister or flat-spot) and the track is dry; race conditions turn both on (see
+    **Race conditions** below). No fuel is burnt.
   - **The F1's hybrid and flaps work themselves.** The battery deploys and harvests by itself (its "race" mode,
     with the per-lap energy allowance of the 2026 rules), and the front and rear flaps open on every straight of at
     least 250 m while the throttle is down and close on the brakes.
@@ -131,8 +132,7 @@ and Driver cameras or hide it. It hides while you look back, in the menu, and on
   - **Numbers** (measured in the tests): GT3 0–100 km/h 3.5 s, 1.9 g braking from 200 km/h, 1.6–2.0 g cornering
     from 80 to 220 km/h; F1 0–100 km/h 2.7 s, 2.9 g braking from 200 km/h, 2.0–3.9 g cornering from 80 to 220 km/h.
   The GT3 is VTX's Red Bull Racing Mercedes-AMG GT3 model (see Credits); the F1 2026 has a body built in code. Not
-  used from LibreCorsa: weather, tyre
-  wear, fuel use, damage, car setup, the F1's manual boost and energy modes, and its car models and sounds.
+  used from LibreCorsa: fuel use, track evolution (rubber, marbles), damage, car setup, the F1's manual boost and energy modes, and its car models and sounds.
 
 Each car keeps its own best lap and sector times at each circuit. Switching car puts you back at the start.
 
@@ -153,6 +153,75 @@ so does the game when the car ends up on its roof. The start speed is fixed per 
 F1 2026 at Albert Park, accelerating out of turn 12; 216 km/h before Vale at Silverstone), so every attempt begins
 the same way. Track limits count in the run-up too: put all four wheels off the road there (cutting the last
 chicane, say) and the lap that follows is deleted, as is the one you were on if you were finishing a lap.
+
+## Race conditions (tyre wear, compounds, a wet track)
+
+The time trial runs on fresh tyres on a dry track. Race weekends (still to come) will run the cars in **conditions**
+(`src/conditions.ts`, owned by the session): a tyre wear rate, rain and track wetness (0 dry to 1 flooded, which may
+change during a session), and air and track temperatures. On the F1 2026 and the GT3 all of it is LibreCorsa's own
+physics: tread wear against the compound's wear curve (or the engine's generic one), graining, blistering and flat
+spots; a water film that lubricates the contact, slicks that lose most of their grip, treaded rain tyres that clear
+water up to a depth and aquaplane beyond it, kerbs and grass that go slicker than the asphalt, water cooling the
+tyres and brakes, and the F1's flaps locked shut on a wet track. Each car has five compounds: soft, medium and hard
+slicks, intermediates and wets. A fresh set goes on out of the blankets (the engine's own blanket temperature and
+pressures), as at a pit stop. The F1's rain tyres take the engine's generic rain-tyre behaviour, as the GT3's do:
+LibreCorsa's own F1 rain-tyre curves are third-party data under a non-commercial licence, not included.
+
+The drift car runs on this game's physics, which has no tyre temperature, wear or water model, so it gets a simple
+stand-in: one all-weather tyre whose grip falls by up to 10% as it wears (faster while it slides) and by up to 35% on
+a flooded track. There are no punctures or tyre failures (the engine has none): a finished tyre just grips less. Fuel
+is not burnt (its weight is worth about 0.4 s a lap of Melbourne on the F1's 35 kg, 0.6 s on the GT3's 50), and the
+track does not rubber in.
+
+The autopilot plans its speed from the grip that is left (worn tyres, a wet track, another compound), lifts off and
+catches the car when the tail steps out, and starts the flying lap slower when the run-up's corners need it.
+
+**Trying it.** Race sessions do not exist yet; for development the URL takes the conditions: `?wear=3` (the wear
+rate: 1 is real, more makes a short run wear like a long one), `wet=0.6` (track wetness 0–1), `rain=0.5` (0–1; the
+physics only reads the wetness), `compound=medium` (`soft`, `medium`, `hard`, `intermediate`, `wet`; the drift car's
+is `allweather`), `airc=18&trackc=24` (°C). For example `?autopilot&wear=20&wet=0.3&compound=intermediate`. Laps
+driven that way keep best times of their own, apart from the time trial's. While the tyres wear, the HUD's tyre
+widget shows the compound fitted (a badge between the tyres, in its colour) and each tyre's tread left, and so do
+the F1's and GT3's dashes and the drift car's cluster.
+
+**Numbers** (Melbourne, the autopilot's laps from the flying start; `test/tyres-report.test.ts` measures them).
+Fresh: a lap on new tyres. Wear a lap: of the most worn tyre, at wear rate 1. Laps to finished: until that tyre's
+tread is gone (wear 1). Lap time lost: per lap of wear early in a stint (to half worn) and late (half to three
+quarters worn; past that the laps fall off quickly).
+
+| Car | Compound | Fresh lap | Wear a lap | Laps to finished | Time lost a lap, early / late |
+| :-- | :-- | --: | --: | --: | --: |
+| F1 2026 | Soft | 116.5 s | 2.35% | 43 | 0.06 / 0.22 s |
+| F1 2026 | Medium | 117.6 s | 1.56% | 64 | 0.04 / 0.15 s |
+| F1 2026 | Hard | 118.7 s | 1.11% | 90 | 0.03 / 0.11 s |
+| F1 2026 | Intermediate (dry) | 122.0 s | 6.3% | 16 | |
+| F1 2026 | Wet (dry) | 126.6 s | 10.3% | 10 | |
+| GT3 | Soft | 133.9 s | 0.59% | 170 | 0.025 / 0.05 s |
+| GT3 | Medium | 134.5 s | 0.38% | 263 | 0.017 / 0.035 s |
+| GT3 | Hard | 135.0 s | 0.26% | 385 | 0.011 / 0.025 s |
+| GT3 | Intermediate (dry) | 138.8 s | 1.3% | 76 | |
+| GT3 | Wet (dry) | 143.1 s | 2.2% | 45 | |
+| Drift car | All-weather | 157.5 s | 1.61% | 62 | 0.12 / 0.13 s |
+
+So at wear rate 1 an F1 soft lasts about 30–40 laps of Melbourne before it falls off, and the GT3's tyres last
+several times longer than real ones; a race of a few laps needs a rate of 10–20 to see a stop. Rain tyres wear 3–4
+times faster on a dry track than a wet one.
+
+Lap times on a wet track (second lap, so the tyres have reached the wet's temperature; — : the autopilot could not
+complete a lap):
+
+| Wetness | 0 | 0.1 | 0.2 | 0.3 | 0.4 | 0.5 | 0.6 | 0.8 | 1 |
+| :-- | --: | --: | --: | --: | --: | --: | --: | --: | --: |
+| F1 soft | 117.6 | 119.5 | 127.6 | 152.5 | — | — | — | — | — |
+| F1 intermediate | 123.0 | 123.7 | 126.4 | 129.2 | 132.0 | 134.5 | 136.3 | — | 225.0 |
+| F1 wet | 128.0 | 128.5 | 130.7 | 132.8 | 134.8 | 136.4 | 137.6 | 138.9 | 140.3 |
+| GT3 soft | 133.9 | 135.8 | 142.1 | 158.8 | 189.6 | 238.7 | — | — | — |
+| GT3 intermediate | 138.8 | 139.5 | 141.4 | 143.8 | 146.2 | 148.2 | 149.5 | 158.1 | 205.3 |
+| GT3 wet | 143.6 | 144.0 | 145.3 | 147.1 | 148.9 | 150.3 | 151.3 | 152.3 | 153.1 |
+| Drift car (all-weather) | 157.5 | 160.1 | 162.9 | 165.9 | 169.1 | 172.6 | 176.5 | 185.3 | 195.5 |
+
+Intermediates beat slicks from a wetness of about 0.18 on both cars (the track is damp from 0.16), and wets beat
+intermediates from about 0.65–0.7 (standing water from 0.71).
 
 ## Multiplayer
 
@@ -209,7 +278,7 @@ window: blue more than 10 °C short of it, light blue nearly there, green in it,
 The strip across its top is the tread surface's outer, middle and inner bands (outer edge outside, as on the car),
 coloured against the same window with 20 °C margins: the carcass moves slowly and sets the window, the tread heats
 in a corner and cools on a straight within seconds (the grip reads a quarter of it). On a phone: the strip,
-carcass temperatures and pressures only, bottom left. Top left: the lap time, live delta to your best lap, sectors (purple: your best ever, green: best
+carcass temperatures and pressures only, bottom left. In race conditions with tyre wear, a badge between the tyres shows the compound (S M H I W, in its colour) and each tile the tread left (amber under half, red under a fifth); the drift car then shows the tread left alone. Top left: the lap time, live delta to your best lap, sectors (purple: your best ever, green: best
 this session, yellow: slower), last / best / optimal laps and the laps driven. Under it, in a multiplayer room: the room's board and notices. Top right: the track map. Top centre: the rear-view mirror. Bottom left
 for the first seconds of driving: the keys, as currently bound (then a small reminder of the help and menu keys).
 What shows, and how big, is set in the menu's HUD settings.
@@ -400,7 +469,7 @@ the game is not affiliated with or endorsed by Mercedes-AMG, Mercedes-Benz or Re
 
 ## Not yet
 
-Elevation (every circuit is flat: Spa, COTA, Interlagos and the Red Bull Ring will need SRTM data, and Suzuka's crossover a bridge), pit lane, online leaderboards, multiplayer races (grid starts, race rules).
+Elevation (every circuit is flat: Spa, COTA, Interlagos and the Red Bull Ring will need SRTM data, and Suzuka's crossover a bridge), pit lane, online leaderboards, multiplayer races (grid starts, race rules, pit stops: the tyres and weather they need are in, see **Race conditions**).
 
 Track data: [TUMFTM/racetrack-database](https://github.com/TUMFTM/racetrack-database) (LGPL-3.0): Melbourne,
 Shanghai, Suzuka, Montreal, Spielberg, Silverstone, Spa, Budapest, Monza, Austin, Mexico City, São Paulo and Sakhir,

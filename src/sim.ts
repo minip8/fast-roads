@@ -1,13 +1,14 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import type * as THREE from 'three';
-import { autopilot } from './autopilot';
+import { autopilot, dryPlan, speedPlan } from './autopilot';
 import { Car } from './car';
 import type { AnyCarSpec, CarInfo } from './cars';
 import { collide, contactBody, newBody, type Contact, type ContactBody } from './collide';
+import { normalizeConditions, sameConditions, TIME_TRIAL, type Conditions } from './conditions';
 import { DT } from './config';
 import { LcCar } from './lc/lcCar';
 import { Timing } from './timing';
-import { buildTrackColliders, type Track } from './track';
+import { buildTrackColliders, pointAt, type Track } from './track';
 import type { TrackDef } from './tracks';
 import type { DriveInput, Vehicle } from './vehicle';
 
@@ -89,6 +90,11 @@ export class Session {
   // cars are pushed off them; they are never moved here.
   readonly proxies: ContactBody[] = [];
   readonly contacts: CarContact[] = [];   // the last tick's car-to-car contacts
+  // How the physics runs (conditions.ts): the time trial unless set. Every car gets them, including cars built later.
+  conditions: Readonly<Conditions> = TIME_TRIAL;
+  // Added to every best-times key (TrackDef.storeKey + the car's), so laps in other conditions (a race, a dev URL
+  // flag) do not become the time trial's best times: setStoreTag.
+  storeTag = '';
   private readonly inputs: DriveInput[] = [];
   private readonly bodyA: ContactBody = newBody({ front: 0, rear: 0, halfWidth: 0, mass: 0, yawInertia: 0 });
   private readonly bodyB: ContactBody = newBody(this.bodyA.shape);
@@ -104,7 +110,7 @@ export class Session {
     this.world.timestep = DT;
     this.wallCount = buildTrackColliders(track, this.world);
     this.startS = track.L - def.startBack;
-    this.car = createVehicle(this.world, track, scene, spec);
+    this.car = this.newCar(spec);
     this.place();
     this.timing = new Timing(track, def.storeKey + spec.storeKey, def.startBack);
   }
@@ -174,7 +180,7 @@ export class Session {
   // car's flying speed at the start spot). Not timed. Its mesh is in the scene; the game renders it each frame.
   addCar(spec: AnyCarSpec, { s = this.startS, lat = 0, speed = (this.def.flying?.[spec.id] ?? 0) / 3.6,
     driver = (c: Vehicle) => autopilot(c, this.track) }: { s?: number; lat?: number; speed?: number; driver?: ExtraCar['driver'] } = {}): ExtraCar {
-    const o: ExtraCar = { car: createVehicle(this.world, this.track, this.scene, spec), driver, start: { s: ((s % this.track.L) + this.track.L) % this.track.L, lat, speed }, stuck: 0 };
+    const o: ExtraCar = { car: this.newCar(spec), driver, start: { s: ((s % this.track.L) + this.track.L) % this.track.L, lat, speed }, stuck: 0 };
     this.others.push(o);
     this.placeExtra(o);
     return o;
@@ -199,20 +205,54 @@ export class Session {
   // Swap in another car (with default driver settings: the caller applies its own) at the start, with its best times.
   setCar(spec: AnyCarSpec) {
     this.car.destroy();
-    this.car = createVehicle(this.world, this.track, this.scene, spec);
-    this.timing.useStore(this.def.storeKey + spec.storeKey);
+    this.car = this.newCar(spec);
+    this.timing.useStore(this.def.storeKey + spec.storeKey + this.storeTag);
     this.restart();
   }
 
+  // Change the conditions (any of them; the rest stay), from the next tick, for every car: rain arriving mid-race is
+  // a call a second or so with the new wetness. Out-of-range or non-finite numbers are clamped or ignored.
+  setConditions(c: Partial<Conditions>) {
+    const next = normalizeConditions(c, this.conditions);
+    if (sameConditions(next, this.conditions)) return;
+    this.conditions = Object.freeze(next);
+    this.car.setConditions(this.conditions);
+    for (const o of this.others) o.car.setConditions(this.conditions);
+  }
+
+  // Keep this session's best times apart from the time trial's ('' is the time trial's own). Switches the store now.
+  setStoreTag(tag: string) {
+    this.storeTag = tag;
+    this.timing.useStore(this.def.storeKey + this.car.spec.storeKey + tag);
+  }
+
+  private newCar(spec: AnyCarSpec) {
+    const car = createVehicle(this.world, this.track, this.scene, spec);
+    car.setConditions(this.conditions);
+    return car;
+  }
+
+  // The flying speed is for dry, fresh tyres: with less grip (Vehicle.gripPlan) it is scaled by how much slower the
+  // autopilot's plan is there, so a wet run-up does not start at the dry speed into its last corners. (The plan is
+  // the car's before it is placed, which is the one after: a placement keeps the tyres while they wear.)
+  private flyingSpeed(car: Vehicle, s: number, v = (this.def.flying?.[car.spec.id] ?? 0) / 3.6) {
+    if (v === 0 || !car.gripPlan()) return v;
+    // the most the plan slows the car over the next 400 m: the start spots are on straights, where both plans are flat out
+    const tr = this.track, wet = speedPlan(car, tr), dry = dryPlan(car.spec, tr), i = pointAt(tr, s).i, n = Math.ceil(400 / (tr.L / tr.N));
+    let k = 1;
+    for (let j = 0; j <= n; j++) k = Math.min(k, wet[(i + j) % tr.N] / dry[(i + j) % tr.N]);
+    return v * k;
+  }
+
   private place() {
-    this.car.placeAt(this.startS, 0, (this.def.flying?.[this.car.spec.id] ?? 0) / 3.6);
+    this.car.placeAt(this.startS, 0, this.flyingSpeed(this.car, this.startS));
     this.stuck = 0;
     this.resets++;
     this.onReset();
   }
 
   private placeExtra(o: ExtraCar) {
-    o.car.placeAt(o.start.s, o.start.lat, o.start.speed);
+    o.car.placeAt(o.start.s, o.start.lat, this.flyingSpeed(o.car, o.start.s, o.start.speed));
     o.stuck = 0;
   }
 }

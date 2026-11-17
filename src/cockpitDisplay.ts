@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { CarInfo } from './cars';
+import { COMPOUND_COLOURS, COMPOUND_IDS } from './conditions';
 import { DT } from './config';
 import type { Timing } from './timing';
 import { clamp } from './util';
@@ -77,12 +78,14 @@ export interface DashValues {
   flaps: number;       // -1 none, 0 shut, 1 open
   tc: number; abs: number;      // 0 off, 1 on, 2 cutting in (ABS is always on)
   throttle: number; brake: number;   // 0..10
+  tyre: number;        // % tread left on the most worn tyre, -1 while the tyres do not wear
+  compound: number;    // the fitted compound (index in COMPOUND_IDS) while they wear, else -1
 }
 export const NONE = 1e9;
 const KEYS: (keyof DashValues)[] = ['gear', 'speed', 'rpm', 'lights', 'flash', 'lap', 'lapNo', 'valid', 'delta', 'last', 'best',
-  'battery', 'flaps', 'tc', 'abs', 'throttle', 'brake'];
+  'battery', 'flaps', 'tc', 'abs', 'throttle', 'brake', 'tyre', 'compound'];
 export const blankValues = (): DashValues => ({ gear: -9, speed: -1, rpm: -1, lights: -1, flash: -1, lap: -2, lapNo: -1, valid: -1, delta: -1,
-  last: -2, best: -2, battery: -2, flaps: -2, tc: -1, abs: -1, throttle: -1, brake: -1 });
+  last: -2, best: -2, battery: -2, flaps: -2, tc: -1, abs: -1, throttle: -1, brake: -1, tyre: -2, compound: -2 });
 
 // Shift lights lit out of n: they fill from the car's shiftLightsFrom to its upshift point (as the HUD's).
 export function shiftLights(spec: CarInfo, gear: number, rpm: number, n: number) {
@@ -110,6 +113,8 @@ export function dashValues(car: Vehicle, timing: Timing, simTime: number, alpha:
   out.abs = car.absActive ? 2 : 1;
   out.throttle = Math.round(clamp(car.throttle, 0, 1) * 10);
   out.brake = Math.round(clamp(car.brake, 0, 1) * 10);
+  out.tyre = car.wearing ? Math.round((1 - Math.max(...car.tyreWear)) * 100) : -1;
+  out.compound = car.wearing ? COMPOUND_IDS.indexOf(car.compound.id) : -1;
   return out;
 }
 
@@ -213,6 +218,17 @@ function lamp(ctx: CanvasRenderingContext2D, label: string, x: number, y: number
   text(ctx, label, x + w / 2, y + h / 2 + 2, size, on ? '#000' : C.dim);
 }
 
+// The tyres while they wear: the compound's letter on its colour, and the tread left on the most worn one (amber
+// from half, red from a fifth, as the HUD's tiles).
+function tyreBox(ctx: CanvasRenderingContext2D, v: DashValues, x: number, y: number, w: number, h: number, size: number) {
+  const id = COMPOUND_IDS[v.compound], letter = id === 'allweather' ? 'A' : id ? id[0].toUpperCase() : '?';
+  box(ctx, x, y, w, h);
+  ctx.fillStyle = id ? COMPOUND_COLOURS[id] : C.dim;
+  ctx.beginPath(); ctx.arc(x + h / 2 + 2, y + h / 2, h / 2 - 6, 0, Math.PI * 2); ctx.fill();
+  text(ctx, letter, x + h / 2 + 2, y + h / 2 + 1, size * 0.85, '#000');
+  text(ctx, v.tyre + '%', x + w - 8, y + h / 2 + 2, size, v.tyre > 50 ? C.text : v.tyre > 20 ? C.amber : C.red, 'right');
+}
+
 // LED colours by style: the F1's 5 green, 5 red, 5 blue (as the HUD's); the GT3's green, amber, red; the drift car's
 // shift light green to red.
 function ledColour(style: ScreenStyle, k: number, n: number) {
@@ -250,7 +266,10 @@ function drawF1(ctx: CanvasRenderingContext2D, v: DashValues, L: Layout, unit: S
     ctx.fillStyle = v.battery < 20 ? C.amber : C.green;
     ctx.fillRect(x0 + 5, 103, (bw - 10) * v.battery / 100, 20);
   }
-  if (v.flaps >= 0) lamp(ctx, 'SM', x0, 148, bw, 54, v.flaps === 1, C.green, 40);
+  // the flaps' lamp, sharing its row with the tyres while they wear
+  const tw = v.tyre >= 0 ? Math.round(bw * 0.55) : 0;
+  if (v.flaps >= 0) lamp(ctx, 'SM', x0, 148, bw - tw - (tw ? 4 : 0), 54, v.flaps === 1, C.green, tw ? 30 : 40);
+  if (tw) tyreBox(ctx, v, x0 + bw - tw, 148, tw, 54, 26);
   lamp(ctx, v.tc ? 'TC' : 'TC OFF', x0, 208, bw, 48, v.tc === 2, C.amber, v.tc ? 34 : 26);
 }
 
@@ -273,7 +292,8 @@ function drawGt3(ctx: CanvasRenderingContext2D, v: DashValues, L: Layout, spec: 
   text(ctx, lapText(v.lap), gx - 6, 118, 58, v.valid || v.lap < 0 ? C.text : C.red, 'right');
   text(ctx, 'DELTA', 6, 170, 22, C.label, 'left');
   text(ctx, deltaText(v.delta), gx - 6, 214, 66, deltaColour(v.delta), 'right');
-  text(ctx, 'LAST ' + msText(v.last), 6, 268, 24, C.label, 'left');
+  if (v.tyre >= 0) tyreBox(ctx, v, 6, 248, gx - 14, 44, 26);   // in the last lap's place while the tyres wear
+  else text(ctx, 'LAST ' + msText(v.last), 6, 268, 24, C.label, 'left');
   // right: speed, aids
   text(ctx, String(v.speed), w - 6, 128, 96, C.text, 'right');
   text(ctx, UNIT_LABEL[unit], w - 6, 186, 24, C.label, 'right');
@@ -308,6 +328,7 @@ function drawCluster(ctx: CanvasRenderingContext2D, v: DashValues, L: Layout, sp
   ctx.lineCap = 'butt';
   ctx.fillStyle = C.frame; ctx.beginPath(); ctx.arc(cx, cy, 12, 0, Math.PI * 2); ctx.fill();
   text(ctx, 'x1000', cx, cy + 48, 18, C.label);
+  if (v.tyre >= 0) tyreBox(ctx, v, cx - 50, cy + 66, 100, 26, 20);
   // gear and speed
   box(ctx, 212, 4, 116, 150);
   text(ctx, gearText(v.gear), 270, 86, 150, v.lights === L.leds ? C.red : C.text);

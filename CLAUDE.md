@@ -20,6 +20,7 @@ dev and the tests use the inline copy.
     npm run typecheck   # tsc for src/, then test/ and ai/ (only those get Node types)
     npm test            # Vitest project `unit`: headless physics (~35 s: the test files run in parallel)
     npm run test:laps   # Vitest project `laps`: the pinned laps at the 22 other circuits (2-4 min)
+    TYRES='wear lcf1' npm run tyres:report   # tyre numbers (wear, life, wet; lcf1, lcgt3, drift): test/tyres-report.test.ts
     npx vitest run test/handling.test.ts -t 'reverse'   # one file / one test by name
     npm run build       # typecheck + static build in dist/ (base './'); npm run preview serves it
     npm run build:env   # RL environment worker -> build/env/worker.mjs (git-ignored); node ai/client.mjs drives it
@@ -109,6 +110,13 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   sound levels, and a `Weather` on a fake stage (nothing built or changed while dry; built by quality; everything
   restored and disposed when dry again). Look at weather changes in screenshots (dry, damp, light rain, heavy rain
   with standing water, following another car with `?opponents=1`) at a desktop and a phone width.
+- `test/tyres.test.ts` and `test/wet.test.ts`: race conditions (`src/conditions.ts`) over a 2 km stretch of
+  the autopilot's Melbourne lap (`test/tyres.ts` `timedStretch`, `setWear`): the time trial wears nothing and plans
+  dry, conditions reach the engine (also after a restart's rebuild), wear accumulates and is deterministic, softer
+  compounds wear faster and are quicker, worn tyres cost time and a fresh set gives it back, a restart keeps a worn
+  set while wear is on, blanket fitting, a wet track against slicks and wets, rain arriving and drying mid-run, the
+  drift car's grip scale. `test/tyres-report.test.ts` is a tool (skipped unless `TYRES` is set) that measures the
+  numbers README's **Race conditions** table quotes; rerun it after a change to wear, compounds or the wet.
 - `test/storage.test.ts` covers loading settings and key bindings (corrupt, old or invalid data loads as defaults)
   and `nextOption`; `test/tracks.test.ts` checks each circuit's menu card (length, outline).
 
@@ -124,6 +132,8 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   `vite.config.ts`) and the worker keeps each one the first time, in a cache that outlives deploys.
   `public/` holds the icon and web app manifest.
 - `config.ts`: constants, surfaces, collision groups
+- `conditions.ts`: session conditions (`Conditions`, `TIME_TRIAL`, `waterMm`), compounds (`Compound`, colours),
+  `FitHeat`, `GripPlan`, the dev URL flags (`conditionsFromUrl`); see **Conditions and compounds** below
 - `util.ts`: math and formatting helpers
 - `cars.ts`: car specs (`CarSpec`)
 - `vehicle.ts`: `Vehicle`, a drivable car as the rest of the game sees it (session, timing, camera, HUD, dust,
@@ -241,7 +251,9 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   element lookup; `tyreHud.ts`: the HUD's tyre widget (`tyreBand`: carcass temperature against the compound's
   window, the tile; `treadBand`: the tread surface's I/M/O bands (`TyreState.bandsC`) against it with 20 °C margins,
   the strip; tread number `surfaceC`), shown for a car with `Vehicle.tyres` (the LC cars: `LcCar.refresh` copies the engine's tyre and brake
-  temperatures and pressures into it each tick, in place; the drift car has none)
+  temperatures and pressures into it each tick, in place; the drift car has none). While the tyres wear
+  (`Vehicle.wearing`) or another compound than the default is fitted, a badge between the tiles shows the compound
+  and each tile the tread left; a car with wear but no tyre heat (the drift car) gets tiles of tread left only
 - `main.ts`: wires it together and owns game state (the `Session`, `started`/`paused`/autopilot, the
   `applySetting` table, hotkeys, the `window.__game` hook (typed `GameHook`), the frame loop)
 
@@ -345,14 +357,30 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
     keeps battery and lap energy (20–40 ms: the engine settles the car by simulating). The start spot is before
     the last corners, so the F1 crosses the line with what the run-up left in the battery (48% at Albert Park; a
     lap leaves it at its 20% floor, so a restart's lap still starts better off than a second lap); the per-lap
-    energy allowances reset at the line, where the progress wraps. Either way the tyres and
-    brakes are fresh, the discs at their start temperature and the tyres not in their blankets but at the heat of a
-    lap (`warmTyres`: `LcSpec.warmTyres`, every band's surface, bulk and core node per axle, the autopilot's at the
-    start spot after seven laps; the pressure by the engine's gas law), written before the engine's `reset` with
-    `keepTyres`, so its settle runs on them and the memo still applies. Of the engine's tyre model, heat (surface, carcass, I/M/O bands),
-    pressure and brake-disc heat are live and change grip; wear, graining, blistering and flat spots are off
-    (`realism.tyreWearScale: 0` in `build`), and fuel is not burnt (that is LibreCorsa's game adapter's job, not
-    the engine's): turning any of it on moves the pinned laps.
+    energy allowances reset at the line, where the progress wraps. Either way, with wear off (the time trial), the
+    tyres and brakes are fresh, the discs at their start temperature and the tyres not in their blankets but at the
+    heat of a lap (`warmTyres`: `LcSpec.warmTyres`, every band's surface, bulk and core node per axle, the
+    autopilot's at the start spot after seven laps, moved by the window difference for a compound other than the
+    soft; the pressure by the engine's gas law), written before the engine's `reset` with `keepTyres`, so its settle
+    runs on them and the memo still applies. With wear on, a placement keeps the tyres (wear and heat) as they are,
+    copied into the rebuilt engine (`copyTyre`); only `fitTyres` fits a new set. Of the engine's tyre model, heat
+    (surface, carcass, I/M/O bands), pressure and brake-disc heat are always live and change grip; wear, graining,
+    blistering and flat spots run at `Conditions.wearScale` (0 in the time trial: `applyConditions` sets the
+    engine's `realism.tyreWearScale`, times `LcSpec.compoundWear`), the water at `Conditions.wetness`, and fuel is
+    not burnt (that is LibreCorsa's game adapter's job, not the engine's: `setFuelMass` each tick from a burn rate).
+    The engine's track evolution (rubber, marbles, a rain-washed line) is not used: it is state shared by every car
+    on the track, which a multiplayer session would have to sync; the default sample (baseline rubber, grip 1)
+    stays. There are no punctures or tyre failures in the engine: a finished tyre (wear 1) only grips less.
+  - **Conditions and compounds** (`src/conditions.ts`, engine-neutral; docs: README **Race conditions**):
+    `Session.conditions` (`TIME_TRIAL` by default) and `setConditions(partial)` (clamped, any time, every car; a car
+    built later gets them in `newCar`), `Session.setStoreTag` (best times apart from the time trial's). Per car:
+    `Vehicle.compounds` (the default first), `compound`, `fitTyres(id, 'blanket' | 'lap')` (the engine's
+    `setCompound`, brake discs kept), `tyreWear`, `wearing`, `gripPlan()`. Wetness 0..1 is `waterMm` (3 w² mm) and
+    the engine's `wetness` from it; rain intensity is read by nothing in the physics. The F1's rain compounds are
+    `withGenericRainTyres` in `cars.ts` (the vendored ones use placeholder data, vendor README edit 4); the F1's
+    compounds wear at the engine's generic rate times `F1_COMPOUND_WEAR` (lc26-data's per-compound wearPerJ). The
+    aids read the fitted compound at every step. Time trial runs stay bit-identical: every new number is 1 or 0
+    there and `gripPlan()` is null.
   - `lc/ground.ts`: the engine's ground (our surfaces mapped to its road/kerb/grass/gravel table, kerb height on
     top of flat ground) and walls (the road-facing face of each barrier cuboid) from a `Track`. Lookups use a
     per-track grid and no search hint, so they are stateless, which the engine's settle memo requires.
@@ -383,6 +411,9 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
     first. `car.throttle` / `car.brake` are the pedals as applied (after the swap), which the HUD bars, brake light,
     sound and cockpit display show
   - per-surface grip blending and grass/gravel ploughing
+  - race conditions, deliberately simple (`DRIFT_TYRE`): one all-weather compound, wear by distance rolled (faster
+    when slipping), and a grip scale `(1 - wearGrip x wear) x (1 - wetGrip x wetness)` on every tyre's `Fmax`
+    (exactly 1 in the time trial)
   - downforce and drag
 
   Rendering interpolates between physics states (`prevPos` / `prevQuat`).
@@ -432,6 +463,10 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   (they add `act:<action>` to `pressed`). The key help in the HUD and the Controls tab are made from the bindings,
   so they always match them.
 - **Autopilot**: pure pursuit on the centreline plus a speed profile from `buildSpeedProfile(track, spec)`, cached
-  per car on `track.speedProfiles`. Within 1.5 m of the edge on the outside of a bend it lifts (the drift car slides
+  per car on `track.speedProfiles` (`dryPlan`). With less grip than dry, fresh tyres (`Vehicle.gripPlan()` not
+  null: worn tyres, a wet track, another compound) `speedPlan` builds one from the plan's grip at each speed (cached
+  by its key on `track.gripProfiles`, the last 48), the throttle also lifts in a slide and the steering catches it
+  (`PLAN_LIFT`, `PLAN_COUNTER`: without them full power out of a wet corner spun the F1), and the session's start
+  speed is scaled by how much slower the plan is over the next 400 m (`Session.flyingSpeed`). Within 1.5 m of the edge on the outside of a bend it lifts (the drift car slides
   wide under power in fast sweepers such as Monza's Curva Grande); no lap at Melbourne or Silverstone gets that close,
   so their pins did not move. Brake-marker boards are scenery and are always placed from the `lcf1` profile.

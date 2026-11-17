@@ -64,7 +64,7 @@ export interface AidOutput { ignitionCut: number; brakeWheelScale: readonly [num
 const _dv = new THREE.Vector3(), _ex = new THREE.Vector3();
 
 export class Aids {
-  private readonly cd: TyresCompoundData;              // the fitted compound (both cars run the soft slot)
+  private cd!: TyresCompoundData;                      // the fitted compound (read again at every step: fitTyres changes it)
   private tcCut = 1; private absCut = 1;
   private readonly absWheelCut: [number, number, number, number] = [1, 1, 1, 1];
   private readonly prevOmega = [0, 0, 0, 0];
@@ -74,7 +74,6 @@ export class Aids {
 
   // minSpeedMs: the car profile's own TC floor (CarSimProfile.tcMinSpeedMs), on top of the table's
   constructor(private readonly v: VehiclePhysics, private readonly elec: CarElectronicsProfile, private readonly minSpeedMs: number) {
-    this.cd = compoundData(v.config, v.compound);
     this.reset();
   }
 
@@ -93,7 +92,8 @@ export class Aids {
   // One engine step's TC and ABS (F12026CarSim.ts electronicAids). The pedals themselves pass through: the TC acts on
   // ignitionCut, which takes torque off at once, and the ABS on per-wheel brake pressure. brake: this step's pedal.
   update(brake: number, h: number, dials: AidDials): AidOutput {
-    const v = this.v, W = v.wheels, speed = v.speedMs, elec = this.elec, cd = this.cd;
+    const v = this.v, W = v.wheels, speed = v.speedMs, elec = this.elec;
+    const cd = this.cd?.tyre_compound === v.compound ? this.cd : (this.cd = compoundData(v.config, v.compound));
     this.velBefore.copy(v.velocity);
 
     // TC: a slip target tightened by lateral g (and on the GT3 by the rears' slide), then a two-stage cut

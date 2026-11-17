@@ -4,6 +4,7 @@ import { autopilot } from './autopilot';
 import { CameraRig } from './camera';
 import { CARS, type CarId } from './cars';
 import { CockpitDisplay } from './cockpitDisplay';
+import { conditionsFromUrl } from './conditions';
 import { DT, MAX_STEPS_PER_FRAME } from './config';
 import { $ } from './dom';
 import { Dust } from './dust';
@@ -84,10 +85,23 @@ export async function main() {
 
   // Physics. session.car is replaced when the Car setting changes: read it at call time.
   const session = new Session(track, scene, CARS[settings.car], def), { timing } = session;
+  // ?wear=3&wet=0.6&rain=0.5&compound=medium&airc=18&trackc=24: race conditions single-player, until race sessions
+  // exist (a development tool, no menu). Laps in them keep best times of their own (the '.dev' store tag).
+  const devRace = conditionsFromUrl(params);
+  const fitDevCompound = (car: Vehicle) => {
+    const c = devRace?.compound;
+    if (c && c !== car.compound.id && car.compounds.some((k) => k.id === c)) car.fitTyres(c, 'lap');
+  };
+  if (devRace) {
+    session.setStoreTag('.dev');
+    session.setConditions(devRace.conditions);
+    fitDevCompound(session.car);
+    session.restart();   // at the start speed for this grip
+  }
   // ?opponents=N (that many of the player's car) or ?opponents=lcgt3,drift: autopilot cars starting 30 m apart ahead
   // of the player, to see car-to-car contact. A development tool: no menu, HUD or minimap for them.
   for (const [k, id] of opponentCars(params.get('opponents'), settings.car).entries()) {
-    session.addCar(CARS[id], { s: track.L - def.startBack + 30 * (k + 1) });
+    fitDevCompound(session.addCar(CARS[id], { s: track.L - def.startBack + 30 * (k + 1) }).car);
   }
   const input = new Input();
   let bindings = loadBindings();
@@ -156,6 +170,7 @@ export async function main() {
     car: (id) => {
       if (session.car.spec.id === id) return;
       session.setCar(CARS[id]);
+      if (devRace?.compound) { fitDevCompound(session.car); session.restart(); }
       applySetting.gearbox(settings.gearbox); applySetting.tc(settings.tc); applySetting.assist(settings.assist);
       hud.clearLaps(); acc = 0;
       const { name, hint } = CARS[id];
