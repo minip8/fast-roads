@@ -4,6 +4,7 @@ import { $ } from './dom';
 import { ACTION_KEYS, ACTIONS, keyLabel, MENU_KEY, type Action, type Bindings, type Slot } from './keys';
 import { SECTIONS, SETTING_DEFS, SETTING_KEYS, optionText, type SettingKey, type SettingSection, type Settings } from './settings';
 import { TRACKS, type TrackId } from './tracks';
+import { cleanRoom, validRoom, validServer, type NetPrefs } from './netPrefs';
 import { clamp, fmtTime, wrapI } from './util';
 
 // ============================================================================
@@ -27,7 +28,15 @@ export interface MenuHost {
   resetBestTimes(): void;               // the current car at the current circuit
   onOpen(): void;
   onClose(): void;
+  readonly net: {                       // multiplayer (the Race tab's Multiplayer section)
+    status(): NetStatus;
+    prefs(): NetPrefs;                  // what the fields start with
+    join(p: NetPrefs): void;
+    leave(): void;
+  };
 }
+// off: not in a room (text: why it was left, if it was); connecting; joined; error (text: what went wrong).
+export interface NetStatus { state: 'off' | 'connecting' | 'joined' | 'error'; text: string }
 
 type Tab = 'race' | 'settings' | 'controls';
 const TABS: [Tab, string][] = [['race', 'Race'], ['settings', 'Settings'], ['controls', 'Controls']];
@@ -64,6 +73,7 @@ export class Menu {
   private armed: Armed | null = null;   // a reset link clicked once (a second click within 3 s does it)
   private armTimer = 0;
   private capture: { action: Action; slot: Slot } | null = null;   // waiting for the key to bind
+  private extraUpdates: (() => void)[] = [];   // updates of elements that are not stops for ↑ ↓
 
   constructor(private readonly host: MenuHost) {
     addEventListener('keydown', (e) => this.onKey(e));
@@ -112,7 +122,7 @@ export class Menu {
   // slider being dragged isn't replaced under the pointer.
   private build() {
     const hadFocus = this.hasFocus();
-    this.items = [];
+    this.items = []; this.extraUpdates = [];
     this.buildActions();
     this.buildTabs();
     this.contentEl.innerHTML = '';
@@ -129,10 +139,63 @@ export class Menu {
   }
 
   private update() {
-    const { host } = this, car = CARS[host.settings.car], track = TRACKS[host.loadedTrack];
+    const { host } = this, car = CARS[host.settings.car], track = TRACKS[host.loadedTrack], net = host.net.status();
     $('menuPaused').hidden = !host.started();
-    $('menuSub').textContent = `Time trial · ${car.name} at ${track.name}`;
+    $('menuSub').textContent = `${net.state === 'joined' ? 'Online hot laps' : 'Time trial'} · ${car.name} at ${track.name}`;
     for (const it of this.items) it.update?.();
+    for (const u of this.extraUpdates) u();
+  }
+
+  // ---------------- Multiplayer (Race tab) ----------------
+
+  // Server, room and name, Join / Leave, and the connection state. A room at another circuit reloads the game there.
+  private buildNet() {
+    const { host } = this, c = this.contentEl, prefs = host.net.prefs();
+    this.heading('Multiplayer');
+    const box = h('div', 'netbox'); c.append(box);
+    const field = (label: string, value: string, attrs: Record<string, string>) => {
+      const wrap = h('label', 'nfield'), input = h('input');
+      input.type = 'text'; input.value = value; input.spellcheck = false; input.autocomplete = 'off';
+      for (const [k, v] of Object.entries(attrs)) input.setAttribute(k, v);
+      wrap.append(h('span', '', label), input);
+      box.append(wrap);
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); act(); } });
+      input.addEventListener('input', () => this.update());
+      this.items.push({ el: input });
+      return input;
+    };
+    const room = field('Room code', prefs.room, { maxlength: '8', placeholder: 'e.g. ABCD', 'aria-label': 'Room code', autocapitalize: 'characters' });
+    const name = field('Your name', prefs.name, { maxlength: '16', placeholder: 'Name', 'aria-label': 'Your name' });
+    const server = field('Relay', prefs.server, { placeholder: 'ws://host:8787', 'aria-label': 'Relay address' });
+    server.parentElement!.classList.add('wide');
+    const go = button('mbtn primary netgo', 'Join');
+    box.append(go);
+    const status = h('p', 'netstatus'); c.append(status);
+    const wanted = (): NetPrefs | null => {
+      const p = { room: cleanRoom(room.value), name: name.value.trim(), server: server.value.trim() };
+      return validRoom(p.room) && p.name && validServer(p.server) ? p : null;
+    };
+    const act = () => {
+      const st = host.net.status().state;
+      if (st === 'joined') { host.net.leave(); return; }
+      if (st === 'connecting') return;
+      const p = wanted();
+      if (p) { room.value = p.room; host.net.join(p); }
+      this.update();
+    };
+    go.addEventListener('click', act);
+    this.items.push({ el: go, run: act, update: () => {
+      const st = host.net.status(), joined = st.state === 'joined', busy = st.state === 'connecting';
+      go.textContent = joined ? 'Leave' : busy ? 'Joining…' : 'Join';
+      go.classList.toggle('primary', !joined);
+      go.disabled = busy || (!joined && !wanted());
+      for (const f of [room, name, server]) f.disabled = joined || busy;
+      const r = cleanRoom(room.value);
+      status.className = 'netstatus ' + st.state;
+      status.textContent = st.text || (st.state === 'off' ? (r && !validRoom(r) ? 'A room code is 1-8 letters or digits.'
+        : server.value.trim() && !validServer(server.value) ? 'The relay address starts with ws:// or wss://.'
+        : 'Everyone who joins the same room code drives together (the room keeps the circuit it was opened at). Or share the page link with ?room=CODE.') : '');
+    } });
   }
 
   private buildActions() {
@@ -218,6 +281,8 @@ export class Menu {
       } });
     }
 
+    this.buildNet();
+
     const head = h('div', 'mh-row'); c.append(head);
     this.heading('Circuit', head);
     const circuits = allCircuits();
@@ -241,7 +306,7 @@ export class Menu {
       const length = `${info.lengthKm.toFixed(2)} km`;
       text.append(name, place, best); bt.append(text);
       const pick = () => {
-        if (info.id === host.settings.track) return;
+        if (info.id === host.settings.track || host.net.status().state === 'joined') return;   // in a room, the room's circuit
         bt.classList.add('loading'); best.textContent = 'Loading…';
         host.setSetting('track', info.id);
       };
@@ -250,6 +315,7 @@ export class Menu {
       this.items.push({ el: bt, run: pick, cycle: (dir) => this.step(dir), update: () => {
         const on = host.settings.track === info.id;
         bt.classList.toggle('sel', on); bt.setAttribute('aria-pressed', String(on));
+        bt.classList.toggle('locked', !on && host.net.status().state === 'joined');
         const t = host.bestLap(info.id, host.settings.car);
         if (!bt.classList.contains('loading')) best.innerHTML = length + (t != null ? ` · Best <b class="num">${fmtTime(t)}</b>` : '');
       } });
@@ -262,7 +328,11 @@ export class Menu {
     };
     filter();
     const foot = h('div', 'mfoot'); c.append(foot);
-    foot.append(h('span', '', 'Choosing another circuit reloads the game.'));
+    const footNote = h('span', '', '');
+    foot.append(footNote);
+    this.extraUpdates.push(() => {
+      footNote.textContent = host.net.status().state === 'joined' ? 'The room decides the circuit: leave it to choose another.' : 'Choosing another circuit reloads the game.';
+    });
     this.resetLink('best', 'Reset best times for this car here', () => host.resetBestTimes(), foot,
       () => host.bestLap(host.loadedTrack, host.settings.car) != null);
   }
@@ -418,7 +488,7 @@ export class Menu {
   private handle(code: string, repeat: boolean, pad = false): boolean {
     const it = this.items[this.focus];
     const active = document.activeElement, hasFocus = this.hasFocus();
-    const typing = active instanceof HTMLInputElement && active.type === 'search';
+    const typing = active instanceof HTMLInputElement && (active.type === 'search' || active.type === 'text');
     const nav = ({ ArrowUp: -1, ArrowDown: 1 } as Record<string, number>)[code];
     if (nav) {
       // the first press only shows where the focus is
@@ -432,7 +502,7 @@ export class Menu {
       return true;
     }
     if (typing) {
-      if (code === 'Escape' && (active as HTMLInputElement).value) return false;   // the search box clears itself
+      if (code === 'Escape' && (active as HTMLInputElement).type === 'search' && (active as HTMLInputElement).value) return false;   // the search box clears itself
       if (code !== 'Escape') return false;
     }
     if ((code === 'ArrowLeft' || code === 'ArrowRight') && it?.cycle) {

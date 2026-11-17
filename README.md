@@ -14,6 +14,7 @@ Needs Node.js. Install once, then start the dev server and open the URL it print
     npm run test:laps  # the pinned autopilot laps at every other circuit (a few minutes)
     npm run build      # type-check + static build in dist/ (host anywhere; `npm run preview` serves it locally)
     npm run build:env  # the reinforcement-learning environment worker, build/env/worker.mjs (docs/ai-env.md)
+    npm run server     # the multiplayer relay, on ws://<this machine>:8787 (docs/net.md)
 
 The built game works from any sub-path of any static host, and keeps working offline after the first visit: a small
 service worker (`src/sw.js`, production builds only) caches the build; the page itself is always fetched fresh when
@@ -29,10 +30,11 @@ towards multiplayer, with no race rules, HUD or minimap for them. A restart puts
 
 The game opens on a menu with **Drive** at the top right and three tabs:
 
-- **Race**: a card for each car (what it is, power, weight, your best lap at this circuit) and each circuit (its
-  outline with the start/finish line, place, length, your best lap there in the chosen car). With seven or more
-  circuits a search box filters them. Choosing another circuit reloads the game onto it. **Reset best times**
-  clears the chosen car's at this circuit, and its ghost (click twice to confirm).
+- **Race**: a card for each car (what it is, power, weight, your best lap at this circuit), **Multiplayer** (below),
+  and a card for each circuit (its outline with the start/finish line, place, length, your best lap there in the
+  chosen car). With seven or more circuits a search box filters them. Choosing another circuit reloads the game onto
+  it (not while in a room: the room decides). **Reset best times** clears the chosen car's at this circuit, and its
+  ghost (click twice to confirm).
 - **Settings**, in five sections:
   - *Driving*: gears (automatic / manual), traction control, countersteer assist (drift car), ghost car (shown / hidden).
   - *Camera*: camera, field of view (−15° to +20° on every camera), widen the view with speed, camera shake on kerbs
@@ -146,6 +148,33 @@ F1 2026 at Albert Park, accelerating out of turn 12; 216 km/h before Vale at Sil
 the same way. Track limits count in the run-up too: put all four wheels off the road there (cutting the last
 chicane, say) and the lap that follows is deleted, as is the one you were on if you were finishing a lap.
 
+## Multiplayer
+
+Hot laps together: everyone in a room drives the same circuit at once, each with the game's flying start and
+restarts, and the room keeps a board of best laps. There are no grid starts or race rules yet.
+
+Someone runs the relay (`npm run server`, a small Node WebSocket server on port 8787; it runs no physics). In the
+menu's Race tab, **Multiplayer** takes a room code (1-8 letters or digits), your name and the relay's address
+(by default the page's own host on port 8787, or `VITE_RELAY_URL` set when the game was built); **Join** enters the
+room and **Leave** leaves it. The first player in a room sets its circuit; joining a room at another circuit
+reloads the game there. A link with `?room=CODE` (and `&server=ws://host:port` for another relay) joins on load,
+and the page's address shows it while you are in a room, so it can be shared.
+
+- Your computer simulates only your car; everyone else's comes over the network, a little in the past, extrapolated
+  to the present. Each player's car has a name tag over it and a coloured dot on the track map.
+- Cars collide. Your game pushes your car off the others as it sees them and tells their game about the hit, so a
+  hit is felt on both sides even when the two games disagree slightly about where the cars were.
+- A car is a **ghost** (drawn translucent, collides with nothing) after a restart, while its driver is in the menu
+  (the game sends it as paused) and when its connection has gone quiet, until it has been clear of every other car
+  for a second. So several players restarting onto the same spot at once do not crash into each other. Yours shows
+  GHOST in the HUD while it lasts.
+- The board, under the timing panel: the room, the players (best lap first, the gap to the fastest, the car, and
+  whether each is on track, a ghost, in the menu or has no signal), then short notices when someone joins, leaves or
+  sets a best lap. Your own lap times, best laps and ghost car are kept in the browser as in single-player.
+
+The relay speaks plain `ws://`; a page served over https needs a `wss://` address, so put the relay behind a TLS
+reverse proxy. Without a room joined the game is single-player as before, and does not download the networking code.
+
 ## HUD
 
 Bottom right: F1-style shift lights (5 green, 5 red, 5 blue) fill towards the shift point and all flash there
@@ -158,7 +187,7 @@ The strip across its top is the tread surface's outer, middle and inner bands (o
 coloured against the same window with 20 °C margins: the carcass moves slowly and sets the window, the tread heats
 in a corner and cools on a straight within seconds (the grip reads a quarter of it). On a phone: the strip,
 carcass temperatures and pressures only, bottom left. Top left: the lap time, live delta to your best lap, sectors (purple: your best ever, green: best
-this session, yellow: slower), last / best / optimal laps and the laps driven. Top right: the track map. Top centre: the rear-view mirror. Bottom left
+this session, yellow: slower), last / best / optimal laps and the laps driven. Under it, in a multiplayer room: the room's board and notices. Top right: the track map. Top centre: the rear-view mirror. Bottom left
 for the first seconds of driving: the keys, as currently bound (then a small reminder of the help and menu keys).
 What shows, and how big, is set in the menu's HUD settings.
 
@@ -234,6 +263,13 @@ and override the mouse while held.
   restitution 0.22 and friction 0.28) gives each car a change of position, velocity and yaw rate, which it applies to
   its own body on either engine. Contacts are resolved once a tick after every car has moved; overlap is undone at
   most 5 cm per car per tick, so cars placed on top of each other slide apart over about 0.2 s.
+- **Multiplayer** (`src/net/`, `server/`, `src/multiplayer.ts`; `docs/net.md` has the protocol and the rules): each
+  client sends its own car's state 40 times a second through the relay, which passes it on; the others are proxies
+  (`RemoteCar`: extrapolated to the present along the turn they are on, corrections blended out over 50 ms) that
+  the car is pushed off by the same contact solver. Each side applies its own half of a hit when its own simulation
+  sees it, and from the other side's contact message when it did not (within about a round trip), never both. In
+  the headless tests (40 ms each way, 2% loss) a proxy at 300 km/h is within 0.06 m of the real car on average and
+  0.26 m at worst.
 - **Car bodies**: built from boxes and extrusions in code (`src/carMeshes.ts`), each with a seated driver whose
   hands turn the steering wheel in the driver camera. The instruments (`src/cockpitDisplay.ts`) are drawn on a
   small canvas per car, redrawn only in the Driver camera, when a shown value changes, at most 30 times a second. The GT3 instead shows a 3D model (`public/cars/lcgt3/`, about
@@ -326,7 +362,7 @@ the game is not affiliated with or endorsed by Mercedes-AMG, Mercedes-Benz or Re
 
 ## Not yet
 
-Elevation (every circuit is flat: Spa, COTA, Interlagos and the Red Bull Ring will need SRTM data, and Suzuka's crossover a bridge), pit lane, leaderboards, multiplayer.
+Elevation (every circuit is flat: Spa, COTA, Interlagos and the Red Bull Ring will need SRTM data, and Suzuka's crossover a bridge), pit lane, online leaderboards, multiplayer races (grid starts, race rules).
 
 Track data: [TUMFTM/racetrack-database](https://github.com/TUMFTM/racetrack-database) (LGPL-3.0): Melbourne,
 Shanghai, Suzuka, Montreal, Spielberg, Silverstone, Spa, Budapest, Monza, Austin, Mexico City, São Paulo and Sakhir,

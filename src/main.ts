@@ -11,8 +11,11 @@ import { GhostCar } from './ghostCar';
 import { Hud } from './hud';
 import { Input, MOUSE_DEADZONE, MOUSE_RANGE, PAD_DEADZONE } from './input';
 import { bindKey, copyBindings, DEFAULT_BINDINGS, keyLabel, keysFor, loadBindings, MENU_KEY, saveBindings, type Action } from './keys';
-import { Menu } from './menu';
+import { Menu, type NetStatus } from './menu';
 import { RearMirror } from './mirror';
+import type { Multiplayer } from './multiplayer';
+import type { NetClient } from './net';
+import { defaultServer, loadNetPrefs, randomName, roomFromUrl, roomUrl, saveNetPrefs, type NetPrefs } from './netPrefs';
 import { DEFAULT_SETTINGS, loadSettings, nextOption, saveSettings, SETTING_KEYS, type SettingKey, type Settings } from './settings';
 import { Session } from './sim';
 import { buildStage } from './stage';
@@ -40,7 +43,11 @@ export interface GameHook {
   readonly brakeMarkers: ReturnType<typeof buildStage>['brakeMarkers'];
   readonly stage: ReturnType<typeof buildStage>;   // renderer, scene, camera (screenshots, renderer.info)
   readonly mirror: RearMirror;                      // the rear-view mirror (its pass's draw calls: mirror.stats)
+  readonly multiplayer: Multiplayer | null;         // the room joined (null: single-player)
 }
+type NetModule = typeof import('./netGame');
+// Multiplayer while in a room (netGame.ts, loaded only then): the glue, the other cars drawn, the board.
+interface NetRuntime { mp: Multiplayer; view: InstanceType<NetModule['RemoteCars']>; board: InstanceType<NetModule['NetHud']> }
 declare global { interface Window { __game?: GameHook } }
 
 export async function main() {
@@ -48,6 +55,20 @@ export async function main() {
   await RAPIER.init().catch((err: unknown) => { throw new StartupError('physics', 'Rapier failed to initialise', { cause: err }); });
   // The circuit is chosen before anything is built; changing it reloads the page (see applySetting.track).
   const settings = loadSettings();
+  // A room in the link (?room=CODE): joined before the circuit is built, since the room's circuit is the one to build.
+  const link = roomFromUrl(params);
+  let booted: { mod: NetModule; net: NetClient; server: string } | null = null, bootError = '';
+  if (link) {
+    const prefs = loadNetPrefs(), server = link.server || prefs.server || defaultServer(), name = prefs.name || randomName();
+    $('loadState').textContent = `Joining room ${link.room}…`;
+    const mod = await import('./netGame').catch(() => null);
+    const r = mod ? await mod.connect({ server, room: link.room, name, car: settings.car, circuit: settings.track }) : { ok: false as const, error: 'Multiplayer failed to load' };
+    if (r.ok && mod) {
+      if (r.net.circuit !== settings.track && r.net.circuit in TRACKS) { settings.track = r.net.circuit as TrackId; saveSettings(settings); }
+      booted = { mod, net: r.net, server };
+      saveNetPrefs({ ...prefs, room: link.room, name });
+    } else bootError = `Room ${link.room}: ${r.ok ? '' : r.error}`;
+  }
   const def = TRACKS[settings.track];
   $('loadState').textContent = `Building ${def.name}…`;
   $('trkName').textContent = `${def.name} · ${def.place}`;
@@ -85,6 +106,43 @@ export async function main() {
   session.onReset = () => cam.reset();
 
   const restart = () => { session.restart(); hud.showMsg('Flying lap<small>Starts at the line</small>', 1.5); };
+
+  // ---------------- Multiplayer ----------------
+  let netRt: NetRuntime | null = null;
+  let netStatus: NetStatus = bootError ? { state: 'error', text: bootError } : { state: 'off', text: '' };
+  const labels = document.createElement('div');
+  labels.id = 'netLabels';
+  document.body.append(labels);
+  const startNet = (mod: NetModule, net: NetClient, server: string) => {
+    netRt = { mp: new mod.Multiplayer(net, session), view: new mod.RemoteCars(scene, labels), board: new mod.NetHud($('leftCol')) };
+    history.replaceState(null, '', roomUrl(net.room, server));
+    menu.rebuild();
+  };
+  const stopNet = (text: string, error = false) => {
+    if (!netRt) return;
+    netRt.mp.close(); netRt.view.dispose(); netRt.board.dispose(); netRt = null;
+    session.proxies.length = 0;
+    netStatus = { state: error ? 'error' : 'off', text };
+    history.replaceState(null, '', roomUrl(null));
+    menu.rebuild();
+  };
+  const joinRoom = async (p: NetPrefs) => {
+    if (netRt || netStatus.state === 'connecting') return;
+    saveNetPrefs(p);
+    netStatus = { state: 'connecting', text: `Joining room ${p.room}…` }; menu.refresh();
+    const mod = await import('./netGame').catch(() => null);
+    const r = mod ? await mod.connect({ server: p.server, room: p.room, name: p.name, car: session.car.spec.id, circuit: def.id }) : { ok: false as const, error: 'Multiplayer failed to load' };
+    if (!r.ok || !mod) { netStatus = { state: 'error', text: r.ok ? '' : r.error }; menu.refresh(); return; }
+    if (r.net.circuit !== def.id && r.net.circuit in TRACKS) {
+      // the room is at another circuit, and the circuit is built once: load the page there, back into the room
+      netStatus = { state: 'connecting', text: `Room ${p.room} is at ${TRACKS[r.net.circuit as TrackId].name}: loading it…` }; menu.refresh();
+      r.net.close();
+      settings.track = r.net.circuit as TrackId; saveSettings(settings);
+      location.href = roomUrl(p.room, p.server);
+      return;
+    }
+    startNet(mod, r.net, p.server);
+  };
 
   // ---------------- Settings ----------------
   // What changing each setting does.
@@ -156,6 +214,16 @@ export async function main() {
     settings, setSetting, cycleSetting, restart, bestLap,
     loadedTrack: def.id,
     started: () => started,
+    net: {
+      status: () => {
+        if (!netRt) return netStatus;
+        const n = netRt.mp.net.players.size;
+        return { state: 'joined', text: `In room ${netRt.mp.net.room} at ${def.name}, ${n} driver${n === 1 ? '' : 's'}. Share this page's address to invite others.` };
+      },
+      prefs: () => { const p = loadNetPrefs(); return { server: p.server || defaultServer(), room: p.room, name: p.name || randomName() }; },
+      join: (p) => { void joinRoom(p); },
+      leave: () => stopNet('Left the room'),
+    },
     resetSettings: () => {
       for (const k of SETTING_KEYS) if (k !== 'car' && k !== 'track' && settings[k] !== DEFAULT_SETTINGS[k]) setSetting(k, DEFAULT_SETTINGS[k]);
     },
@@ -178,6 +246,7 @@ export async function main() {
   for (const k of SETTING_KEYS) setSetting(k, settings[k]);   // apply saved choices
   if (started) { menu.isOpen = false; $('overlay').classList.add('hidden'); hud.hidden = false; }   // ?autopilot skips the menu
   else menu.show();
+  if (booted) startNet(booted.mod, booted.net, booted.server);
 
   // ---------------- Test hook ----------------
   // Run the simulation headless (no rendering), e.g. __game.simulate(90, true)
@@ -196,6 +265,7 @@ export async function main() {
     simulate, setSetting, setAutopilot: (on) => { autoOn = on; },
     get car() { return session.car; }, get simTime() { return session.simTime; },
     session, timing, track, input, autopilot, brakeMarkers: stage.brakeMarkers, stage, mirror,
+    get multiplayer() { return netRt?.mp ?? null; },
   };
 
   // In-game hotkeys (ignored while the menu is open; it handles its own keys).
@@ -225,21 +295,32 @@ export async function main() {
   const frame = (now: number) => {
     requestAnimationFrame(frame);
     const fdt = Math.min((now - last) / 1000, 0.1); last = now;
+    const nowS = now / 1000, running = started && !paused;
+    if (netRt) {
+      let fatal = '';
+      for (const e of netRt.mp.update(nowS, !running)) {
+        if (e.type === 'error' && e.fatal) fatal = e.message;
+        if (e.type === 'closed') { stopNet(fatal || `Disconnected (${e.reason})`, true); break; }
+      }
+      if (netRt) for (const n of netRt.mp.takeNotices()) netRt.board.notice(n);
+    }
 
     const padMenu = input.pollMenuPad();   // every frame, so a button held when the menu opens doesn't count
     if (menu.isOpen) for (const code of padMenu) menu.press(code);
     handleHotkeys();
     input.mouse.active = started && !paused && !menu.isOpen && !autoOn;
 
-    if (started && !paused) {
+    if (running) {
       acc += fdt;
       let steps = 0;
       while (acc >= DT && steps < MAX_STEPS_PER_FRAME) {
-        session.tick(autoOn ? autopilot(session.car, track) : input.poll(DT), autoOn);
+        const inp = autoOn ? autopilot(session.car, track) : input.poll(DT);
+        if (netRt) netRt.mp.tick(inp, autoOn, nowS - (acc - DT));   // (the local time this tick's state is for)
+        else session.tick(inp, autoOn);
         acc -= DT; steps++;
       }
       if (steps === MAX_STEPS_PER_FRAME) acc = 0;
-    }
+    } else netRt?.mp.idle(nowS);
     const alpha = clamp(acc / DT, 0, 1), car = session.car;
     car.render(alpha, paused ? 0 : fdt);
     for (const o of session.others) o.car.render(alpha, paused ? 0 : fdt);
@@ -247,17 +328,29 @@ export async function main() {
     cam.lookBack = !menu.isOpen && input.lookingBack();
     cam.update(fdt, car);
     ghost.update(car, timing, session.simTime, alpha, camera);
+    // other players at the time the car is drawn at (it is interpolated a tick behind the physics)
+    if (netRt) netRt.view.update(netRt.mp, nowS - DT, camera, paused ? 0 : fdt, !hud.hidden && !menu.isOpen);
     cockpitDisplay.update(car, timing, session.simTime, alpha, cam.mode === 'driver' && !cam.lookBack);
     audio.update(car, fdt, started && !paused);
 
     hud.handleEvents(timing);
-    hud.update({ car, timing, simTime: session.simTime, alpha, dt: fdt, autoOn, paused, mouseSteer: input.mouse.enabled ? input.mouse.steer : null, ghost: ghost.shown ? ghost.mapPos : null });
+    hud.update({ car, timing, simTime: session.simTime, alpha, dt: fdt, autoOn, paused, mouseSteer: input.mouse.enabled ? input.mouse.steer : null, ghost: ghost.shown ? ghost.mapPos : null,
+      others: netRt?.view.dots, netGhost: netRt?.mp.noCollide });
+    if (netRt && !hud.hidden) netRt.board.update(netRt.mp, netRt.view.status, fdt, !running);
 
     renderer.render(scene, camera);
     const cockpitView = cam.mode === 'onboard' || cam.mode === 'driver';
     mirror.render(renderer, scene, stage.sun, car, mirror.wanted(cockpitView) && !hud.hidden && !menu.isOpen && !cam.lookBack, ghost, camera);
   };
   requestAnimationFrame(frame);
+  // A hidden tab gets no frames: keep a room's connection alive meanwhile (the relay drops a client it has not heard
+  // from for 10 s), with the car sent as paused (the simulation is stopped too: frames cap their time step).
+  setInterval(() => {
+    const t = performance.now();
+    if (!netRt || t - last < 500) return;
+    for (const e of netRt.mp.update(t / 1000, true)) if (e.type === 'closed') { stopNet(`Disconnected (${e.reason})`, true); return; }
+    netRt.mp.idle(t / 1000);
+  }, 1000);
 }
 
 // The ?opponents value: a count of the player's car (none given: one), or car ids separated by commas (unknown ids

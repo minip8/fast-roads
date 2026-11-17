@@ -20,7 +20,9 @@ canvas#view { display: block; width: 100vw; height: 100vh; }
 #hud.clear .panel { backdrop-filter: none; text-shadow: 0 1px 2px rgba(0,0,0,.9), 0 0 6px rgba(0,0,0,.6); }
 #hud [hidden] { display: none !important; }
 
-#timing { position: fixed; top: 16px; left: 16px; width: 280px; padding: 12px 14px; }
+/* The left column: the timing panel, then (in a room) the room's board and its notices */
+#leftCol { position: fixed; top: 16px; left: 16px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; pointer-events: none; }
+#timing { width: 280px; padding: 12px 14px; }
 #timing .trk { font-size: 11px; letter-spacing: .14em; color: var(--muted); text-transform: uppercase; }
 #lapTime { font-size: 34px; font-weight: 700; margin: 2px 0 0; }
 #lapTime.invalid { color: var(--red); text-decoration: line-through; text-decoration-thickness: 2px; }
@@ -38,6 +40,33 @@ canvas#view { display: block; width: 100vw; height: 100vh; }
 #lapList div { display: flex; justify-content: space-between; }
 #lapList .inv { text-decoration: line-through; opacity: .6; }
 #lapList .pb { color: var(--purple); }
+
+/* Multiplayer: the room's board (netHud.ts), its notices, and name tags over the other cars (remoteCars.ts) */
+#board { width: 280px; padding: 8px 10px 6px; font-size: 13px; }
+#board .bhead { display: flex; justify-content: space-between; font-size: 11px; letter-spacing: .12em; color: var(--muted); margin-bottom: 4px; }
+#board .bhead b { color: var(--text); letter-spacing: .14em; }
+#board .brow { display: grid; grid-template-columns: 16px 10px minmax(0, 1fr) auto auto; align-items: center; gap: 6px; padding: 2px 0; }
+#board .brow i { width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
+#board .bpos { color: var(--muted); font-size: 11px; text-align: right; }
+#board .bname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#board .bname small { color: var(--accent); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+#board .bname em { font-style: normal; font-size: 10px; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
+#board .bcar { font-size: 11px; color: var(--muted); }
+#board .btime { min-width: 64px; text-align: right; }
+#board .brow.self .bname { font-weight: 700; }
+#board .brow.away, #board .brow.menu { opacity: .6; }
+#board .brow.ghost i { background: transparent; box-shadow: inset 0 0 0 2px var(--c); }
+#netFeed { display: flex; flex-direction: column; gap: 4px; }
+#netFeed .note { background: rgba(12, 14, 18, var(--panel-a, .72)); border-radius: 7px; padding: 4px 9px; font-size: 12px; color: #d6dbe0;
+  animation: note-in .25s ease-out; border-left: 3px solid var(--muted); }
+#netFeed .note.join { border-left-color: var(--green); } #netFeed .note.leave { border-left-color: var(--red); }
+#netFeed .note.best { border-left-color: var(--purple); } #netFeed .note.error { border-left-color: var(--yellow); }
+@keyframes note-in { from { opacity: 0; transform: translateX(-6px); } }
+#netLabels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+.nametag { position: absolute; left: 0; top: 0; padding: 2px 7px; border-radius: 5px; white-space: nowrap; font-size: 12px; font-weight: 600;
+  color: #111; background: var(--c, #fff); box-shadow: 0 1px 4px rgba(0,0,0,.4); will-change: transform; }
+.nametag[hidden] { display: none; }
+body:has(#hud[hidden]) #netLabels { display: none; }
 
 #minimap { position: fixed; top: 16px; right: 16px; width: 220px; height: 220px; padding: 0; }
 #minimap.small { width: 150px; height: 150px; }
@@ -170,6 +199,20 @@ p.mnote:not(:empty) { margin: 8px 2px; }
   border-radius: 8px; padding: 6px 10px; width: min(240px, 100%); }
 .search::placeholder { color: var(--muted); }
 
+/* multiplayer: room, name and relay fields, Join / Leave */
+.netbox { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; background: rgba(255,255,255,.025); border-radius: 11px; padding: 10px; }
+.nfield { display: flex; flex-direction: column; gap: 4px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); flex: 1 1 120px; min-width: 0; }
+.nfield.wide { flex: 2 1 200px; }
+.nfield input { appearance: none; font: inherit; font-size: 14px; letter-spacing: normal; text-transform: none; color: var(--text); background: rgba(255,255,255,.07);
+  border: 1px solid rgba(255,255,255,.1); border-radius: 8px; padding: 8px 10px; width: 100%; }
+.nfield input:disabled { opacity: .55; }
+.nfield input::placeholder { color: var(--muted); }
+.netbox .netgo { padding: 9px 22px; }
+.netbox .netgo:disabled { opacity: .45; cursor: default; }
+.netstatus { font-size: 12px; color: var(--muted); margin: 8px 2px 0; min-height: 15px; }
+.netstatus.joined { color: var(--green); } .netstatus.error { color: var(--red); } .netstatus.connecting { color: var(--text); }
+.circuit-card.locked { opacity: .45; cursor: default; }
+
 /* car and circuit cards */
 .cards { display: grid; gap: 8px; }
 .cards.cars { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
@@ -274,7 +317,10 @@ kbd { font: inherit; font-weight: 700; color: var(--text); background: rgba(255,
   #msg { top: 42%; font-size: 19px; }
 }
 @media (max-width: 700px) {
-  #timing { width: calc(100vw - 32px); }
+  #timing, #board { width: calc(100vw - 32px); }
+  #board { font-size: 12px; padding: 6px 10px 4px; }
+  #board .brow:nth-child(n+6) { display: none; }   /* the first four */
+  #netFeed .note:nth-child(n+3) { display: none; }
   #minimap, #mirror { display: none; }
   #mouseSteer { bottom: 170px; width: 200px; }   /* above the dash */
   #tyres { right: auto; left: 16px; bottom: 50px; padding: 7px 8px; }   /* bottom left, above the help chip */

@@ -1,7 +1,7 @@
 import { DT, SURF } from './config';
 import { $ } from './dom';
 import { keyLabel, keysFor, MENU_KEY, type Action, type Bindings } from './keys';
-import { Minimap, type Bounds } from './minimap';
+import { Minimap, type Bounds, type MapDot } from './minimap';
 import type { Timing } from './timing';
 import type { Track } from './track';
 import { TyreWidget } from './tyreHud';
@@ -32,6 +32,8 @@ export interface HudFrame {
   dt: number; autoOn: boolean; paused: boolean;
   mouseSteer: number | null;        // mouse steering position, or null when mouse steering is off
   ghost?: { x: number; z: number } | null;   // the ghost car's position for the minimap, or null when it isn't shown
+  others?: readonly MapDot[];       // other players' cars for the minimap (multiplayer)
+  netGhost?: boolean;               // in a room, our car is not collidable yet (just restarted, or back from the menu)
 }
 
 export class Hud {
@@ -153,7 +155,7 @@ export class Hud {
     let surf = 0;
     for (const w of car.wheels) surf = Math.max(surf, w.surf);
     const surfName = SURF[surf].name;
-    setText(el.flags, `${car.manual ? 'MANUAL' : 'AUTO'} · TC ${car.tc ? 'ON' : 'OFF'}${f.autoOn ? ' · AUTOPILOT' : ''}${f.paused ? ' · PAUSED' : ''}${surfName !== 'asphalt' ? ' · ' + surfName.toUpperCase() : ''}`);
+    setText(el.flags, `${car.manual ? 'MANUAL' : 'AUTO'} · TC ${car.tc ? 'ON' : 'OFF'}${f.autoOn ? ' · AUTOPILOT' : ''}${f.paused ? ' · PAUSED' : ''}${f.netGhost ? ' · GHOST' : ''}${surfName !== 'asphalt' ? ' · ' + surfName.toUpperCase() : ''}`);
     if (this.msgTimer > 0 && (this.msgTimer -= dt) <= 0) el.msg.classList.remove('show');
     if (f.mouseSteer != null) setStyle(el.mouseKnob, 'left', (50 - f.mouseSteer * 50) + '%');
     if (this.helpTimer > 0 && (this.helpTimer -= dt) <= 0) { this.helpShown = false; this.syncHelp(); }
@@ -161,7 +163,7 @@ export class Hud {
       this.fpsFrames++; this.fpsTime += f.dt;
       if (this.fpsTime >= 0.5) { setText(el.fps, Math.round(this.fpsFrames / this.fpsTime) + ' fps'); this.fpsFrames = 0; this.fpsTime = 0; }
     }
-    if (!el.map.hidden) this.minimap.draw(car, f.ghost);
+    if (!el.map.hidden) this.minimap.draw(car, f.ghost, f.others);
   }
 
   // Shift lights fill from the car's shiftLightsFrom to its auto-upshift point, then all flash; pedal bars.

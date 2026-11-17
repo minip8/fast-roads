@@ -15,20 +15,22 @@
 <canvas id="view"></canvas>
 
 <div id="hud" hidden>
-  <div id="timing" class="panel">
-    <div class="trk"><span id="trkName"></span> · <span id="trkLen"></span></div>
-    <div id="lapTime" class="num">-:--.---</div>
-    <div id="lapState">OUT LAP</div>
-    <div id="delta" class="num"></div>
-    <div class="sectors">
-      <div class="sec" id="sec0"><span>S1</span><b class="num">—</b></div>
-      <div class="sec" id="sec1"><span>S2</span><b class="num">—</b></div>
-      <div class="sec" id="sec2"><span>S3</span><b class="num">—</b></div>
+  <div id="leftCol">
+    <div id="timing" class="panel">
+      <div class="trk"><span id="trkName"></span> · <span id="trkLen"></span></div>
+      <div id="lapTime" class="num">-:--.---</div>
+      <div id="lapState">OUT LAP</div>
+      <div id="delta" class="num"></div>
+      <div class="sectors">
+        <div class="sec" id="sec0"><span>S1</span><b class="num">—</b></div>
+        <div class="sec" id="sec1"><span>S2</span><b class="num">—</b></div>
+        <div class="sec" id="sec2"><span>S3</span><b class="num">—</b></div>
+      </div>
+      <div class="row"><span>LAST</span><b id="lastLap" class="num">—</b></div>
+      <div class="row"><span>BEST</span><b id="bestLap" class="num">—</b></div>
+      <div class="row"><span>OPTIMAL</span><b id="optLap" class="num">—</b></div>
+      <div id="lapList" class="num"></div>
     </div>
-    <div class="row"><span>LAST</span><b id="lastLap" class="num">—</b></div>
-    <div class="row"><span>BEST</span><b id="bestLap" class="num">—</b></div>
-    <div class="row"><span>OPTIMAL</span><b id="optLap" class="num">—</b></div>
-    <div id="lapList" class="num"></div>
   </div>
   <canvas id="minimap" class="panel" width="440" height="440"></canvas>
   <div id="mirror" hidden></div>

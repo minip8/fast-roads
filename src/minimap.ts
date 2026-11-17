@@ -6,6 +6,7 @@ import type { Vehicle } from './vehicle';
 // Minimap: the circuit and timing lines drawn once, the car arrow on top each frame
 // ============================================================================
 export interface Bounds { minX: number; maxX: number; minZ: number; maxZ: number }
+export interface MapDot { x: number; z: number; color: string; ghost: boolean }   // another player's car
 
 export class Minimap {
   private readonly ctx: CanvasRenderingContext2D;
@@ -40,8 +41,8 @@ export class Minimap {
   private x(x: number) { return this.offX + (x - this.bounds.minX) * this.scale; }
   private y(z: number) { return this.offZ + (z - this.bounds.minZ) * this.scale; }
 
-  // ghost: where the ghost car is (null: not shown)
-  draw(car: Vehicle, ghost: { x: number; z: number } | null = null) {
+  // ghost: where the ghost car is (null: not shown); others: other players' cars
+  draw(car: Vehicle, ghost: { x: number; z: number } | null = null, others: readonly MapDot[] = []) {
     const c = this.ctx;
     c.clearRect(0, 0, this.canvas.width, this.canvas.height);
     c.drawImage(this.base, 0, 0);
@@ -49,6 +50,12 @@ export class Minimap {
       c.beginPath(); c.arc(this.x(ghost.x), this.y(ghost.z), 7, 0, Math.PI * 2);
       c.fillStyle = 'rgba(159,216,255,.75)'; c.strokeStyle = 'rgba(0,0,0,.6)'; c.lineWidth = 2; c.stroke(); c.fill();
     }
+    for (const o of others) {
+      c.globalAlpha = o.ghost ? 0.55 : 1;
+      c.beginPath(); c.arc(this.x(o.x), this.y(o.z), 8, 0, Math.PI * 2);
+      c.fillStyle = o.color; c.strokeStyle = '#111'; c.lineWidth = 3; c.stroke(); c.fill();
+    }
+    c.globalAlpha = 1;
     const hx = car.fwd.x, hz = car.fwd.z, px = this.x(car.pos.x), py = this.y(car.pos.z);
     c.beginPath(); c.moveTo(px + hx * 14, py + hz * 14); c.lineTo(px - hz * 8 - hx * 8, py + hx * 8 - hz * 8); c.lineTo(px + hz * 8 - hx * 8, py - hx * 8 - hz * 8); c.closePath();
     c.fillStyle = '#ff6a13'; c.strokeStyle = '#111'; c.lineWidth = 3; c.stroke(); c.fill();

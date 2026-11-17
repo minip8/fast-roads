@@ -23,6 +23,7 @@ dev and the tests use the inline copy.
     npx vitest run test/handling.test.ts -t 'reverse'   # one file / one test by name
     npm run build       # typecheck + static build in dist/ (base './'); npm run preview serves it
     npm run build:env   # RL environment worker -> build/env/worker.mjs (git-ignored); node ai/client.mjs drives it
+    npm run server      # multiplayer relay -> build/server/server.mjs, listening on ws://*:8787 (PORT, HOST, MAX_PLAYERS, BATCH_MS)
     node scripts/cars/convert.mjs lcgt3 <source.glb>   # remake a car model (sources: see its header)
     node scripts/tracks/convert.mjs <racetrack-database> <f1-circuits> [id ...]   # remake circuit CSVs (see its header)
 
@@ -88,9 +89,17 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   pinned laps moves it too: update both), random starts, every episode end, automatic resets.
   `test/ai-worker.test.ts` builds the worker into a temporary folder and drives it over the protocol with
   `ai/client.mjs`, comparing every reply bit for bit with the same environments run in-process.
+- Multiplayer: `test/net-*.test.ts` cover `src/net/` and the relay on their own (docs/net.md, **Tests**);
+  `test/multiplayer.test.ts` joins game Sessions (harness `session()`) through an in-process `Relay` over
+  `LoopbackNet` (40 ms + jitter, loss) with `Multiplayer`, ticked in lockstep: proxy error against the other
+  client's real car, a rear-end hit seen by both simulations (no event applied) and by one (`localCollisions =
+  false` on the other: every event applied once), momentum equal and opposite within 35%, restarting onto an
+  occupied spot, pausing, joins, car changes, leaving, a lap (driven by placing the car before each timing line) on
+  the board. About 5 s. `NET_REPORT=1` prints the measurements quoted in docs/net.md.
 - In the browser, `window.__game` exposes `simulate(seconds, driver, probeSecs)`, `car` (a getter: the car object is
   replaced when you switch cars), `simTime`, `session`, `timing`, `track`, `input`, `setSetting(key, value)` and
-  `setAutopilot` and `stage` (renderer, scene, camera; the `GameHook` type in `main.ts`). Use it for checks that need the page (menu, HUD, settings), e.g.
+  `setAutopilot`, `stage` (renderer, scene, camera; the `GameHook` type in `main.ts`) and `multiplayer` (the
+  room's `Multiplayer`, or null). Use it for checks that need the page (menu, HUD, settings), e.g.
   from headless Chromium; `input.bindings` holds the current keys. Judge menu and HUD changes by screenshots, at a
   desktop and a phone width.
 - `test/storage.test.ts` covers loading settings and key bindings (corrupt, old or invalid data loads as defaults)
@@ -125,7 +134,7 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   elsewhere, e.g. another player's car: the session's cars are pushed off them, they are never moved) switch `tick`
   to `stepAll`: every car steps, the world steps once, `resolveContacts` runs (all pairs, then each car against each
   proxy) and `contacts` lists the tick's hits. With neither, `tick` is `stepPhysics` alone, so the single-car path
-  (and the pinned laps) are untouched. `?opponents=N` or `?opponents=lcgt3,drift` adds autopilot cars in the game
+  (and the pinned laps) are untouched. `resets` counts placements at the start spot (multiplayer watches it). `?opponents=N` or `?opponents=lcgt3,drift` adds autopilot cars in the game
 - `collide.ts`: car-to-car contact on an engine-neutral `ContactBody` (centre of mass, heading, velocity, yaw rate,
   `ContactShape`: nose and tail distances, half width, mass, yaw inertia; `contactBody(vehicle)` reads a car).
   `collide(a, b)` wraps the vendored `resolveCarToCarObbCollision` (handed the box centre and its velocity, the yaw
@@ -210,6 +219,35 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
 - `main.ts`: wires it together and owns game state (the `Session`, `started`/`paused`/autopilot, the
   `applySetting` table, hotkeys, the `window.__game` hook (typed `GameHook`), the frame loop)
 
+- **Multiplayer** (`src/net/`, `server/`, `src/multiplayer.ts` and the modules below; `docs/net.md` is the exact
+  reference for the protocol, the relay, the client API and the game's rules: keep it exact). Owner-authoritative:
+  each client simulates only its own car and sends its state; the others are proxies; the relay runs no physics.
+  - `src/net/` (browser-safe, no DOM and no Node: the relay bundles it too): `protocol.ts` (wire format;
+    `decodeMessage` never throws), `client.ts` `NetClient`, `remote.ts` `RemoteCar` (a proxy's buffer:
+    extrapolation, blending, staleness), `clock.ts`, `transport.ts` / `websocket.ts` / `loopback.ts` (the emulated
+    network for tests), `ids.ts`. Nothing in `src/` imports `ws`, `node:*` or `server/` (a test checks).
+  - `server/`: `relay.ts` `Relay` (rooms, roster, clock, lap board, limits), `ws.ts` `listen`, `main.ts`; built by
+    `vite.server.config.ts`.
+  - `multiplayer.ts` `Multiplayer(net, session)`: the glue, no DOM or rendering (the tests run it as the game does).
+    `tick(input, autopilot, tickAt)` replaces `session.tick`: each player's `RemoteCar` sampled at `tickAt` into a
+    `ContactBody` (shape from `shapeOf`: one throwaway car per car id), put in `session.proxies` only while
+    collidable; then our contacts summed into events, laps from `Timing.lastLap`, our state. `idle(now)` while paused.
+    Our car is `noCollide` from joining, after each restart (`Session.resets`, which also bumps the epoch) and while
+    paused, until clear of every car for `CLEAR_SECS`; the contact rule (each side applies its own half; an event is
+    applied only if our simulation had no contact with that car within the window `W` about a round trip, then that
+    proxy is not collided with until `W` after the hit) is in docs/net.md.
+  - `remoteCars.ts` `RemoteCars`: the other cars drawn (the spec's own mesh, own material copies so one car can turn
+    translucent, wheels and cockpit posed from the state), name tags (`#netLabels`, DOM), minimap dots (`MapDot`).
+    `netHud.ts` `NetHud`: the board and notice feed in `#leftCol` under the timing panel. `netGame.ts`: what main.ts
+    imports dynamically (`connect`, waits for the welcome), so `src/net` is not in a single-player page's download.
+    `netPrefs.ts` (static, no net code): `fastroads.net` in localStorage (server, room, name), the default relay
+    (`VITE_RELAY_URL` at build time, else the page's host on port 8787), the `?room=CODE&server=` link.
+  - `main.ts`: a `?room=` link joins before the circuit is built, and the welcome's circuit is the one built; a menu
+    join to a room at another circuit saves that circuit and reloads into `?room=`. In a room, every frame runs
+    `mp.update`, the ticks go through `mp.tick` (`tickAt = now - (acc - DT)`), paused frames call `mp.idle`, a 1 s
+    timer keeps the link alive while a hidden tab gets no frames, and other cars are drawn at `now - DT`. While joined
+    the menu's circuit cards are locked (the room decides). The menu's Race tab has the Multiplayer section
+    (`MenuHost.net`).
 - **RL environment** (`src/ai/`, `ai/`, `docs/ai-env.md`, which the trainer is written from: keep it exact):
   - `src/ai/env.ts` `RaceEnv`: reset/step over a `Session` per circuit (the last `cacheSessions` kept). A step holds
     the action for `120 / actionHz` ticks of `stepPhysics`, without `Session.tick`'s restarts (a stuck or flipped
