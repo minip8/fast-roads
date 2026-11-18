@@ -320,6 +320,7 @@ export async function main() {
     shadows: (v) => stage.setShadows(v),
     brightness: (v) => stage.setBrightness(v / 100),
     weather: (v) => { weather.quality = v; },
+    scenery: (v) => stage.setDetail(v),
     sound: (v) => { audio.setMuted(v === 'off'); },
     volume: (v) => audio.setVolume(v / 100),
   };

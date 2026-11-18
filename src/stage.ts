@@ -6,6 +6,7 @@ import { buildScenery, buildSky } from './scenery';
 import type { Track } from './track';
 import type { TrackDef } from './tracks';
 import { buildTrackMeshes } from './trackMeshes';
+import { buildTrackside } from './trackside';
 
 // ============================================================================
 // Renderer, scene, lights and everything static around the circuit
@@ -14,6 +15,7 @@ const SHADOW_HALF = 60, SHADOW_AHEAD = 28, SUN_DIST = 250;
 // Shadow map size for each Shadows setting (0: the sun casts none).
 export const SHADOW_MAPS = { off: 0, low: 1024, high: 2048 };
 export type ShadowQuality = keyof typeof SHADOW_MAPS;
+export type SceneryDetail = 'high' | 'low';
 
 export function buildStage(canvas: HTMLCanvasElement, track: Track, def: TrackDef) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
@@ -74,6 +76,7 @@ export function buildStage(canvas: HTMLCanvasElement, track: Track, def: TrackDe
 
   const trackMaterials = buildTrackMeshes(track, scene);
   const { bounds, terrain } = buildScenery(track, scene, def);
+  const trackside = buildTrackside(track, def, scene, trackMaterials.lineMat);
   const brakeMarkers = buildBrakeMarkers(track, scene);
 
   const fit = () => {
@@ -96,9 +99,10 @@ export function buildStage(canvas: HTMLCanvasElement, track: Track, def: TrackDe
     }
   };
   const setBrightness = (exposure: number) => { renderer.toneMappingExposure = exposure; };
+  const setDetail = (level: SceneryDetail) => trackside.setDetail(level);
 
   // (weather.ts changes the sky, lights, fog and these materials while it rains or the track is wet)
   const surfaces = { ...trackMaterials, terrain };
-  return { renderer, scene, camera, sky, sun, sunDir, hemi, env, surfaces, followSun, bounds, brakeMarkers, setResolution, setShadows, setBrightness };
+  return { renderer, scene, camera, sky, sun, sunDir, hemi, env, surfaces, followSun, bounds, brakeMarkers, trackside, setResolution, setShadows, setBrightness, setDetail };
 }
 export type Stage = ReturnType<typeof buildStage>;

@@ -2,7 +2,8 @@ import { expect, it } from 'vitest';
 import { writeFileSync } from 'node:fs';
 import { CARS, type CarId } from '../src/cars';
 import { circuitInfo, outlineOf, type Outline } from '../src/catalog';
-import { pitBuilding, standBays } from '../src/scenery';
+import { clearOf, pitBuilding, pitReserve, standBays } from '../src/scenery';
+import { blockSpots, bridgeSpots, TREE_RADIUS, treeSpots } from '../src/trackside';
 import { S_ASPHALT } from '../src/config';
 import { parseCSV, surfaceAt } from '../src/track';
 import { OUTLINES } from '../src/trackOutlines';
@@ -48,6 +49,44 @@ for (const def of Object.values(TRACKS)) {
     expect(pit).not.toBeNull();
     expect(pit.len).toBeGreaterThan(0.8 * (def.pit[1] - def.pit[0]));
     expect(standBays(tr, def).length).toBeGreaterThanOrEqual(Math.min(4, def.stands[0] + def.stands[1] + 1));
+  });
+
+  it(`${def.id}: scenery beyond the walls, clear of the track, of other stretches and of the pit lane's ground, the same every time`, async () => {
+    const tr = await trackFor(def.id);
+    // Independently of clearOf: no point of anything solid inside a stretch's walls (at the side of a centreline
+    // sample, nearer than its barrier) or on the reserved pit-lane ground.
+    const res = pitReserve(tr, def), ds = tr.L / tr.N;
+    // the samples within 150 m of a thing (found once for all its points)
+    const nearby = (x: number, z: number) => { const out: number[] = []; for (let j = 0; j < tr.N; j++) if ((x - tr.X[j]) ** 2 + (z - tr.Z[j]) ** 2 < 22500) out.push(j); return out; };
+    const inWalls = (x: number, z: number, r: number, near = nearby(x, z)) => {
+      for (const j of near) {
+        const dx = x - tr.X[j], dz = z - tr.Z[j];
+        if (dx * dx + dz * dz > 6400 || Math.abs(dx * tr.TX[j] + dz * tr.TZ[j]) > ds) continue;
+        const lat = dx * tr.NX[j] + dz * tr.NZ[j], bar = lat > 0 ? tr.barL[j] : tr.barR[j];
+        if (Math.abs(lat) < bar + r) return `inside the walls at s = ${tr.S[j].toFixed(0)}`;
+        if (wrapI(j - res.from, tr.N) <= res.to - res.from && lat * res.side > 0 && Math.abs(lat) < bar + res.width) return `on the pit lane's ground at s = ${tr.S[j].toFixed(0)}`;
+      }
+      return null;
+    };
+    const trees = treeSpots(tr, def);
+    expect(trees.length).toBeGreaterThan(0.5 * def.trees);
+    for (const t of trees) expect(inWalls(t.x, t.z, TREE_RADIUS - 0.5), `${def.id}: a ${t.kind} tree`).toBeNull();
+    const blocks = blockSpots(tr, def);
+    if (def.scene === 'city') expect(blocks.length).toBeGreaterThan(tr.L / 100);
+    for (const b of blocks) {
+      // the footprint's points are at most 2.5 m apart all over it, so no road passes between them
+      expect(b.pts.length).toBeGreaterThanOrEqual((Math.ceil(b.w / 2.5) + 1) * (Math.ceil(b.d / 2.5) + 1));
+      const near = nearby(b.x, b.z);
+      for (const [x, z] of b.pts) expect(inWalls(x, z, 1, near), `${def.id}: a building`).toBeNull();
+    }
+    for (const b of bridgeSpots(tr, def)) {
+      for (const [x, z] of b.legs) expect(inWalls(x, z, 0.1), `${def.id}: a bridge's leg`).toBeNull();
+      // its deck crosses this stretch only
+      for (const [x, z] of b.deck) expect(clearOf(tr, def, [[x, z]], { skip: [b.i - 60, b.i + 60], margin: 1 })).toBe(true);
+    }
+    // deterministic: every client and every reload places the same
+    expect(treeSpots(tr, def)).toEqual(trees);
+    expect(blockSpots(tr, def)).toEqual(blocks);
   });
 }
 

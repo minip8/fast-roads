@@ -49,7 +49,8 @@ The game opens on a menu with **Drive** at the top right and four tabs:
     and panel background (0–100%).
   - *Graphics*: render resolution (50–100% of the screen's pixels), shadows (off / low / high), brightness, weather
     effects (full / reduced / off: falling rain, spray and drops on the lens; reduced has fewer of them and no lens
-    drops, off has none, while the sky, light and wet road always show the weather).
+    drops, off has none, while the sky, light and wet road always show the weather), and scenery detail (high / low: low draws 40% of the
+    trees).
   - *Audio*: sound on/off and volume.
 
   **Reset all settings** puts them all back (not the car or circuit).
@@ -502,6 +503,18 @@ and override the mouse while held.
   close; yours is fainter. Rain hiss and patter and the hiss and swish of wet tyres (`src/weatherAudio.ts`) go
   through the sound graph. With both numbers at 0 nothing is built and the game is exactly as dry; back at 0,
   everything is undone and freed.
+- **Scenery** (`src/trackside.ts`), from a few fields of each circuit (its kind of place, trees, hills, buildings):
+  woods with clearings at the forest circuits (conifers at Spa and the Red Bull Ring, broadleaf at Monza, both at
+  Suzuka), parkland trees, palms and desert scrub; city blocks along the walls of the street circuits with lit
+  windows (and neon signs in Singapore, Las Vegas and Jeddah) and a city skyline in the distance where there is one;
+  sand, dry grass or green ground by the place; a ring of hills on the horizon (the Alps behind the Red Bull Ring,
+  mountains behind Monaco and Las Vegas, dunes in the desert); catch fences on the walls (all round a street
+  circuit, elsewhere behind the gravel traps and along the start straight); an advertising bridge over one or two
+  long straights; the grid's slots painted on the start straight.
+  Everything is placed from the track by a seeded generator (the same for every player and every reload) and through
+  one clearance test (`clearOf` in `src/scenery.ts`): nothing on the road or run-off, inside the walls, over another
+  stretch of the lap, inside a bend close enough to hide the corner, or on the ground the pit lane takes. Looks only:
+  no colliders.
 - **Sound**: all synthesised, no recordings. Each car has its own engine voice (a smooth V6 in the F1, a lumpy V8 in
   the drift car) that brightens under load and stays plainly there off the throttle (quieter and duller on the
   overrun, about 7 dB under full throttle at the same rpm, and an idle that sounds like an engine running, not like

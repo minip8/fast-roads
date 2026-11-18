@@ -1,20 +1,40 @@
 import * as THREE from 'three';
 import { Batch } from './batch';
 import { canvasTex, noiseFill } from './textures';
+import { WOODS, woodsOf, type SceneKind } from './trackside';
 import { clamp, wrapI } from './util';
 import type { Track } from './track';
 import type { TrackDef } from './tracks';
 
 // ============================================================================
-// Scenery: sky, terrain, trees, grandstands, skyline, gantry
+// Scenery: sky, terrain, grandstands, pit building, gantry, and the clearance test everything placed round the
+// circuit goes through (trees, buildings, hills and the rest: trackside.ts)
 // ============================================================================
+// The ground's colours by the kind of place (three, blended by large-scale noise) and whether it is sand.
+const GROUND: Record<SceneKind, { c: [number, number, number]; sand?: boolean }> = {
+  forest: { c: [0x86ad58, 0x5f8a3e, 0x9aa35c] },
+  park: { c: [0x8fb35a, 0x6f9a45, 0xb3ad6a] },
+  country: { c: [0x96b25e, 0x77984a, 0xbcb070] },
+  dry: { c: [0xb9b276, 0x97a05a, 0xd0b884] },
+  city: { c: [0x9aa07c, 0x80886a, 0xaaa690] },
+  desert: { c: [0xe6cc98, 0xd4b27c, 0xeedcb0], sand: true },
+  dunes: { c: [0xddcc9c, 0xa8ae70, 0xe6d6aa], sand: true },
+};
+
 export function buildScenery(tr: Track, scene: THREE.Scene, def: TrackDef) {
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
   for (let i = 0; i < tr.N; i++) { minX = Math.min(minX, tr.X[i]); maxX = Math.max(maxX, tr.X[i]); minZ = Math.min(minZ, tr.Z[i]); maxZ = Math.max(maxZ, tr.Z[i]); }
   const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
 
   // Terrain
+  const ground = GROUND[def.scene];
   const grassTex = canvasTex(256, 256, (g, w, h) => {
+    if (ground.sand) {
+      noiseFill(g, w, h, [226, 214, 190], 26, 0.03);
+      g.globalAlpha = 0.07; g.fillStyle = '#5a4a30';
+      for (let y = 0; y < h; y += 16) g.fillRect(0, y + ((y * 7) % 5), w, 3);   // wind ripples
+      return;
+    }
     noiseFill(g, w, h, [92, 128, 58], 34);
     g.globalAlpha = 0.08; g.fillStyle = '#000';
     for (let x = 0; x < w; x += 64) g.fillRect(x, 0, 32, h);      // mowing stripes
@@ -23,12 +43,15 @@ export function buildScenery(tr: Track, scene: THREE.Scene, def: TrackDef) {
   const tg = new THREE.PlaneGeometry(7000, 7000, 140, 140);
   tg.rotateX(-Math.PI / 2);
   const cols = new Float32Array(tg.attributes.position.count * 3), p = tg.attributes.position;
-  const c1 = new THREE.Color(0x8fb35a), c2 = new THREE.Color(0x6f9a45), c3 = new THREE.Color(0xb3ad6a), tmp = new THREE.Color();
+  const [c1, c2, c3] = ground.c.map((c) => new THREE.Color(c)), tmp = new THREE.Color();
+  // under the woods of a forest or park the ground is darker (woodland floor seen from afar)
+  const woods = def.scene === 'forest' || def.scene === 'park' ? woodsOf(def) : null, under = new THREE.Color(ground.c[1]).multiplyScalar(0.62);
   for (let i = 0; i < p.count; i++) {
     const x = p.getX(i) + cx, z = p.getZ(i) + cz;
     const n1 = Math.sin(x * 0.004) * Math.cos(z * 0.0047) + 0.5 * Math.sin(x * 0.011 + z * 0.009);
-    const n2 = Math.sin(x * 0.0021 - z * 0.0017 + 1.3);
-    tmp.copy(c1).lerp(c2, clamp(0.5 + 0.5 * n1, 0, 1)).lerp(c3, clamp(n2 * 0.5, 0, 0.6));
+    const n2 = Math.sin(x * 0.0021 - z * 0.0017 + 1.3), n3 = Math.sin(x * 0.019 + 0.7) * Math.sin(z * 0.023 - 1.1);
+    tmp.copy(c1).lerp(c2, clamp(0.5 + 0.5 * n1, 0, 1)).lerp(c3, clamp(n2 * 0.5, 0, 0.6)).multiplyScalar(0.94 + 0.08 * n3);
+    if (woods) tmp.lerp(under, clamp((woods(x, z) - WOODS + 0.04) / 0.12, 0, 1) * (def.scene === 'forest' ? 0.85 : 0.5) * clamp((nearestSample(tr, x, z).d - 30) / 50, 0, 1));
     cols[i * 3] = tmp.r; cols[i * 3 + 1] = tmp.g; cols[i * 3 + 2] = tmp.b;
   }
   tg.setAttribute('color', new THREE.BufferAttribute(cols, 3));
@@ -38,42 +61,7 @@ export function buildScenery(tr: Track, scene: THREE.Scene, def: TrackDef) {
   terrain.receiveShadow = true;
   scene.add(terrain);
 
-  // Trees (instanced)
-  const rng = mulberry32(1337);
-  const treePos = [];
-  for (let tries = 0; tries < 7000 && treePos.length < def.trees; tries++) {
-    const x = minX - 500 + rng() * (maxX - minX + 1000), z = minZ - 500 + rng() * (maxZ - minZ + 1000);
-    const d = tr.nearestDist(x, z);
-    if (d < 48) continue;
-    if (d > 260 && rng() < 0.6) continue;            // denser near the circuit
-    treePos.push([x, z, 0.7 + rng() * 0.8, rng() * Math.PI * 2]);
-  }
-  const trunkGeo = new THREE.CylinderGeometry(0.22, 0.35, 3.2, 6).translate(0, 1.6, 0);
-  const leafGeo = new THREE.IcosahedronGeometry(2.6, 0).scale(1, 1.25, 1).translate(0, 5.2, 0);
-  const trunks = new THREE.InstancedMesh(trunkGeo, new THREE.MeshStandardMaterial({ color: 0x6b5440, roughness: 1 }), treePos.length);
-  const leaves = new THREE.InstancedMesh(leafGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, flatShading: true }), treePos.length);
-  const mtx = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), pos = new THREE.Vector3(), Y = new THREE.Vector3(0, 1, 0);
-  const leafCols = [0x4f7a34, 0x5d8a3a, 0x3f6a2e, 0x6e8f45, 0x56743a];
-  treePos.forEach(([x, z, s, r], k) => {
-    q.setFromAxisAngle(Y, r); sc.set(s, s * (0.9 + rng() * 0.4), s); pos.set(x, 0, z);
-    mtx.compose(pos, q, sc); trunks.setMatrixAt(k, mtx); leaves.setMatrixAt(k, mtx);
-    leaves.setColorAt(k, tmp.set(leafCols[k % leafCols.length]).multiplyScalar(0.85 + rng() * 0.3));
-  });
-  trunks.castShadow = leaves.castShadow = true;
-  scene.add(trunks, leaves);
-
-  // Distant city skyline (north, i.e. -z), at circuits that have one
-  const bGeo = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
-  const bCount = def.skyline ? 160 : 0;
-  const blds = new THREE.InstancedMesh(bGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6, metalness: 0.2 }), bCount);
-  for (let k = 0; k < bCount; k++) {
-    const x = cx - 900 + rng() * 1900, z = minZ - 1900 - rng() * 1300;
-    const h = 30 + Math.pow(rng(), 2.2) * 230, w = 25 + rng() * 45;
-    mtx.compose(pos.set(x, 0, z), q.identity(), sc.set(w, h, 25 + rng() * 45));
-    blds.setMatrixAt(k, mtx);
-    blds.setColorAt(k, tmp.set([0x9aa6b2, 0xb7c0c8, 0x7f8c99, 0xc9ced3][k % 4]));
-  }
-  scene.add(blds);
+  const pos = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3();
 
   // Pit building on def.pitSide of the main straight, grandstands along the other side
   const standMats = {
@@ -116,8 +104,8 @@ export function buildScenery(tr: Track, scene: THREE.Scene, def: TrackDef) {
   if (pit) {
     M.compose(pos.set(pit.x, 4, pit.z), q.setFromEuler(e.set(0, pit.yaw, 0)), sc.set(1, 1, 1));
     // garages along the track-facing face (its u runs along the building)
-    const pitFront = new THREE.MeshStandardMaterial({ map: pitTexture(), roughness: 0.8 });
-    pitFront.map!.repeat.set(Math.max(1, Math.round(pit.len / 32)), 1);
+    const front = pitTexture(), pitFront = new THREE.MeshStandardMaterial({ map: front.map, emissive: 0xffffff, emissiveMap: front.lit, emissiveIntensity: 0, roughness: 0.8 });
+    for (const t of [front.map, front.lit]) t.repeat.set(Math.max(1, Math.round(pit.len / 32)), 1);
     part(new THREE.BoxGeometry(12, 8, pit.len), 0, 0, 0, [standMats.concrete, pitFront, standMats.roof, standMats.concrete, standMats.concrete, standMats.concrete]);
   }
   // Start gantry: local x maps to the left normal, rotation.y = atan2(-NZ, NX) maps (1,0,0) -> (NX, 0, NZ)
@@ -148,7 +136,7 @@ export function gantryPosts(tr: Track, def: Pick<TrackDef, 'pitSide'>): { wl: nu
 }
 
 // ---------------------------------------------------------------------------- the clearance test
-// Everything placed round the circuit (stands, the pit building, trees, buildings, masts, bridges: trackside.ts)
+// Everything placed round the circuit (stands, the pit building, trees, buildings, bridges: trackside.ts)
 // goes through clearOf. A thing may not reach any part of the circuit: no point of its footprint may lie inside any
 // stretch's walls (at the side of a centreline sample, closer than its barrier offset + `margin`). `skip`: samples
 // (counted from the line, may be negative) of the stretch it stands beside, whose walls it may reach (and 100 m
@@ -297,9 +285,16 @@ export function pitBuilding(tr: Track, def: Pick<TrackDef, 'pit' | 'pitSide'>): 
   return null;
 }
 
-// Pit building frontage, 32 m x 8 m per repeat: four garages under a glazed upper floor and a dark roof band.
+// Pit building frontage, 32 m x 8 m per repeat: four garages under a glazed upper floor and a dark roof band; `lit`
+// is the emissive map of its windows and garages, lit at dusk and night.
 function pitTexture() {
-  return canvasTex(512, 128, (g, w, h) => {
+  const lit = canvasTex(512, 128, (g, w) => {
+    g.fillStyle = '#000'; g.fillRect(0, 0, w, 128);
+    g.fillStyle = '#c8d8e8'; g.fillRect(0, 22, w, 26);
+    g.fillStyle = '#000'; for (let x = 0; x < w; x += 32) g.fillRect(x, 22, 3, 26);
+    for (let k = 0; k < 4; k++) { g.fillStyle = '#fff4e0'; g.fillRect(k * 128 + 12, 92, 104, 36); g.fillStyle = '#6a6458'; g.fillRect(k * 128 + 12, 62, 104, 30); }
+  });
+  const map = canvasTex(512, 128, (g, w, h) => {
     noiseFill(g, w, h, [196, 194, 188], 10);
     g.fillStyle = '#1f2630'; g.fillRect(0, 0, w, 12);                                  // roof band
     g.fillStyle = '#5d7f9e'; g.fillRect(0, 22, w, 26);                                 // upper-floor glazing
@@ -313,6 +308,7 @@ function pitTexture() {
       g.fillStyle = '#4a515a'; for (let y = 64; y < 92; y += 4) g.fillRect(x0 + 4, y, 96, 1);
     }
   });
+  return { map, lit };
 }
 
 export function mulberry32(a: number): () => number {
