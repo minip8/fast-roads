@@ -490,7 +490,9 @@ and override the mouse while held.
   through the sound graph. With both numbers at 0 nothing is built and the game is exactly as dry; back at 0,
   everything is undone and freed.
 - **Sound**: all synthesised, no recordings. Each car has its own engine voice (a smooth V6 in the F1, a lumpy V8 in
-  the drift car) that brightens under load, cuts briefly on upshifts, blips on downshifts and stutters on the rev
+  the drift car) that brightens under load and stays plainly there off the throttle (quieter and duller on the
+  overrun, about 7 dB under full throttle at the same rpm, and an idle that sounds like an engine running, not like
+  the overrun), cuts briefly on upshifts, blips on downshifts and stutters on the rev
   limiter. The voices get their weight from the spectrum, not from a lower pitch: crank orders under the firing note
   (the half orders that make a V8 rumble), a low exhaust/body resonance and low shelf, and little upper-mid buzz. The GT3's cross-plane V8 is made the way sample-based sims do it, with samples we synthesise ourselves
   (`src/engineLoops.ts`): exhaust pulses in the 1-5-4-8-6-3-7-2 firing order through each bank's pipe, with

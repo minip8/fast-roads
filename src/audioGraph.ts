@@ -8,10 +8,10 @@ import { WeatherSound } from './weatherAudio';
 // Sound graph: every node is created once here; update() only moves parameters (with setTargetAtTime, so nothing
 // clicks or zippers). Works on any BaseAudioContext, so it can also be rendered offline.
 //
-//   engine:  2 x oscillator (per-car wave over one engine cycle) -> roughness AM -> lowpass (opens with throttle)
+//   engine:  2 x oscillator (per-car wave over one engine cycle) -> roughness AM -> lowpass (opens with load)
 //            -> body peak -> low shelf (weight) -> shift cut -> rev limiter chop -> level
 //            or, for a voice with loops (EngineVoice.loops, engineLoops.ts): on-load and overrun loop per rpm point,
-//            crossfaded, playbackRate following rpm -> roughness AM -> the same shift cut, limiter and level;
+//            crossfaded by rpm and load, playbackRate following rpm -> roughness AM -> the same shift cut, limiter and level;
 //            plus overrun pops and gear whine (LoopPlayer, built when the voice is first used)
 //   tyres:   noise -> 2 narrow bandpasses (squeal, pitch wobble) + broad bandpass (scrub)
 //   surface: road roar, kerb rumble (chopped at the rumble-strip rate), grass rumble, gravel crunch
@@ -37,8 +37,8 @@ export interface EngineVoice {
   orders: [order: number, amp: number][];   // further crank orders, in halves (0.5 = once per cycle): the uneven firing's rumble
   detune: number;            // cents: second oscillator, for slow beating between "banks"
   level: number;             // engine gain at full throttle and redline
-  coast: number;             // share of that level off the throttle
-  bright: [coast: number, load: number];   // lowpass cutoff, in multiples of the firing frequency
+  coast: number;             // share of that level on the overrun (engineGain): quieter, never silent
+  bright: [coast: number, load: number];   // lowpass cutoff, in multiples of the firing frequency (engineCutoff)
   body: [hz: number, q: number, dbCoast: number, dbLoad: number];   // fixed exhaust/airbox resonance
   weight: [hz: number, db: number];   // low shelf: the exhaust's and the body's low end
   rough: number;             // random amplitude wobble (uneven firing), 0..1
@@ -73,6 +73,26 @@ export function tyreNoise(wheels: AudioCar['wheels'], speed: number, out = { squ
   out.squeal = clamp(0.65 * sqMax + 0.35 * sq / n, 0, 1) * fade;
   out.scrub = clamp(0.65 * scMax + 0.35 * sc / n, 0, 1) * fade;
   return out;
+}
+
+// The engine's load as the sound plays it, 0 (overrun) to 1 (full throttle): the throttle, but at idle never less than
+// what the engine burns to keep itself turning (IDLE_LOAD at idle rpm, gone by IDLE_FADE times it), so an idling engine
+// sounds like one running, not like the overrun.
+export const IDLE_LOAD = 0.4;
+const IDLE_FADE = 1.4;
+export function engineLoad(throttle: number, rpm: number, idle: number) {
+  return Math.max(clamp(throttle, 0, 1), IDLE_LOAD * clamp((idle * IDLE_FADE - rpm) / (idle * (IDLE_FADE - 1)), 0, 1));
+}
+// The engine's gain into the bus (oscillators or loops) at a load and rpm (redline 1). Off the throttle it falls to
+// `coast` of the level, never to silence: an engine on the overrun is quieter and duller, not gone.
+export function engineGain(v: EngineVoice, load: number, rpmN: number) {
+  return v.level * (v.coast + (1 - v.coast) * load) * (0.8 + 0.2 * clamp(rpmN, 0, 1.1));
+}
+// The oscillator voice's lowpass cutoff (Hz): `bright` multiples of the firing frequency, opening with the load, and
+// never under CUTOFF_FLOOR, where the low notes of an idle or a slow overrun would leave nothing a small speaker plays.
+export const CUTOFF_FLOOR = 300;
+export function engineCutoff(v: EngineVoice, rpm: number, load: number) {
+  return clamp(rpm / v.firingDiv * (v.bright[0] + (v.bright[1] - v.bright[0]) * load), CUTOFF_FLOOR, 14000);
 }
 
 export class SoundGraph {
@@ -237,13 +257,13 @@ export class SoundGraph {
 
     // ---- engine
     const thr = clamp(car.throttle, 0, 1);
-    const rpmN = clamp(car.rpm / car.spec.redline, 0, 1.1);
-    const rpm = Math.max(car.rpm, car.spec.idle * 0.9), fire = rpm / v.firingDiv;
+    const rpm = Math.max(car.rpm, car.spec.idle * 0.9);
+    const load = engineLoad(thr, rpm, car.spec.idle);
     for (const o of this.osc) o.frequency.setTargetAtTime(rpm / 120, t, 0.012);   // the wave is one engine cycle
-    this.engLow.frequency.setTargetAtTime(clamp(fire * (v.bright[0] + (v.bright[1] - v.bright[0]) * thr), 150, 14000), t, 0.03);
-    this.engBody.gain.setTargetAtTime(v.body[2] + (v.body[3] - v.body[2]) * thr, t, 0.05);
-    this.engine.gain.setTargetAtTime(v.level * (v.coast + (1 - v.coast) * thr) * (0.7 + 0.3 * rpmN), t, 0.03);
-    for (const p of this.players.values()) p.update(p === player ? car : null, active && !fresh, dt, t);
+    this.engLow.frequency.setTargetAtTime(engineCutoff(v, rpm, load), t, 0.03);
+    this.engBody.gain.setTargetAtTime(v.body[2] + (v.body[3] - v.body[2]) * load, t, 0.05);
+    this.engine.gain.setTargetAtTime(engineGain(v, load, car.rpm / car.spec.redline), t, 0.03);
+    for (const p of this.players.values()) p.update(p === player ? car : null, load, active && !fresh, dt, t);
     const onLimiter = car.gear >= 0 && thr > 0.3 && car.rpm >= car.spec.redline * 0.99 ? 1 : 0;
     this.limDepth.gain.setTargetAtTime(-0.42 * onLimiter, t, 0.02);   // limiter gain swings 1 -> ~0.16
     this.limiter.gain.setTargetAtTime(1 - 0.42 * onLimiter, t, 0.02);
@@ -355,7 +375,7 @@ function softClipCurve() {
   return c;
 }
 
-// A loop voice: its loops crossfaded by rpm (equal power: neighbouring loops are not in phase) and by throttle (in
+// A loop voice: its loops crossfaded by rpm (equal power: neighbouring loops are not in phase) and by load (engineLoad, in
 // amplitude: a point's two loops share their firing times and play at the same rate, so they stay in phase), plus
 // overrun pops and gear whine. Built once, the first time the voice is heard; silent while another car is driven.
 class LoopPlayer {
@@ -394,8 +414,8 @@ class LoopPlayer {
     this.whineOsc.connect(this.whine); mod.connect(gain(12, this.whineOsc.detune)); this.whineOsc.start();
   }
 
-  // car: null while another voice plays. live: driving, and not just placed (no pops then).
-  update(car: AudioCar | null, live: boolean, dt: number, t: number) {
+  // car: null while another voice plays. load: engineLoad. live: driving, and not just placed (no pops then).
+  update(car: AudioCar | null, load: number, live: boolean, dt: number, t: number) {
     if (!car) { this.out.gain.setTargetAtTime(0, t, 0.02); this.whine.gain.setTargetAtTime(0, t, 0.02); return; }
     const v = this.v, rpms = this.rpms, thr = clamp(car.throttle, 0, 1), abs = Math.abs(car.speedF);
     const rpm = Math.max(car.rpm, car.spec.idle * 0.9);
@@ -406,8 +426,8 @@ class LoopPlayer {
       const rate = rpm / rpms[p];
       this.src[2 * p].playbackRate.setTargetAtTime(rate, t, 0.012);
       this.src[2 * p + 1].playbackRate.setTargetAtTime(rate, t, 0.012);
-      this.mix[2 * p].gain.setTargetAtTime(w * thr, t, 0.03);
-      this.mix[2 * p + 1].gain.setTargetAtTime(w * (1 - thr), t, 0.03);
+      this.mix[2 * p].gain.setTargetAtTime(w * load, t, 0.03);
+      this.mix[2 * p + 1].gain.setTargetAtTime(w * (1 - load), t, 0.03);
     }
     this.out.gain.setTargetAtTime(v.level, t, 0.03);
 
@@ -427,6 +447,6 @@ class LoopPlayer {
     // gear whine follows the road speed
     const [hz, level] = v.whine;
     this.whineOsc.frequency.setTargetAtTime(Math.max(20, abs * hz), t, 0.03);
-    this.whine.gain.setTargetAtTime(level * clamp(abs / 50, 0, 1) * (0.6 + 0.4 * thr), t, 0.05);
+    this.whine.gain.setTargetAtTime(level * clamp(abs / 50, 0, 1) * (0.6 + 0.4 * load), t, 0.05);
   }
 }

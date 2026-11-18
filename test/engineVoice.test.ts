@@ -1,8 +1,10 @@
 // The oscillator engine voices (src/audioGraph.ts), computed from the wave and the filters the graph puts it
-// through (Web Audio's biquads, as specified), at full throttle: weight under the firing note, and no buzz on top.
+// through (Web Audio's biquads, as specified): at full throttle weight under the firing note and no buzz on top; off
+// the throttle and at idle, still plainly there.
 import { describe, expect, it } from 'vitest';
-import { cycleHarmonics, type EngineVoice } from '../src/audioGraph';
+import { cycleHarmonics, engineCutoff, engineGain, engineLoad, type EngineVoice } from '../src/audioGraph';
 import { CARS, type CarId } from '../src/cars';
+import { aWeight } from './aWeight';
 
 const SR = 48000;
 
@@ -28,12 +30,12 @@ function biquad(type: 'lowpass' | 'highpass' | 'peaking' | 'lowshelf', f0: numbe
   };
 }
 
-// Power of each line the engine plays at `rpm`, full throttle: [Hz, power][].
-function lines(v: EngineVoice, rpm: number) {
-  const fire = rpm / v.firingDiv, f0 = rpm / 120;
+// Power of each line the engine plays at `rpm` and `load` (1: full throttle), before the engine's gain: [Hz, power][].
+function lines(v: EngineVoice, rpm: number, load = 1) {
+  const f0 = rpm / 120;
   const chain = [
-    biquad('highpass', 30, 0.7, 0), biquad('lowpass', Math.min(14000, fire * v.bright[1]), 0.8, 0),
-    biquad('peaking', v.body[0], v.body[1], v.body[3]), biquad('lowshelf', v.weight[0], 0, v.weight[1]),
+    biquad('highpass', 30, 0.7, 0), biquad('lowpass', engineCutoff(v, rpm, load), 0.8, 0),
+    biquad('peaking', v.body[0], v.body[1], v.body[2] + (v.body[3] - v.body[2]) * load), biquad('lowshelf', v.weight[0], 0, v.weight[1]),
   ];
   return Array.from(cycleHarmonics(v), (a, k) => [k * f0, a] as const)
     .filter(([f, a]) => a > 0 && f < SR / 2)
@@ -70,5 +72,50 @@ describe('oscillator engine voices', () => {
     const [f1, drift, gt3] = (['lcf1', 'drift', 'lcgt3'] as const).map((id) => shares(id));
     f1.forEach((s, k) => { expect(s.under).toBeLessThan(0.25); expect(s.under).toBeLessThan(drift[k].under); });
     drift.forEach((s, k) => expect(s.under).toBeLessThan(gt3[k].under));
+  });
+});
+
+// The engine's A-weighted level (dB, relative) as the graph plays it: the voice's lines through the chain at the load
+// the graph plays (engineLoad), times its gain (engineGain).
+function heard(id: CarId, rpm: number, throttle: number) {
+  const spec = CARS[id], v = spec.sound, load = engineLoad(throttle, rpm, spec.idle);
+  const p = lines(v, rpm, load).reduce((s, [f, pw]) => s + pw * aWeight(f) ** 2, 0);
+  return 10 * Math.log10(p) + 20 * Math.log10(engineGain(v, load, rpm / spec.redline));
+}
+
+describe('engine off the throttle', () => {
+  // The owner: "there should be sound even if the car is not on throttle". Off the throttle the engine is quieter and
+  // duller, as a real one on the overrun, but plainly there: 4-10 dB under full throttle at the same rpm (now 7-8 dB
+  // for the F1 and the drift car, 5-6 for the GT3's stand-in voice; before, its gain fell to 0.4 of full and its
+  // filter closed further, 9-12 dB down in a render, under the wind at speed), and a lift is still heard as one. The
+  // GT3's own loops are checked the same way in engineLoops.test.ts.
+  it.each(VOICES)('%s stays audible on the overrun', (id, rpms) => {
+    for (const rpm of rpms) {
+      const drop = heard(id, rpm, 1) - heard(id, rpm, 0);
+      expect(drop).toBeGreaterThan(4);
+      expect(drop).toBeLessThan(10);
+    }
+  });
+
+  // At idle the engine is running, not on the overrun (engineLoad's idle share): heard within 20 dB of full throttle
+  // high in the rev range (now the F1 10 dB under it, the drift car 19; in a render before: 17 and 26 dB).
+  it.each(VOICES)('%s is heard idling', (id, rpms) => {
+    const spec = CARS[id];
+    expect(engineLoad(0, spec.idle, spec.idle)).toBeGreaterThan(0.3);
+    expect(engineLoad(0, spec.idle * 1.5, spec.idle)).toBe(0);
+    expect(heard(id, rpms[rpms.length - 1], 1) - heard(id, spec.idle, 0)).toBeLessThan(20);
+  });
+
+  // The throttle opens and closes the sound smoothly: the level rises with the throttle, a step of 0.1 at most 2 dB.
+  it.each(VOICES)('%s follows the throttle without jumps', (id, rpms) => {
+    for (const rpm of rpms) {
+      let prev = heard(id, rpm, 0);
+      for (let k = 1; k <= 10; k++) {
+        const db = heard(id, rpm, k / 10);
+        expect(db).toBeGreaterThanOrEqual(prev - 1e-9);
+        expect(db - prev).toBeLessThan(2);
+        prev = db;
+      }
+    }
   });
 });

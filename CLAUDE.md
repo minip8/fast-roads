@@ -217,7 +217,11 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   non-zero; `weatherSound` (tested) holds the levels.
 - `audio.ts`: `EngineAudio`, the AudioContext's lifecycle (created on the first gesture, suspended while muted or
   hidden); `audioGraph.ts`: `SoundGraph`, every sound node, built once, with `update()` moving only parameters.
-  It reads the car through the `AudioCar` interface and each car's `spec.sound` (`EngineVoice`). A voice with
+  It reads the car through the `AudioCar` interface and each car's `spec.sound` (`EngineVoice`). The engine plays at
+  a load (`engineLoad`: the throttle, never under an idle share near idle rpm, so an idle is not the overrun), with
+  the gain `engineGain` (`coast` of the level on the overrun: quieter, never silent) and, for the oscillators, the
+  cutoff `engineCutoff`; the tests compute the overrun and idle levels from these three (A-weighted: off the throttle
+  4-10 dB under full at the same rpm, idle within 20 dB of full high in the rev range). A voice with
   `loops` (only the GT3's) plays synthesised loop buffers instead of the oscillators: `engineLoops.ts` makes them
   in plain JS (exhaust pulses per cylinder in the firing order, a waveguide pipe per bank, saturation; whole engine
   cycles, so they loop seamlessly), one per `update()` the first time the voice is used (the oscillators play

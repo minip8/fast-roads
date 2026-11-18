@@ -1,9 +1,11 @@
 // The GT3's synthesised engine loops (src/engineLoops.ts): seamless, bounded, and with the spectrum of a cross-plane
 // V8: the firing order strongest, half orders of the crank present, weight under the firing note and little buzz
-// above it, brighter on load than on the overrun.
+// above it, brighter on load than on the overrun, and still plainly there on the overrun and at idle.
 import { describe, expect, it } from 'vitest';
+import { engineGain, engineLoad } from '../src/audioGraph';
 import { CARS } from '../src/cars';
 import { engineLoop, LOOP_RMS, loopCount, makeLoop, type EngineLoop } from '../src/engineLoops';
+import { aWeight } from './aWeight';
 
 const SR = 48000;
 const voice = CARS.lcgt3.sound.loops!;
@@ -91,5 +93,35 @@ describe('GT3 engine loops', () => {
 
   it('is brighter on load than on the overrun', () => {
     for (let p = 0; p < voice.rpms.length; p++) expect(centroid(loops[2 * p])).toBeGreaterThan(1.5 * centroid(loops[2 * p + 1]));
+  });
+});
+
+// The loops as the graph plays them at one rpm point: its on-load and overrun loop mixed in amplitude by the load
+// (they are in phase), times the engine's gain. A-weighted level in dB, from the half-order lines up to 12 kHz.
+describe('GT3 engine off the throttle', () => {
+  const gt3 = CARS.lcgt3;
+  function heard(p: number, throttle: number, rpm = loops[2 * p].rpm) {
+    const on = loops[2 * p], off = loops[2 * p + 1], load = engineLoad(throttle, rpm, gt3.idle);
+    const data = on.data.map((x, i) => load * x + (1 - load) * off.data[i]);
+    const l: EngineLoop = { ...on, data }, f0 = on.rpm / 120;
+    let pw = 0;
+    for (let h = 1; h * f0 < 12000; h++) pw += (orderAmp(l, h / 2) * aWeight(h * f0)) ** 2;
+    return 10 * Math.log10(pw) + 20 * Math.log10(engineGain(gt3.sound, load, rpm / gt3.redline));
+  }
+
+  // Quieter and duller on the overrun, not gone: 4-10 dB under full throttle at every point (now 5-9 dB; before the
+  // overrun's gain was 0.4 of full, 8-11 dB down in a render, under the wind at speed).
+  it('stays audible on the overrun', () => {
+    voice.rpms.forEach((_, p) => {
+      const drop = heard(p, 1) - heard(p, 0);
+      expect(drop).toBeGreaterThan(4);
+      expect(drop).toBeLessThan(10);
+    });
+  });
+
+  // At idle (played from the lowest point) the engine is running, not on the overrun: within 20 dB of full throttle at
+  // the top point (now 16 dB; before: 22 dB in a render).
+  it('is heard idling', () => {
+    expect(heard(voice.rpms.length - 1, 1) - heard(0, 0, gt3.idle)).toBeLessThan(20);
   });
 });
