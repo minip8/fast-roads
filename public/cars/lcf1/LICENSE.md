@@ -33,7 +33,8 @@ Made by `scripts/cars/convert.mjs` (see its header to reproduce it from the down
   tyres on the road) and split into separately moving parts: the body, the four wheels (tyre and rim), the four
   brake drums, the steering wheel (with its display and shift lights), the rain light (lit under braking), and the
   six wing flaps, each with the turn that opens it (from LibreCorsa's open and closed poses).
-- Simplified from about 177,000 to about 66,000 triangles; the cockpit and the steering wheel the least.
+- Simplified from about 177,000 to about 99,000 triangles; the cockpit and the steering wheel the least.
 - Painted: the three paint zones navy, black and red, with new colours and finishes for the carbon, tyres and rims;
-  the specular extension removed from the cockpit material (plain metal/roughness).
+  the steering wheel's flag lights beside its screen unlit; the specular extension removed from the cockpit
+  material (plain metal/roughness).
 - The steering wheel's two textures re-encoded as WebP; geometry quantized and meshopt-compressed.
