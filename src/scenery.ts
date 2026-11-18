@@ -147,25 +147,113 @@ export function gantryPosts(tr: Track, def: Pick<TrackDef, 'pitSide'>): { wl: nu
     : { wl: tr.WL[0] + 2, wr: beyond(tr.barR[0], !!tr.barRValid[0], tr.WR[0]) };
 }
 
-// Where the buildings go. A building may not reach another part of the circuit (a street circuit's straight often
-// has a hairpin or another straight just beyond its walls): no point of its footprint may lie inside any stretch's
-// walls (at the side of a centreline sample, closer than its barrier offset + 0.5 m). The straight it stands beside
-// (samples a to b, and 100 m either side) is left out of that: the building is placed off its walls. A stand bay
-// that would intrude is left out, the pit building shortened from its ends until it fits.
-const clear = (tr: Track, pts: [number, number][], a: number, b: number) => pts.every(([x, z]) => {
-  const ds = tr.L / tr.N, m = Math.round(100 / ds);
-  for (let j = 0; j < tr.N; j++) {
-    if (wrapI(j - (a - m), tr.N) <= b - a + 2 * m) continue;
-    const dx = x - tr.X[j], dz = z - tr.Z[j];
-    if (dx * dx + dz * dz > 3600 || Math.abs(dx * tr.TX[j] + dz * tr.TZ[j]) > 1.5) continue;
-    const lat = dx * tr.NX[j] + dz * tr.NZ[j];
-    if (Math.abs(lat) < (lat > 0 ? tr.barL[j] : tr.barR[j]) + 0.5) return false;
+// ---------------------------------------------------------------------------- the clearance test
+// Everything placed round the circuit (stands, the pit building, trees, buildings, masts, bridges: trackside.ts)
+// goes through clearOf. A thing may not reach any part of the circuit: no point of its footprint may lie inside any
+// stretch's walls (at the side of a centreline sample, closer than its barrier offset + `margin`). `skip`: samples
+// (counted from the line, may be negative) of the stretch it stands beside, whose walls it may reach (and 100 m
+// either side), as a building placed off its own straight's walls, or a bridge's deck over its straight. `reserve`:
+// also keep off the reserved ground (pitReserve: where a race weekend's pit lane goes). `buildings`: also keep `margin`
+// clear of the grandstands and the pit building. A stand bay that would intrude is left out, the pit building
+// shortened from its ends until it fits.
+export interface Keep { margin?: number; skip?: readonly [from: number, to: number]; reserve?: boolean; buildings?: boolean }
+type ClearDef = Pick<TrackDef, 'pitSide'> & Partial<Pick<TrackDef, 'pit' | 'stands'>>;
+export function clearOf(tr: Track, def: ClearDef, pts: readonly (readonly [number, number])[], keep: Keep = {}): boolean {
+  const ds = tr.L / tr.N, m = Math.round(100 / ds), margin = keep.margin ?? 0.5, grid = gridOf(tr);
+  const res = keep.reserve ? pitReserve(tr, def) : null, reach = 60 + margin + (res ? res.width : 0);
+  // how far along the track a sample's test reaches: its spacing (so a wall whose offset jumps between two samples is
+  // still seen), or 1.5 m for things placed off their own stretch (the stands and pit building, as first placed)
+  const tol = keep.skip ? 1.5 : ds, built = keep.buildings ? buildingsOf(tr, def) : null;
+  for (const [x, z] of pts) {
+    if (built) for (const c of built) if ((x - c.x) ** 2 + (z - c.z) ** 2 < (c.r + margin) ** 2) return false;
+    for (const j of grid.near(x, z, reach)) {
+      if (keep.skip && wrapI(j - (keep.skip[0] - m), tr.N) <= keep.skip[1] - keep.skip[0] + 2 * m) continue;
+      const dx = x - tr.X[j], dz = z - tr.Z[j], d2 = dx * dx + dz * dz, along = Math.abs(dx * tr.TX[j] + dz * tr.TZ[j]);
+      const lat = dx * tr.NX[j] + dz * tr.NZ[j], bar = lat > 0 ? tr.barL[j] : tr.barR[j];
+      if (d2 <= 3600 && along <= tol && Math.abs(lat) < bar + margin) return false;
+      // the reserve: on its side, from the track out to `width` beyond the wall (the samples fan out on the outside of
+      // a bend, so the test along the track widens with the distance from it)
+      if (res && lat * res.side > 0 && wrapI(j - res.from, tr.N) <= res.to - res.from &&
+        along <= ds * (1 + Math.abs(lat * tr.KS[j])) && Math.abs(lat) < bar + res.width + margin) return false;
+    }
   }
   return true;
-});
+}
+// The grandstands and pit building as circles (x, z, radius) covering their footprints (made once per track).
+const builtCache = new WeakMap<Track, { x: number; z: number; r: number }[]>();
+function buildingsOf(tr: Track, def: ClearDef) {
+  let out = builtCache.get(tr);
+  if (out) return out;
+  out = [];
+  if (def.stands && def.pit) {
+    // a bay reaches 1.5 m towards the track and 10.5 m back from (x, z); yaw turns local +z towards the track
+    for (const b of standBays(tr, def as TrackDef)) {
+      const tx = Math.sin(b.yaw), tz = Math.cos(b.yaw), cx = b.x - tx * 4.5, cz = b.z - tz * 4.5;
+      for (const u of [-8, 0, 8]) out.push({ x: cx + tz * u, z: cz - tx * u, r: 8.5 });
+    }
+    const pit = pitBuilding(tr, def as TrackDef);
+    if (pit) {
+      const ax = Math.sin(pit.yaw), az = Math.cos(pit.yaw), n = Math.ceil(pit.len / 8);
+      for (let k = 0; k <= n; k++) { const u = -pit.len / 2 + (pit.len * k) / n; out.push({ x: pit.x + ax * u, z: pit.z + az * u, r: 8.5 }); }
+    }
+  }
+  builtCache.set(tr, out);
+  return out;
+}
+
+// The pit lane's ground, kept clear for it: on def.pitSide, from 60 m before the last corner before the line to 60 m
+// after the first corner after it (samples from..to, counted from the line), `width` m beyond the wall. The race
+// weekends' pit lane (raceGeometry.ts) lies inside it; a lane built from real pit lane data can widen it here.
+export interface Reserve { side: 1 | -1; from: number; to: number; width: number }
+const reserves = new WeakMap<Track, Reserve>();
+export function pitReserve(tr: Track, def: Pick<TrackDef, 'pitSide'>): Reserve {
+  const got = reserves.get(tr);
+  if (got && got.side === def.pitSide) return got;
+  const ds = tr.L / tr.N, corner = (k: number) => Math.abs(tr.KS[wrapI(k, tr.N)]) > 1 / 150, maxK = Math.round(1200 / ds);
+  let from = 0, to = 0;
+  while (from > -maxK && !corner(from)) from--;
+  while (from > -maxK && corner(from)) from--;
+  while (to < maxK && !corner(to)) to++;
+  while (to < maxK && corner(to)) to++;
+  const r: Reserve = { side: def.pitSide, from: from - Math.round(60 / ds), to: to + Math.round(60 / ds), width: 25 };
+  reserves.set(tr, r);
+  return r;
+}
+// The track's samples in 50 m cells, for clearOf and nearestSample (made once per track).
+const grids = new WeakMap<Track, { near(x: number, z: number, r: number): number[] }>();
+function gridOf(tr: Track) {
+  let g = grids.get(tr);
+  if (g) return g;
+  const C = 50, cells = new Map<number, number[]>(), key = (a: number, b: number) => a * 100003 + b;
+  for (let j = 0; j < tr.N; j++) {
+    const k = key(Math.floor(tr.X[j] / C), Math.floor(tr.Z[j] / C));
+    (cells.get(k) ?? (cells.set(k, []), cells.get(k)!)).push(j);
+  }
+  const out: number[] = [];
+  g = {
+    near(x, z, r) {
+      out.length = 0;
+      const a0 = Math.floor((x - r) / C), a1 = Math.floor((x + r) / C), b0 = Math.floor((z - r) / C), b1 = Math.floor((z + r) / C);
+      for (let a = a0; a <= a1; a++) for (let b = b0; b <= b1; b++) { const l = cells.get(key(a, b)); if (l) for (const j of l) out.push(j); }
+      return out;
+    },
+  };
+  grids.set(tr, g);
+  return g;
+}
+// The nearest centreline sample to a point: its index, the distance and the point's offset to the left of it.
+export function nearestSample(tr: Track, x: number, z: number): { i: number; d: number; lat: number } {
+  let best = -1, bd = Infinity;
+  for (const r of [60, 250]) {
+    for (const j of gridOf(tr).near(x, z, r)) { const d = (x - tr.X[j]) ** 2 + (z - tr.Z[j]) ** 2; if (d < bd) { bd = d; best = j; } }
+    if (best >= 0 && bd <= r * r) break;
+  }
+  if (best < 0 || bd > 250 * 250) for (let j = 0; j < tr.N; j += 2) { const d = (x - tr.X[j]) ** 2 + (z - tr.Z[j]) ** 2; if (d < bd) { bd = d; best = j; } }
+  return { i: best, d: Math.sqrt(bd), lat: (x - tr.X[best]) * tr.NX[best] + (z - tr.Z[best]) * tr.NZ[best] };
+}
 type Footprint = { x: number; z: number; yaw: number };
 // The points of a box (local width w across, depth d with +z towards the track from `front`, length along) to test.
-function boxPoints(cx: number, cz: number, ax: number, az: number, halfLen: number, nx: number, nz: number, d0: number, d1: number) {
+export function boxPoints(cx: number, cz: number, ax: number, az: number, halfLen: number, nx: number, nz: number, d0: number, d1: number) {
   const pts: [number, number][] = [];
   for (let u = -halfLen; u <= halfLen + 1e-6; u += Math.max(1, halfLen / 8)) {
     for (const d of [d0, (d0 + d1) / 2, d1]) pts.push([cx + ax * u + nx * d, cz + az * u + nz * d]);
@@ -182,7 +270,7 @@ export function standBays(tr: Track, def: TrackDef): Footprint[] {
     if (!valid[i] || Math.abs(tr.KS[i]) > 1 / 600) continue;
     const off = side * (bar[i] + 4), x = tr.X[i] + tr.NX[i] * off, z = tr.Z[i] + tr.NZ[i] * off;
     // outward normal side*N, the bay runs along the tangent; it reaches 1.5 m towards the track and 10.5 m back
-    if (!clear(tr, boxPoints(x, z, tr.TX[i], tr.TZ[i], 12.5, side * tr.NX[i], side * tr.NZ[i], -1.5, 10.5), i, i)) continue;
+    if (!clearOf(tr, def, boxPoints(x, z, tr.TX[i], tr.TZ[i], 12.5, side * tr.NX[i], side * tr.NZ[i], -1.5, 10.5), { skip: [i, i] })) continue;
     bays.push({ x, z, yaw: Math.atan2(-side * tr.NX[i], -side * tr.NZ[i]) });
   }
   return bays;
@@ -200,7 +288,7 @@ export function pitBuilding(tr: Track, def: Pick<TrackDef, 'pit' | 'pitSide'>): 
     const x = tr.X[im] + tr.NX[im] * off, z = tr.Z[im] + tr.NZ[im] * off;
     // the chord's outward normal, towards the building's side
     const nx = (side * az) / len, nz = (-side * ax) / len;
-    if (clear(tr, boxPoints(x, z, ax / len, az / len, len / 2, nx, nz, -6, 6), i0, i0 + k1 - k0)) {
+    if (clearOf(tr, def, boxPoints(x, z, ax / len, az / len, len / 2, nx, nz, -6, 6), { skip: [i0, i0 + k1 - k0] })) {
       // On the left the building's local -x faces the track; on the right it is turned round so that face still does.
       return { x, z, len, k0, k1, yaw: Math.atan2(ax, az) + (side > 0 ? 0 : Math.PI) };
     }
@@ -227,7 +315,7 @@ function pitTexture() {
   });
 }
 
-function mulberry32(a: number): () => number {
+export function mulberry32(a: number): () => number {
   return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 }
 

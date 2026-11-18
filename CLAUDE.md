@@ -202,6 +202,10 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
 - `track.ts`: track geometry and colliders (`Track`)
 - `trackMeshes.ts`, `textures.ts`, `scenery.ts`, `brakeMarkers.ts`: visuals (`standBays` / `pitBuilding` in
   `scenery.ts` place the buildings, leaving out or shortening any that would stand inside another stretch's walls;
+  `clearOf(tr, def, pts, { margin, skip, reserve, buildings })` is the one clearance test every placement goes
+  through: no point inside any stretch's walls + margin, except the `skip` stretch's, with `reserve` none on
+  `pitReserve`'s ground (the pit side from 60 m before the last corner to 60 m after the first, 25 m beyond the wall:
+  widen it there for a real pit lane), with `buildings` none within margin of the stands and pit building;
   `gantryPosts` stands the start gantry's pit-side post beyond the race weekends' pit lane); `batch.ts`: `Batch`, which merges many
   static parts into one mesh per material (grandstands, pit, gantry, brake boards, car bodies)
 - `weather.ts`: `Weather`, rain and track wetness as seen and heard (no physics). The game calls `weather.set({ rain,
