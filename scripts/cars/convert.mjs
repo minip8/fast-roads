@@ -4,11 +4,16 @@
 //
 //   node scripts/cars/convert.mjs <id> <source.glb>
 //
-// The sources are not in the repository (50-80 MB each). Download them from Sketchfab ("Download 3D model", glTF
-// format, which gives a .glb in source/):
-//   lcgt3  "Mercedes-AMG GT3 Red Bull Racing" by VTX (VTX_car), CC BY-NC-SA 4.0
+// The sources are not in the repository (6-80 MB each):
+//   lcgt3  "Mercedes-AMG GT3 Red Bull Racing" by VTX (VTX_car), CC BY-NC-SA 4.0. From Sketchfab ("Download 3D
+//          model", glTF format, which gives a .glb in source/):
 //          https://sketchfab.com/3d-models/mercedes-amg-gt3-red-bull-racing-035f061cb6624effbc483d5f9b5ecaba
 //          node scripts/cars/convert.mjs lcgt3 <dir>/source/mercedes_benz_amg_gt3_red_bull.glb
+//   lcf1   LibreCorsa's F1 2026 model (6,393,876 bytes; no account needed), as LibreCorsa adapted it from "F1 2026
+//          concept (polygon model)" by Qvist Designs (CC BY 4.0), with the steering wheel of "AM26" by DeX (labelled
+//          CC BY on Sketchfab; see public/cars/lcf1/LICENSE.md for where its description says it comes from):
+//          https://raw.githubusercontent.com/KhazP/librecorsa/02ee8ca34c32dcc0ab97be6da8e93d2f8c0f32d2/public/cars/f12026/model/f12026.glb
+//          node scripts/cars/convert.mjs lcf1 <dir>/f12026.glb
 // The licence file beside each output (LICENSE.md) list the changes made here, as the licence requires: update
 // them with any change to what this does. Check the result in the game (wheels, steering wheel, driver camera) and
 // with test/carModels.test.ts; scripts/cars/inspect.mjs prints a file's scene graph, materials and textures.
@@ -16,13 +21,16 @@
 // Output nodes (the game finds them by name; carModels.ts in src/):
 //   body                 everything that moves with the car's body
 //   wheel_FL/FR/RL/RR    tyre, rim and brake disc: spun and steered
-//   hub_FL/FR/RL/RR      brake calipers: steered, not spun
+//   hub_FL/FR/RL/RR      brake calipers or drums: steered, not spun
 //   steering_wheel       turned about its own z axis
 //   brake_light          its own material, lit while braking
+//   flap_*               movable wing flaps (cars that have them): turned about their frame's origin by extras.open
 // Each moving part carries extras.frame = { origin, rake }: where the part's own origin sits in the body (wheel
-// centre, steering-wheel centre) and the steering wheel's rake. The node's own transform can differ from that frame
-// (quantization moves it), so the game places a part by frame^-1 * node transform. extras.grip on the steering wheel
-// is the radius at which the hands hold it (m), extras.radius on a wheel its tyre's radius (m).
+// centre, steering-wheel centre, flap hinge) and the steering wheel's rake. The node's own transform can differ from
+// that frame (quantization moves it), so the game places a part by frame^-1 * node transform. extras.grip on the
+// steering wheel is the radius at which the hands hold it (m), extras.radius on a wheel its tyre's radius (m),
+// extras.open on a flap the rotation (quaternion [x, y, z, w], body axes) from its closed pose (the one the geometry
+// is in) to its open one.
 import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS, EXTMeshoptCompression, EXTTextureWebP, KHRMaterialsClearcoat, KHRMaterialsEmissiveStrength,
   KHRMaterialsSpecular, KHRMaterialsTransmission } from '@gltf-transform/extensions';
@@ -40,15 +48,22 @@ const CORNERS = ['FL', 'FR', 'RL', 'RR'];
 // Per-car setup. `target`: the spec's axles (src/cars.ts; lcgt3's come from LibreCorsa's AMG data through lcBody):
 // the axles land at z = zFront / zRear and the road under the tyres at y = -comHeight (the centre of mass is the
 // origin).
-// `turn`: degrees about y that bring the source's front to +z. `part(nodeNames, material)` sorts each source mesh:
-// 'body' (detail 'ext' or 'int'), 'wheel' (spun; 'tyre' also locates the hubs), 'hub' (steered only), 'steer'
-// ('steerRim' also locates the steering axis), 'brake' or null to drop it. 'wheel'/'hub' meshes are split into the
-// four corners triangle by triangle.
+// `turn`: degrees about y that bring the source's front to +z. `part(nodeNames, material)` sorts each source mesh
+// (nodeNames: its node's, then each parent's): 'body' (detail 'ext' or 'int'), 'glass', 'wheel' (spun; 'tyre' also
+// locates the hubs), 'hub' (steered only), 'steer' ('steerRim' also locates the steering axis), 'lights' (split:
+// behind the rear tyres is the brake light), 'brake' or null to drop it. 'wheel'/'hub' meshes are split into the
+// four corners triangle by triangle. `cabin`: the box (game body coordinates) the driver camera sees close up:
+// dash, cage, pillars, door cards, mirrors, roof; interior outside it counts as hidden. `centre` is inside the glass,
+// for telling its outer faces from inner ones. `flap(node)` (cars with movable wings): for a source node that is a
+// flap, its output name and its closed and open transforms (4x4, column-major, relative to its parent); everything
+// under it becomes that part.
 // ---------------------------------------------------------------------------------------------------------------
+const linear = (hex) => [16, 8, 0].map((s) => { const c = ((hex >> s) & 255) / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; });
 const CARS = {
   lcgt3: {
     target: { zFront: 1.378, zRear: -1.272, wheelRadius: 0.34625, comHeight: 0.40 },
     turn: -90,
+    cabin: { x: 1.12, y: 0.12, z: [-1.15, 0.8], centre: [0, 0.45, -0.45] },
     detail: { ext: [0.004, 0.2], wheel: [0.006, 0.2], hub: [0.02, 0.15], steer: [0.004, 0.3] },   // a denser mesh
     part(names, mat) {
       if (mat === 'WorldGridMaterial') return null;   // an engine placeholder material
@@ -74,6 +89,42 @@ const CARS = {
       if (/Carbon_Fiber/.test(name)) m.setNormalTexture(null);   // tiling weave, invisible at this size
     },
   },
+  lcf1: {
+    // the LC26's: lcBody(LC26_CONFIG) (wheelbase 3.40 m, as the model's)
+    target: { zFront: 1.8564, zRear: -1.5436, wheelRadius: 0.35375, comHeight: 0.287 },
+    turn: 0,   // already on the game's axes, in metres
+    detail: { ext: [0.0008, 0.55], wheel: [0.003, 0.5], hub: [0.006, 0.4] },   // LibreCorsa has simplified it once already
+    cabin: { x: 0.45, y: 0.1, z: [-0.4, 1.35] },   // the cockpit opening, the halo and the top of the nose
+    part(names, mat) {
+      if (names.includes('STEER_BASE')) return [names[0] === 'steering_wheel_force_india_steeringwheel_0' ? 'steerRim' : 'steer'];
+      if (names.some((n) => /^WHEEL_.._TYRE$/.test(n))) return ['tyre'];
+      if (names.some((n) => /^WHEEL_.._RIM$/.test(n))) return ['wheel'];
+      if (names.some((n) => /^SUSP_/.test(n))) return ['hub'];   // brake drums (uprights)
+      if (mat === 'EXT_clearled_security') return ['brake'];       // the rain light on the crash structure
+      if (mat === 'INT_cockpit') return ['body', 'int'];
+      return ['body', 'ext'];
+    },
+    // The flaps: both elements of the rear wing and two of each front wing half (the source's aeroClosed/aeroOpen).
+    flap(node) {
+      const m = /^(?:WING_REAR|FRONTWINGMOVING_F([LR]))_(\d)$/.exec(node.getName()), e = node.getExtras();
+      if (!m || !e.aeroOpen || !e.aeroClosed) return null;
+      return { name: `flap_${m[1] ? `F${m[1]}` : 'R'}${m[2]}`, closed: e.aeroClosed, open: e.aeroOpen };
+    },
+    materials(m) {
+      for (const e of m.listExtensions()) m.setExtension(e.extensionName, null);   // (KHR_materials_specular on the cockpit)
+      const name = m.getName(), paint = (hex, metal, rough) => m.setBaseColorFactor([...linear(hex), 1]).setMetallicFactor(metal).setRoughnessFactor(rough);
+      // The livery, in the built body's colours (LC_F1_PAINT in src/cars.ts): navy, red accents, white.
+      if (name === 'EXT_PAINT_PRIMARY') paint(0x1b2a4e, 0.35, 0.28);
+      if (name === 'EXT_PAINT_SECONDARY') paint(0x16181c, 0.3, 0.35);
+      if (name === 'EXT_PAINT_ACCENT') paint(0xe8112d, 0.25, 0.3);
+      if (name === 'EXT_carbon') paint(0x1d2024, 0.45, 0.34);
+      if (name === 'EXT_TYRE') paint(0x1c1c1e, 0, 0.82);
+      if (name === 'EXT_RIM') paint(0x2a2d33, 0.6, 0.35);
+      // The wheel's flag lights beside the screen, unlit (and so a material apart from the rev lights', which the game
+      // covers with its own)
+      if (name === 'indicator_lights') m.setEmissiveFactor([0, 0.02, 0.006]);
+    },
+  },
 };
 
 // The simplifier's error limit, as a share of each part's size, and the share of triangles it aims for (a car's
@@ -82,10 +133,6 @@ const CARS = {
 // suspension, the interior behind the seats).
 const DETAIL = { ext: [0.0015, 0.3], cabin: [0.0004, 0.6], glass: [0.0005, 0.6], hidden: [0.05, 0.03], wheel: [0.004, 0.25],
   hub: [0.01, 0.2], steer: [0.0015, 0.6], brake: [0.01, 0.5] };
-// The cabin, in the game's body coordinates: everything the driver camera sees close up (dash, cage, pillars, door
-// cards, mirrors, roof). Interior outside it counts as hidden.
-const CABIN = { x: 1.12, y: 0.12, z: [-1.15, 0.8] };
-const CABIN_CENTRE = [0, 0.45, -0.45];   // inside the glass, for telling its outer faces from inner ones
 
 // ---------------------------------------------------------------------------------------------------------------
 const [id, src] = process.argv.slice(2);
@@ -108,6 +155,7 @@ for (const m of root.listMaterials()) car.materials(m);
 const turn = (car.turn * Math.PI) / 180, ct = Math.cos(turn), st = Math.sin(turn);
 // rotation about y: x' = x cos + z sin, z' = -x sin + z cos
 const rot = (x, y, z) => [x * ct + z * st, y, -x * st + z * ct];
+const unrot = (x, y, z) => [x * ct - z * st, y, x * st + z * ct];
 const soups = new Map();   // key -> { kind, detail, material, pos: [], nrm: [], uv: [] }
 const soup = (kind, detail, material) => {
   const key = `${kind}|${detail}|${root.listMaterials().indexOf(material)}`;
@@ -115,18 +163,24 @@ const soup = (kind, detail, material) => {
   return soups.get(key);
 };
 const mul = (m, x, y, z, w) => [m[0] * x + m[4] * y + m[8] * z + m[12] * w, m[1] * x + m[5] * y + m[9] * z + m[13] * w, m[2] * x + m[6] * y + m[10] * z + m[14] * w];
+const flaps = new Map();   // output name -> { pivot (game axes, before scaling), open (rotation, game axes) }
 for (const scene of root.listScenes()) scene.traverse((node) => {
   const mesh = node.getMesh();
   if (!mesh) return;
   const names = [];
-  for (let n = node; n; n = n.getParentNode()) names.push(n.getName());
+  let flap = null;
+  for (let n = node; n; n = n.getParentNode()) {
+    names.push(n.getName());
+    const f = !flap && car.flap?.(n);
+    if (f) { flap = f.name; if (!flaps.has(flap)) flaps.set(flap, flapPose(n, f)); }
+  }
   const world = node.getWorldMatrix();
   for (const prim of mesh.listPrimitives()) {
     if (prim.getMode() !== 4) continue;
     const material = prim.getMaterial();
     const sorted = car.part(names, material?.getName() ?? '');
     if (!sorted) continue;
-    const [kind, detail = kind === 'steerRim' ? 'steer' : kind] = sorted;
+    const [kind, detail = kind === 'steerRim' ? 'steer' : kind] = flap ? [flap, 'ext'] : sorted;
     const s = soup(kind, detail, material);
     const P = prim.getAttribute('POSITION'), N = prim.getAttribute('NORMAL'), T = prim.getAttribute('TEXCOORD_0'), I = prim.getIndices();
     const count = I ? I.getCount() : P.getCount(), a = [], b = [], c = [];
@@ -140,6 +194,46 @@ for (const scene of root.listScenes()) scene.traverse((node) => {
     }
   }
 });
+
+// A flap's hinge and the rotation that opens it, in game axes: the open pose relative to the closed one (both under
+// the same parent), a rotation about the node's origin, where the source puts the hinge.
+function flapPose(node, f) {
+  const P = node.getParentNode()?.getWorldMatrix() ?? [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  const local = node.getMatrix();
+  if (local.some((v, k) => Math.abs(v - f.closed[k]) > 1e-4)) throw new Error(`${node.getName()}: not in its closed pose`);
+  const wc = mat4Mul(P, f.closed), wo = mat4Mul(P, f.open), d = mat4Mul(wo, mat4Invert(wc));
+  const pivot = mul(wc, 0, 0, 0, 1), moved = mul(d, ...pivot, 1);
+  if (Math.hypot(...moved.map((v, k) => v - pivot[k])) > 1e-4) throw new Error(`${node.getName()}: opening moves its origin`);
+  // in game axes: column c of the rotation is rot(R(unrot(e_c)))
+  const cols = [[1, 0, 0], [0, 1, 0], [0, 0, 1]].map((e) => rot(...mul(d, ...unrot(...e), 0)));
+  return { pivot: rot(...pivot), open: quatFromMat3([0, 1, 2].map((r) => [0, 1, 2].map((c) => cols[c][r]))) };
+}
+function mat4Mul(a, b) {
+  const o = new Array(16).fill(0);
+  for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) for (let k = 0; k < 4; k++) o[c * 4 + r] += a[k * 4 + r] * b[c * 4 + k];
+  return o;
+}
+function mat4Invert(m) {   // an affine transform
+  const a = [[m[0], m[4], m[8]], [m[1], m[5], m[9]], [m[2], m[6], m[10]]];
+  const det = a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1]) - a[0][1] * (a[1][0] * a[2][2] - a[1][2] * a[2][0]) + a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0]);
+  const inv = [0, 1, 2].map((r) => [0, 1, 2].map((c) => {
+    const rr = [0, 1, 2].filter((k) => k !== c), cc = [0, 1, 2].filter((k) => k !== r);
+    const minor = a[rr[0]][cc[0]] * a[rr[1]][cc[1]] - a[rr[0]][cc[1]] * a[rr[1]][cc[0]];
+    return (((r + c) % 2 ? -1 : 1) * minor) / det;
+  }));
+  const t = [0, 1, 2].map((r) => -(inv[r][0] * m[12] + inv[r][1] * m[13] + inv[r][2] * m[14]));
+  return [inv[0][0], inv[1][0], inv[2][0], 0, inv[0][1], inv[1][1], inv[2][1], 0, inv[0][2], inv[1][2], inv[2][2], 0, t[0], t[1], t[2], 1];
+}
+function quatFromMat3(m) {   // m[row][col], a rotation
+  const tr = m[0][0] + m[1][1] + m[2][2];
+  let q;
+  if (tr > 0) { const s = Math.sqrt(tr + 1) * 2; q = [(m[2][1] - m[1][2]) / s, (m[0][2] - m[2][0]) / s, (m[1][0] - m[0][1]) / s, s / 4]; }
+  else if (m[0][0] > m[1][1] && m[0][0] > m[2][2]) { const s = Math.sqrt(1 + m[0][0] - m[1][1] - m[2][2]) * 2; q = [s / 4, (m[0][1] + m[1][0]) / s, (m[0][2] + m[2][0]) / s, (m[2][1] - m[1][2]) / s]; }
+  else if (m[1][1] > m[2][2]) { const s = Math.sqrt(1 + m[1][1] - m[0][0] - m[2][2]) * 2; q = [(m[0][1] + m[1][0]) / s, s / 4, (m[1][2] + m[2][1]) / s, (m[0][2] - m[2][0]) / s]; }
+  else { const s = Math.sqrt(1 + m[2][2] - m[0][0] - m[1][1]) * 2; q = [(m[0][2] + m[2][0]) / s, (m[1][2] + m[2][1]) / s, s / 4, (m[1][0] - m[0][1]) / s]; }
+  const l = Math.hypot(...q);
+  return q.map((v) => v / l);
+}
 
 // --- 2. Split the wheels and hubs into corners, and find each hub from its tyre. ---------------------------------
 const box = () => ({ min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] });
@@ -181,19 +275,20 @@ for (const s of soups.values()) for (let i = 0; i < s.pos.length; i += 3) {
 const hubsG = hubs.map(place);
 
 // --- 3b. Sort the body by where the driver camera can see it, and keep only the glass faces that face out: seen
-// from the seat the glass is then clear (single-sided), and from outside it looks as before. (Both models have an
-// inner layer of glass, or faces wound inwards, which tinted the view out twice over.)
+// from the seat the glass is then clear (single-sided), and from outside it looks as before. (The GT3's source has
+// an inner layer of glass, or faces wound inwards, which tinted the view out twice over.)
 for (const [key, s] of [...soups]) {
   if (s.kind !== 'body' && s.kind !== 'glass') continue;
   soups.delete(key);
+  const cabin = car.cabin, mid = cabin.centre;
   for (let t = 0; t < s.pos.length; t += 9) {
     const P = s.pos, c = [0, 1, 2].map((k) => (P[t + k] + P[t + 3 + k] + P[t + 6 + k]) / 3);
-    const inCabin = Math.abs(c[0]) < CABIN.x && c[1] > CABIN.y && c[2] > CABIN.z[0] && c[2] < CABIN.z[1];
+    const inCabin = Math.abs(c[0]) < cabin.x && c[1] > cabin.y && c[2] > cabin.z[0] && c[2] < cabin.z[1];
     let detail;
     if (s.kind === 'glass') {
       const u = [0, 1, 2].map((k) => P[t + 3 + k] - P[t + k]), v = [0, 1, 2].map((k) => P[t + 6 + k] - P[t + k]);
       const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
-      if (n[0] * (c[0] - CABIN_CENTRE[0]) + n[1] * (c[1] - CABIN_CENTRE[1]) + n[2] * (c[2] - CABIN_CENTRE[2]) <= 0) continue;
+      if (n[0] * (c[0] - mid[0]) + n[1] * (c[1] - mid[1]) + n[2] * (c[2] - mid[2]) <= 0) continue;
       detail = 'glass';
     } else detail = inCabin ? 'cabin' : s.detail === 'int' ? 'hidden' : s.detail;
     const d = soup('body', detail, s.material);
@@ -266,6 +361,7 @@ const frames = { body: { origin: [0, 0, 0], rake: 0 } };
 CORNERS.forEach((c, k) => { frames[`wheel_${c}`] = frames[`hub_${c}`] = { origin: hubsG[k], rake: 0 }; });
 frames.steering_wheel = { origin: steerCentre, rake };
 frames.brake_light = frames.body;
+for (const [name, f] of flaps) frames[name] = { origin: place(f.pivot), rake: 0 };
 const partOf = (kind) => (kind === 'steer' ? 'steering_wheel' : kind === 'brake' ? 'brake_light' : kind);
 const scene = doc.createScene('car');
 const nodes = new Map();
@@ -279,6 +375,7 @@ for (const s of soups.values()) {
       .setRotation([Math.sin(fr.rake / 2), 0, 0, Math.cos(fr.rake / 2)]).setExtras({ frame: fr });
     if (name === 'steering_wheel') node.setExtras({ frame: fr, grip });
     if (name.startsWith('wheel_')) node.setExtras({ frame: fr, radius: radii[CORNERS.indexOf(name.slice(6))] * scale });
+    if (flaps.has(name)) node.setExtras({ frame: fr, open: flaps.get(name).open });
     scene.addChild(node); nodes.set(name, node);
   }
   // vertices into the part's own frame
