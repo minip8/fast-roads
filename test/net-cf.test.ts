@@ -145,10 +145,11 @@ describe('Cloudflare relay (local workerd)', () => {
       host.c.setSettings({ practice: 1, practiceMinutes: 1, qualifying: 'none', raceLaps: 2, weather: 'wet' });
       await until(() => guest.c.settings.raceLaps === 2);
       host.c.startWeekend();
-      await until(() => guest.c.session.phase === 'practice');
+      // (the session and its weather are two WebSocket messages: wait for both, as for the results below)
+      await until(() => guest.c.session.phase === 'practice' && guest.c.weather.kind === 'wet');
       const p = guest.c.session;
       expect(p.end! - p.start).toBeCloseTo(3, 6);   // a settings minute is 3 s at WEEKEND_SCALE 0.05
-      expect(guest.c.weather.kind).toBe('wet');
+      expect(guest.c.weather.origin).toBe(p.start);
       await until(() => guest.c.session.phase === 'race', 6000);   // the object's deadline timer, not a client message
       expect(guest.c.session.start).toBe(p.end);
       expect(guest.c.session.grid).toEqual([host.c.selfId, guest.c.selfId]);
