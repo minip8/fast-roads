@@ -158,7 +158,7 @@ function buildTrees(tr: Track, def: TrackDef, own: Own): THREE.InstancedMesh[] {
   // One pair of meshes per kind, per 800 m tile (when there are many) (so the view's frustum leaves out those behind and to the side: an
   // instanced mesh is culled as a whole) and per distance: only the trees near the track cast shadows (the shadow
   // map covers 60 m round the car, and every instance of a shadow-casting mesh is drawn into it).
-  const types = treeTypes(), groups = new Map<string, TreeSpot[]>(), spots = treeSpots(tr, def), TILE = spots.length > 1500 ? 800 : 1e9;
+  const types = treeTypes(), groups = new Map<string, TreeSpot[]>(), spots = treeSpots(tr, def), TILE = spots.length > 2500 ? 800 : 1e9;
   for (const t of spots) {
     const key = `${t.kind}${t.near ? '+' : ''}:${Math.floor(t.x / TILE)},${Math.floor(t.z / TILE)}`;
     (groups.get(key) ?? (groups.set(key, []), groups.get(key)!)).push(t);
@@ -349,9 +349,10 @@ function buildHills(tr: Track, def: TrackDef, own: Own): THREE.Object3D {
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
   for (let i = 0; i < tr.N; i++) { minX = Math.min(minX, tr.X[i]); maxX = Math.max(maxX, tr.X[i]); minZ = Math.min(minZ, tr.Z[i]); maxZ = Math.max(maxZ, tr.Z[i]); }
   const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2, rc = Math.hypot(maxX - minX, maxZ - minZ) / 2;
-  const r0 = Math.min(rc + 650, 2400), r1 = r0 + 700, H = Math.max(12, def.hills ?? 20);
-  const rng = mulberry32(seedOf(def.id) ^ 0x4111), seg = 192;
-  const waves = Array.from({ length: 6 }, (_, k) => ({ f: [1, 2, 3, 5, 8, 13][k], a: [1, 0.6, 0.45, 0.3, 0.18, 0.1][k], p: rng() * Math.PI * 2 }));
+  // tall hills stand further off (mountains on the horizon, not a wall), and never rise more than ~8 deg
+  const want = Math.max(12, def.hills ?? 20), r0 = Math.min(Math.max(rc + 650, want * 4.5), 3200), r1 = r0 + 700, H = Math.min(want, 0.14 * r0);
+  const rng = mulberry32(seedOf(def.id) ^ 0x4111), seg = 256;
+  const waves = Array.from({ length: 8 }, (_, k) => ({ f: [1, 2, 3, 5, 8, 13, 21, 34][k], a: [1, 0.6, 0.45, 0.3, 0.18, 0.1, 0.06, 0.04][k], p: rng() * Math.PI * 2 }));
   const prof = (a: number) => { let v = 0, n = 0; for (const w of waves) { v += w.a * Math.sin(a * w.f + w.p); n += w.a; } return 0.5 + 0.5 * v / n; };
   const pal: Record<SceneKind, [number, number]> = {
     forest: [0x3c5a34, 0x2e4a2c], park: [0x56703e, 0x40583a], country: [0x6a7a48, 0x56683e], dry: [0x9a8a5a, 0x7a6e4c],
@@ -364,7 +365,7 @@ function buildHills(tr: Track, def: TrackDef, own: Own): THREE.Object3D {
     for (let r = 0; r < rows.length; r++) {
       const rad = r0 + (r1 - r0) * rows[r], hh = H * hRow[r] * (r === 2 ? h1 : 0.5 * (h1 + h2)) - 2;
       pos.push(cx + Math.cos(a) * rad, hh, cz + Math.sin(a) * rad);
-      _c.set(r >= 2 ? hi : lo); col.push(_c.r, _c.g, _c.b);
+      _c.set(r >= 2 ? hi : lo).multiplyScalar(0.9 + 0.2 * prof(a * 7 + r)); col.push(_c.r, _c.g, _c.b);
     }
   }
   const R = rows.length;

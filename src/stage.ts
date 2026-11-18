@@ -46,6 +46,10 @@ export function buildStage(canvas: HTMLCanvasElement, track: Track, def: TrackDe
   Object.assign(sun.shadow.camera, { left: -SHADOW_HALF, right: SHADOW_HALF, top: SHADOW_HALF, bottom: -SHADOW_HALF, near: SUN_DIST - 120, far: SUN_DIST + 120 });
   sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03;
   scene.add(sun, sun.target);
+  // floodlights from overhead while the low sun is the key light (dusk): no shadow, 0 by day and at night
+  const fill = new THREE.DirectionalLight(0xfff2e0, 0);
+  fill.position.set(0.25, 1, 0.3);
+  scene.add(fill);
 
   // Light-space axes, for snapping the shadow camera to whole shadow-map texels: without it, shadow edges crawl
   // as the car moves.
@@ -130,6 +134,7 @@ export function buildStage(canvas: HTMLCanvasElement, track: Track, def: TrackDe
     lightDir(look.sunElev, def.sunAz, sunDir);
     lx.crossVectors(UP, sunDir).normalize(); ly.crossVectors(sunDir, lx).normalize();
     sun.color.set(look.sun);
+    fill.intensity = look.fill;
     lightBase(look, renderer.toneMappingExposure, stage.light);
     applyBase(stage);
     skyUniforms(look, sky.material, def.sunAz);

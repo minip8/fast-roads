@@ -25,6 +25,7 @@ export interface Look {
   id: LightId; phase: Phase;
   sunElev: number;             // deg: the key light's elevation (at night the floodlights', nearly overhead)
   sun: number; sunIntensity: number;            // key light colour (hex) and intensity
+  fill: number;                // the floodlights from overhead while the sun is still the key light (dusk)
   hemiSky: number; hemiGround: number; hemiIntensity: number;
   zenith: RGB; horizon: RGB;   // sky, display; the fog's colour is the horizon's
   fogDensity: number;
@@ -47,7 +48,7 @@ export interface Look {
 }
 
 const DAY_WEATHER = { cloudHidesKey: 1, overcastFog: [0.66, 0.70, 0.74] as RGB, rainFog: [0.47, 0.50, 0.54] as RGB, mistLift: 0, greySky: 0xdfe3e8, greyGround: 0x4c5444 };
-const DAY_SKY = { sunDisc: [1.0, 0.92, 0.75] as RGB, sunGlow: 1, discSize: 900, band: 0, glow: [0, 0, 0] as RGB, stars: 0, flood: 1, lamps: 0, cloudLit: [1.0, 0.99, 0.97] as RGB, cloudShade: [0.74, 0.79, 0.86] as RGB, envGround: [0.16, 0.2, 0.13] as RGB };
+const DAY_SKY = { fill: 0, sunDisc: [1.0, 0.92, 0.75] as RGB, sunGlow: 1, discSize: 900, band: 0, glow: [0, 0, 0] as RGB, stars: 0, flood: 1, lamps: 0, cloudLit: [1.0, 0.99, 0.97] as RGB, cloudShade: [0.74, 0.79, 0.86] as RGB, envGround: [0.16, 0.2, 0.13] as RGB };
 
 export const LOOKS: Record<LightId, Look> = {
   // The plain day the game always had: a sun 47 deg up, fair-weather cloud.
@@ -70,12 +71,12 @@ export const LOOKS: Record<LightId, Look> = {
   desert: { id: 'desert', phase: 'day', ...DAY_SKY, ...DAY_WEATHER, sunElev: 56, skyElev: 56, sun: 0xfff3e0, sunIntensity: 3.2, hemiSky: 0xd6e2f6, hemiGround: 0x8c7650, hemiIntensity: 1.1,
     zenith: [0.30, 0.54, 0.88], horizon: [0.90, 0.86, 0.78], fogDensity: 0.0006, clouds: 0.1, envGround: [0.36, 0.28, 0.18] },
   // Dusk: the sun 4 deg up and orange, a warm horizon under a deepening blue, the floodlights coming on.
-  dusk: { id: 'dusk', phase: 'dusk', sunElev: 4, skyElev: 4, sun: 0xffa060, sunIntensity: 2.1, hemiSky: 0xb0b2d4, hemiGround: 0x6a5a48, hemiIntensity: 1.75,
+  dusk: { id: 'dusk', phase: 'dusk', sunElev: 4, skyElev: 4, sun: 0xffa060, sunIntensity: 2.1, fill: 1.5, hemiSky: 0xb0b2d4, hemiGround: 0x6a5a48, hemiIntensity: 1.75,
     zenith: [0.13, 0.20, 0.44], horizon: [0.96, 0.62, 0.40], fogDensity: 0.00045, sunDisc: [1.0, 0.62, 0.30], sunGlow: 1.8, discSize: 1600, band: 1,
     glow: [0.05, 0.03, 0.03], clouds: 0.38, cloudLit: [1.0, 0.64, 0.50], cloudShade: [0.36, 0.34, 0.50], stars: 0, flood: 0.55, lamps: 0.7,
     cloudHidesKey: 1, overcastFog: [0.40, 0.39, 0.43], rainFog: [0.30, 0.30, 0.34], mistLift: 0.06, greySky: 0x9a9eb0, greyGround: 0x3a3a38, envGround: [0.12, 0.1, 0.09] },
   // Night under floodlights: the key light is the lights, high overhead and white; beyond the circuit it is dark.
-  night: { id: 'night', phase: 'night', sunElev: 72, skyElev: 38, sun: 0xeef2ff, sunIntensity: 2.3, hemiSky: 0xa0aed0, hemiGround: 0x46443c, hemiIntensity: 0.9,
+  night: { id: 'night', phase: 'night', sunElev: 72, skyElev: 38, sun: 0xeef2ff, sunIntensity: 2.3, fill: 0, hemiSky: 0xa0aed0, hemiGround: 0x46443c, hemiIntensity: 0.9,
     zenith: [0.012, 0.02, 0.052], horizon: [0.10, 0.10, 0.14], fogDensity: 0.0005, sunDisc: [0.55, 0.58, 0.62], sunGlow: 0.25, discSize: 9000, band: 0,
     glow: [0.12, 0.08, 0.05], clouds: 0.25, cloudLit: [0.10, 0.10, 0.13], cloudShade: [0.035, 0.04, 0.065], stars: 1, flood: 0.12, lamps: 1,
     cloudHidesKey: 0, overcastFog: [0.11, 0.11, 0.13], rainFog: [0.15, 0.155, 0.17], mistLift: 0.22, greySky: 0x9aa0ac, greyGround: 0x404040, envGround: [0.08, 0.08, 0.08] },

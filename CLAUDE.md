@@ -221,7 +221,8 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   a look's id, `timeFromUrl`), `lightDir` (elevation and compass bearing: `TrackDef.sunAz`). `lightBase` / `applyBase`:
   `LightBase`, the dry fog (via `fogForDisplay`, so it meets the sky's horizon at any Brightness), key and sky light,
   which `stage.light` holds and the weather reads every frame and restores. `skyUniforms` sets `buildSky`'s uniforms.
-  Night is floodlit: the key light is the floodlights, 72 deg up (their shadow keeps the cars grounded), and
+  Night is floodlit: the key light is the floodlights, 72 deg up (their shadow keeps the cars grounded; at dusk the
+  sun stays the key and a shadowless overhead `fill` light stands in for the floodlights), and
   `floodlit(material)` (an `onBeforeCompile`) darkens a scenery material's reflected light by its distance from the
   track (`floodMap`: a texture over the circuit, shared uniforms `flood`; a white pixel and factor 1 by day), not its
   emissive. `Glow` sets every lamp, window and sign material from `Look.lamps`; `envLamps` puts lamps into the
