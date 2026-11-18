@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { GRAVEL_W, G_GROUND, G_WALL, KERB_W, LIMIT_TOL_NO_KERB, S_ASPHALT, S_GRASS, S_GRAVEL, S_KERB, groups } from './config';
 import type { CarId } from './cars';
+import type { PitLane } from './pitLane';
 import { dilate, lerp, removeShortRuns, smoothClosed, wrapI } from './util';
 
 // ============================================================================
@@ -27,6 +28,7 @@ export interface Track {
   // A race weekend's pit lane (raceGeometry.ts enablePitLane; only in a multiplayer room): on `side`, sample i's ground
   // is asphalt and inside the track limits from the track's edge out to outer[i] (side x lat; NaN: no lane there).
   pitLane?: { side: 1 | -1; outer: Float64Array };
+  pit?: PitLane;                             // the circuit's pit lane (circuit.ts; pitLane.ts)
 }
 
 // Where a point is on the track: nearest sample i, arc length s, lateral offset lat (positive = left).

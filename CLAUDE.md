@@ -208,6 +208,13 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   spot and each car's flying-lap speed there, scenery placement; `loadTrackCsv(id)` fetches one circuit's CSV
   (`import.meta.glob` makes each CSV its own chunk, so the game downloads only the circuit being driven)
 - `track.ts`: track geometry and colliders (`Track`)
+- `pitLane.ts`: the circuit's real pit lane (`PitLane`, from `tracks/pits/<id>.csv`): its own path in world space
+  (moved out from the data only where the pit wall would not fit), the fast lane and the working lane, the pit wall
+  and the far wall, the limit lines, the box, the pit building; `laneAt` (a grid lookup: where a point is along the
+  lane), `pitFootprint(lane, x, z, margin)` (lane, walls or building: for placing scenery), `fitBarrier` (the
+  track's barrier round the lane). `circuit.ts` `buildCircuit` / `loadCircuit`: the track with its lane. Not yet
+  wired into the game: `test/pitLanes.test.ts` checks every circuit (`PITLANE_SVG=<folder>` draws each, with
+  `test/pitLaneDraw.ts`).
 - `trackMeshes.ts`, `textures.ts`, `scenery.ts`, `brakeMarkers.ts`: visuals (`standBays` / `pitBuilding` in
   `scenery.ts` place the buildings, leaving out or shortening any that would stand inside another stretch's walls;
   `clearOf(tr, def, pts, { margin, skip, reserve, buildings })` is the one clearance test every placement goes
