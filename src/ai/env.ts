@@ -4,8 +4,9 @@ import { autopilot, buildSpeedProfile } from '../autopilot';
 import { CARS, type CarId } from '../cars';
 import { DT } from '../config';
 import { createVehicle, needsReset, Session, stepPhysics } from '../sim';
-import { buildTrack, parseCSV, pointAt, projectOnTrack, type Track, type TrackPos } from '../track';
-import { loadTrackCsv, TRACKS, type TrackId } from '../tracks';
+import { loadCircuit } from '../circuit';
+import { pointAt, projectOnTrack, type Track, type TrackPos } from '../track';
+import { TRACKS, type TrackId } from '../tracks';
 import type { DriveInput, Vehicle } from '../vehicle';
 import { DEFAULT_CONFIG, mergeConfig, type DeepPartial, type EnvConfig, type StartMode } from './config';
 import { CAR_IDS, observationSpec, observe, steerLockOf, type ObsControl, type ObsEntry } from './observation';
@@ -65,7 +66,7 @@ const tracks = new Map<TrackId, Track>();
 export async function loadTracks(ids: readonly TrackId[]) {
   for (const id of ids) {
     if (!TRACKS[id]) throw new Error(`unknown track ${id}`);
-    if (!tracks.has(id)) tracks.set(id, buildTrack(parseCSV(await loadTrackCsv(id)), { street: TRACKS[id].street }));
+    if (!tracks.has(id)) tracks.set(id, await loadCircuit(TRACKS[id]));
   }
 }
 export function getTrack(id: TrackId): Track {

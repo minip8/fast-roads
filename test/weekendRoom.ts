@@ -10,7 +10,7 @@ import { NetClient } from '../src/net';
 import { type LinkConditions, LoopbackNet } from '../src/net/loopback';
 import { seededRandom } from '../src/net/weather';
 import type { Session } from '../src/sim';
-import { TRACKS } from '../src/tracks';
+import { TRACKS, type TrackId } from '../src/tracks';
 import type { DriveInput, Vehicle } from '../src/vehicle';
 import { Relay, type RelayOptions } from '../server/relay';
 import { session } from './harness';
@@ -34,15 +34,16 @@ export class Room {
   private lastRelay = 0;
   private due: number | null = null;
   idle: ((c: Client) => boolean) | null = null;
-  constructor(opt: Partial<RelayOptions> = {}) {
+  // circuit: where the room races (Melbourne unless a test says)
+  constructor(opt: Partial<RelayOptions> = {}, readonly circuit: TrackId = 'melbourne') {
     this.relay = new Relay({ ...FAST, random: seededRandom(9), schedule: (at) => { this.due = at; }, ...opt, now: () => this.net.now });
   }
   async join(name: string, car: CarId, mode: 'create' | 'join' = 'join') {
-    const h = await session(car, { flying: true });
+    const h = await session(car, { flying: true, track: this.circuit });
     const pair = this.net.pair(LINK, LINK);
     this.relay.accept(pair.server);
-    const net = new NetClient(pair.client, { room: 'RACE', name, car, mode, circuit: 'melbourne', clock: () => this.net.now });
-    const c: Client = { name, s: h.session, mp: new Multiplayer(net, h.session, DEF), driver: null };
+    const net = new NetClient(pair.client, { room: 'RACE', name, car, mode, circuit: this.circuit, clock: () => this.net.now });
+    const c: Client = { name, s: h.session, mp: new Multiplayer(net, h.session, TRACKS[this.circuit]), driver: null };
     this.clients.push(c);
     for (let k = 0; k < 240 && net.status !== 'joined'; k++) this.run(DT);
     return c;
@@ -56,7 +57,7 @@ export class Room {
         if (c.mp.net.status === 'closed') continue;
         c.mp.update(this.t, false);
         if (this.idle?.(c)) { c.mp.idle(this.t); continue; }   // (a test's shortcut: a car with nothing to do, not simulated)
-        c.mp.tick(c.driver ? c.driver(c.s.car, c.s.simTime) : autopilot(c.s.car, c.s.track), !c.driver, this.t);
+        c.mp.tick(c.driver ? c.driver(c.s.car, c.s.simTime) : autopilot(c.s.car, c.s.track, 0, c.mp.weekend.pitPlan), !c.driver, this.t);
       }
       every?.();
     }

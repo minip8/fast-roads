@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
 import { GRAVEL_W, G_GROUND, G_WALL, KERB_W, LIMIT_TOL_NO_KERB, S_ASPHALT, S_GRASS, S_GRAVEL, S_KERB, groups } from './config';
 import type { CarId } from './cars';
-import type { PitLane } from './pitLane';
+import { laneAt, laneLapS, type LanePos, type PitLane } from './pitLane';
 import { dilate, lerp, removeShortRuns, smoothClosed, wrapI } from './util';
 
 // ============================================================================
@@ -25,10 +25,7 @@ export interface Track {
   nearestDist: (x: number, z: number) => number;
   speedProfiles?: Partial<Record<CarId, Float64Array>>;   // autopilot cache
   gripProfiles?: Map<string, Float64Array>;   // ...for worn tyres or a wet track (speedPlan)
-  // A race weekend's pit lane (raceGeometry.ts enablePitLane; only in a multiplayer room): on `side`, sample i's ground
-  // is asphalt and inside the track limits from the track's edge out to outer[i] (side x lat; NaN: no lane there).
-  pitLane?: { side: 1 | -1; outer: Float64Array };
-  pit?: PitLane;                             // the circuit's pit lane (circuit.ts; pitLane.ts)
+  pit?: PitLane;                             // the circuit's pit lane (circuit.ts; pitLane.ts), in every mode
 }
 
 // Where a point is on the track: nearest sample i, arc length s, lateral offset lat (positive = left).
@@ -186,20 +183,62 @@ export function surfaceAt(tr: Track, i: number, lat: number, s: number, res: Sur
   res.h = 0;
   if (lat <= wl && lat >= -wr) return (res.surf = S_ASPHALT);
   const left = lat > 0, e = left ? lat - wl : -wr - lat;
-  if (tr.pitLane && inPitLane(tr.pitLane, i, lat)) return (res.surf = S_ASPHALT);
   if ((left ? tr.kerbL[i] : tr.kerbR[i]) && e <= KERB_W) { res.h = kerbHeight(e, s); return (res.surf = S_KERB); }
   const bar = left ? tr.barL[i] : tr.barR[i];
   if ((left ? tr.gravelL[i] : tr.gravelR[i]) && e <= KERB_W + GRAVEL_W && lat * (left ? 1 : -1) < bar) return (res.surf = S_GRAVEL);
   return (res.surf = S_GRASS);
 }
-const inPitLane = (p: NonNullable<Track['pitLane']>, i: number, lat: number) => lat * p.side > 0 && lat * p.side <= p.outer[i];
 export function trackLimitOut(tr: Track, i: number, lat: number): boolean {
-  if (tr.pitLane && inPitLane(tr.pitLane, i, lat)) return false;
   if (lat > 0) return lat > tr.WL[i] + (tr.kerbL[i] ? KERB_W : LIMIT_TOL_NO_KERB);
   return -lat > tr.WR[i] + (tr.kerbR[i] ? KERB_W : LIMIT_TOL_NO_KERB);
 }
 
-// Walls as static cuboid colliders, one per spline segment per side.
+// ---------------------------------------------------------------------------- the pit lane (pitLane.ts)
+const lp: LanePos = { d: 0, off: 0, k: 0 };
+// (x, z) on the pit lane's road between the pit wall's ends (walled off from the track: no projection needed), its lane
+// position in lp.
+const inWalledLane = (tr: Track, x: number, z: number) => !!tr.pit && laneAt(tr.pit, x, z, lp) && lp.d >= tr.pit.nose && lp.d <= tr.pit.tail;
+// (x, z), at track position p, on the pit lane's road and off the track's (its first and last metres run on the track).
+function offRoadInLane(tr: Track, x: number, z: number, p: TrackPos) {
+  return !!tr.pit && Math.abs(p.lat) > (p.lat > 0 ? tr.WL : tr.WR)[p.i] && laneAt(tr.pit, x, z, lp);
+}
+
+// Where a car is on the lap: projectOnTrack, except on the pit lane off the track's road, where the lap position is the
+// lane's (the lap position of where it runs: a lane cutting inside a corner still counts its way round), i the sample
+// there and lat the offset from it.
+export function locate(tr: Track, x: number, z: number, hint: number, out: TrackPos): TrackPos {
+  if (inWalledLane(tr, x, z)) return laneLocate(tr, x, z, out);
+  projectOnTrack(tr, x, z, hint, out);
+  return offRoadInLane(tr, x, z, out) ? laneLocate(tr, x, z, out) : out;
+}
+function laneLocate(tr: Track, x: number, z: number, out: TrackPos): TrackPos {
+  const s = laneLapS(tr.pit!, tr.L, lp.d), { i } = pointAt(tr, s);
+  out.i = i; out.s = s;
+  out.lat = (x - tr.X[i]) * tr.NX[i] + (z - tr.Z[i]) * tr.NZ[i];
+  return out;
+}
+// Whether (x, z) is in the pit lane: on its road, off the track's (m along the lane in `at.d`, if given).
+export function inPitLane(tr: Track, x: number, z: number, hint = -1, at?: { d: number }): boolean {
+  if (!tr.pit) return false;
+  let yes = inWalledLane(tr, x, z);
+  if (!yes && laneAt(tr.pit, x, z, lp)) { projectOnTrack(tr, x, z, hint, pos); yes = Math.abs(pos.lat) > (pos.lat > 0 ? tr.WL : tr.WR)[pos.i]; }
+  if (yes && at) at.d = lp.d;
+  return yes;
+}
+const pos: TrackPos = { i: -1, s: 0, lat: 0 };
+
+// The ground under a wheel at (x, z): its track position (projected near `hint`) in p and its surface in res, and
+// whether it is beyond the track limits. The pit lane's road is asphalt and inside them (the track's own road and kerbs
+// stay as they are where the lane's first and last metres run on them); between the pit wall's ends p is not updated.
+export function wheelGround(tr: Track, x: number, z: number, hint: number, p: TrackPos, res: SurfaceRes): boolean {
+  if (inWalledLane(tr, x, z)) { res.surf = S_ASPHALT; res.h = 0; return false; }
+  projectOnTrack(tr, x, z, hint, p);
+  const surf = surfaceAt(tr, p.i, p.lat, p.s, res);
+  if ((surf === S_GRASS || surf === S_GRAVEL) && tr.pit && laneAt(tr.pit, x, z, lp)) { res.surf = S_ASPHALT; res.h = 0; return false; }
+  return trackLimitOut(tr, p.i, p.lat);
+}
+
+// Walls as static cuboid colliders, one per spline segment per side, and the pit lane's walls.
 export function buildTrackColliders(tr: Track, world: RAPIER.World): number {
   world.createCollider(RAPIER.ColliderDesc.cuboid(5000, 1, 5000).setTranslation(0, -1, 0)
     .setFriction(0.6).setCollisionGroups(groups(G_GROUND, 0xffff)));
@@ -220,6 +259,31 @@ export function buildTrackColliders(tr: Track, world: RAPIER.World): number {
         .setFriction(0.25).setRestitution(0.15).setCollisionGroups(groups(G_WALL, 0xffff)));
       count++;
     }
+  }
+  if (tr.pit) for (const [pl, inward] of laneWalls(tr.pit)) count += polylineColliders(world, pl, inward);
+  return count;
+}
+
+// The pit lane's walls as (polyline, the side its solid is on: +1 left of the polyline's direction, -1 right, 0 both):
+// the pit wall's lane face (solid towards the track) and track face (towards the lane), the far wall (solid beyond the
+// lane), the short joins to the barrier (thin, both sides).
+export function laneWalls(l: PitLane): [Float64Array, 1 | -1 | 0][] {
+  const s = l.side;
+  return [[l.walls.lane, (-s) as 1 | -1], [l.walls.track, s], [l.walls.outer, s], ...l.walls.joins.map((j) => [j, 0] as [Float64Array, 0])];
+}
+// A wall along a polyline: a cuboid per segment, THICK deep on the solid side (or centred: both).
+const THICK = 0.25;
+function polylineColliders(world: RAPIER.World, pl: Float64Array, side: 1 | -1 | 0): number {
+  let count = 0;
+  for (let j = 0; j + 3 < pl.length; j += 2) {
+    const ax = pl[j], az = pl[j + 1], bx = pl[j + 2], bz = pl[j + 3], len = Math.hypot(bx - ax, bz - az);
+    if (len < 0.01) continue;
+    const nx = (bz - az) / len, nz = -(bx - ax) / len, o = side * THICK / 2;   // (nx, nz): the segment's left normal
+    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(bx - ax, bz - az));
+    world.createCollider(RAPIER.ColliderDesc.cuboid(THICK / 2, 0.8, len / 2 + 0.05)
+      .setTranslation((ax + bx) / 2 + nx * o, 0.8, (az + bz) / 2 + nz * o).setRotation({ x: q.x, y: q.y, z: q.z, w: q.w })
+      .setFriction(0.25).setRestitution(0.15).setCollisionGroups(groups(G_WALL, 0xffff)));
+    count++;
   }
   return count;
 }

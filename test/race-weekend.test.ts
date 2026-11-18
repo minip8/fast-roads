@@ -2,7 +2,8 @@
 // over the emulated network (test/weekendRoom.ts), every client simulating its own car as the game does.
 import { describe, expect, test } from 'vitest';
 import { CAR_REASON, COMPOUND, type RoomSettings } from '../src/net';
-import { gridSlots } from '../src/raceGeometry';
+import { autopilot } from '../src/autopilot';
+import { gridSlots, lanePlacement } from '../src/raceGeometry';
 import { RECOVERY_SECS } from '../src/weekend';
 import { DEF, distXZ, full, Room } from './weekendRoom';
 
@@ -17,7 +18,7 @@ describe('a race weekend in the game', () => {
     for (const c of all) {
       expect(c.s.conditions.wearScale).toBeCloseTo(1 * c.s.car.spec.race.wearScale, 9);
       expect(c.s.storeTag).toBe('.mp');
-      expect(c.s.track.pitLane).toBeDefined();
+      expect(c.mp.weekend.lane).toBe(c.s.track.pit);
     }
     const settings: Partial<RoomSettings> = { practice: 1, practiceMinutes: 1, qualifying: 'timed', qualifyingMinutes: 2, raceLaps: 2, pitStops: 1,
       tyreWear: 20, collisions: false, grid: 'qualifying', finishSecs: 30 };
@@ -68,19 +69,16 @@ describe('a race weekend in the game', () => {
     room.run(0.5);
     expect(alice.mp.net.standings.map((s) => [s.name, s.laps])).toEqual([['Cy', 1], ['Alice', 1], ['Bob', 1]]);
     expect(alice.mp.weekend.order.map((e) => e.name)).toEqual(['Cy', 'Alice', 'Bob']);
-    // Alice pits for hards: into the lane at 30 m/s, brakes to 80 km/h by the limit line and to a stop in the box
+    // Alice pits for hards: from 300 m before the lane at 40 m/s she brakes to 80 km/h by the limit line and to a stop in
+    // the box (the autopilot's pit plan: the game brakes for nobody)
     const w = alice.mp.weekend, lane = w.lane, tr = alice.s.track;
     expect(Math.max(...alice.s.car.tyreWear)).toBeGreaterThan(0);
     w.nextCompound = 'hard';
-    alice.s.car.placeAt(lane.sStart + 5, lane.side * (lane.inner[3] + lane.outer[3]) / 2, 30);
-    alice.driver = (car) => {   // follow the lane's middle, braking for the limit line, then for the box's middle
-      const d = w.pit.dist, k = Math.min(lane.n - 1, Math.max(0, Math.round(d / (tr.L / tr.N))));
-      const want = lane.side * (lane.inner[k] + lane.outer[k]) / 2, err = want - car.proj.lat;
-      const v = car.speedF, box = Math.sqrt(Math.max(0, 2 * 4 * (lane.box - d)));
-      const target = Math.min(box, d < lane.limIn ? Math.sqrt((lane.limitMs - 1) ** 2 + 2 * 6 * Math.max(0, lane.limIn - 3 - d)) : lane.limitMs - 1);
-      return { throttle: v < target - 1 ? 0.6 : 0, brake: v > target + 0.5 && v > 0.3 ? 1 : 0, steer: 0, analog: true, steerAngle: Math.max(-0.2, Math.min(0.2, err * 0.05)), autoGears: true };
-    };
-    room.until(() => w.pit.service > 0, 20, 'the box');
+    // (the autopilot pits by itself while the request is on: Weekend.pitPlan)
+    w.setPitRequest(true);
+    alice.driver = null;
+    alice.s.car.placeAt((lane.sStart - 300 + tr.L) % tr.L, 0, 40);
+    room.until(() => w.pit.service > 0, 60, 'the box');
     expect(w.pit.inLane).toBe(true);
     const bobsView = [...bob.mp.players.values()].find((p) => p.info.name === 'Alice')!;
     room.run(0.3);
@@ -94,10 +92,10 @@ describe('a race weekend in the game', () => {
     expect(bobsView.sample.compound).toBe(COMPOUND.hard);
     alice.driver = null;
     // the lane's limiter held her to the limit through the limited stretch (checked on a run through it)
-    alice.s.car.placeAt(lane.sStart + lane.limIn + 2, lane.side * (lane.inner[40] + lane.outer[40]) / 2, lane.limitMs - 3);
+    { const p = lanePlacement(tr, lane, lane.limIn + 2, 0); alice.s.car.placeAt(p.s, p.lat, lane.limitMs - 3, p.heading); }
     let over = 0;
-    alice.driver = full;
-    room.run(2, () => { if (w.pit.inLane && w.pit.dist > lane.limIn + 40 && w.pit.dist < lane.limOut) over = Math.max(over, alice.s.car.speedF * 3.6); });
+    alice.driver = (car) => ({ ...full(car, 0), steerAngle: autopilot(car, tr).steerAngle });
+    room.run(3, () => { if (w.pit.inLane && w.pit.dist > lane.limIn + 20 && w.pit.dist < lane.limOut) over = Math.max(over, alice.s.car.speedF * 3.6); });
     expect(over).toBeGreaterThan(70); expect(over).toBeLessThan(84);
     alice.driver = null;
     // Bob recovers: put back where he is, stopped, held as a ghost; his lap goes on
@@ -132,7 +130,7 @@ describe('a race weekend in the game', () => {
     expect(localStorage.getItem(DEF.storeKey + '.drift.mp')).not.toBeNull();
     // leaving the room: the time trial again
     alice.mp.close();
-    expect(alice.s.track.pitLane).toBeUndefined();
+    expect(alice.s.timing.pitLaneInvalid).toBe(true);   // (a lap through the lane is the time trial's no lap again)
     expect(alice.s.conditions.wearScale).toBe(0);
     expect(alice.s.storeTag).toBe('');
   }, 240_000);

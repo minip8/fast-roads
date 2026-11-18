@@ -8,14 +8,15 @@ import { CARS, type AnyCarSpec, type CarId, type CarSpec } from '../src/cars';
 import { DT, G_WALL } from '../src/config';
 import { LcCar } from '../src/lc/lcCar';
 import { Session } from '../src/sim';
-import { buildTrack, parseCSV, type Track } from '../src/track';
-import { loadTrackCsv, TRACKS, type TrackId } from '../src/tracks';
+import { loadCircuit } from '../src/circuit';
+import type { Track } from '../src/track';
+import { TRACKS, type TrackId } from '../src/tracks';
 import type { DriveInput, Vehicle } from '../src/vehicle';
 
 const tracks: Partial<Record<TrackId, Track>> = {};
 // Each circuit is built once per test file.
 export async function trackFor(id: TrackId): Promise<Track> {
-  return tracks[id] ??= buildTrack(parseCSV(await loadTrackCsv(id)), { street: TRACKS[id].street });
+  return tracks[id] ??= await loadCircuit(TRACKS[id]);
 }
 
 // Where a car starting at rest is put: on the start straight, this far before the line (m). The game's start spot is

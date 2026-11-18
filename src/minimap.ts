@@ -1,15 +1,16 @@
-import type { PitLane } from './raceGeometry';
+import { lanePoint, sampleAt, type PitLane } from './pitLane';
 import type { Timing } from './timing';
 import type { Track } from './track';
-import { wrapI } from './util';
 import type { Vehicle } from './vehicle';
 
 // ============================================================================
-// Minimap: the circuit and timing lines drawn once, the car arrow on top each frame. In a room, the pit lane too
-// (setPitLane): a blue line beside the track on the lane's side, pulled away from it between the entry and exit ramps,
-// and the box as a yellow square; brighter, the box ringed, while the pit request is on.
+// Minimap: the circuit, its pit lane and the timing lines drawn once, the car arrow on top each frame. The pit lane
+// is its real shape (a thin grey line), pushed out to at least PIT_OFFSET px from the track's line where it runs
+// closer than that (a real lane a few metres off the track is under a pixel), less so towards its ends, which meet the
+// track. In a room (setPitLane) it is blue with the box as a yellow square; brighter, the box ringed, while the pit
+// request is on.
 // ============================================================================
-const PIT_OFFSET = 9;                 // px between the track's line and the pit lane's
+const PIT_OFFSET = 12;                // px between the track's line and the pit lane's
 export interface Bounds { minX: number; maxX: number; minZ: number; maxZ: number }
 export interface MapDot { x: number; z: number; color: string; ghost: boolean }   // another player's car
 
@@ -20,6 +21,7 @@ export class Minimap {
   private readonly offX: number;
   private readonly offZ: number;
   private pit: { pts: [number, number][]; box: [number, number] } | null = null;
+  private lanePts: [number, number][] = [];   // the lane as drawn (every mode)
 
   constructor(private readonly canvas: HTMLCanvasElement, track: Track, private readonly bounds: Bounds, timing: Timing) {
     this.ctx = canvas.getContext('2d')!;
@@ -29,24 +31,22 @@ export class Minimap {
     this.offZ = pad + ((span - (bounds.maxZ - bounds.minZ)) * this.scale) / 2;
 
     this.base = document.createElement('canvas'); this.base.width = canvas.width; this.base.height = canvas.height;
+    if (track.pit) { const l = track.pit; for (let k = 0; k < l.n; k += 2) this.lanePts.push(this.lanePx(track, l, l.D[k])); this.lanePts.push(this.lanePx(track, l, l.len)); }
     this.drawBase(track, timing);
   }
 
-  // The pit lane on the map (null: none), schematic: the real lane is a few metres off the track, under a pixel.
+  // The lane d m along it on the map: its real place, pushed out from the track's line to PIT_OFFSET px where nearer
+  // (fading to none over the first and last 40 m, where it meets the track).
+  private lanePx(track: Track, l: PitLane, d: number, off = 0): [number, number] {
+    const p = lanePoint(l, d, off), i = l.I[sampleAt(l, d)];
+    const sep = l.side * ((p.x - track.X[i]) * track.NX[i] + (p.z - track.Z[i]) * track.NZ[i]);
+    const f = Math.min(1, d / 40, (l.len - d) / 40), o = Math.max(0, PIT_OFFSET / this.scale - sep) * f * l.side;
+    return [this.x(p.x + track.NX[i] * o), this.y(p.z + track.NZ[i] * o)];
+  }
+
+  // The pit lane in a room (null: not in one): blue, with the box.
   setPitLane(track: Track, lane: PitLane | null, timing: Timing) {
-    this.pit = null;
-    if (lane) {
-      const ds = track.L / track.N, rin = lane.limIn / ds, rout = lane.limOut / ds, n = lane.n;
-      const at = (k: number): [number, number] => {
-        const i = wrapI(lane.k0 + k, track.N), f = k < rin ? k / rin : k > rout ? Math.max(0, (n - 1 - k) / Math.max(1, n - 1 - rout)) : 1;
-        const o = (PIT_OFFSET * f * lane.side) / this.scale;   // (m, so that it is PIT_OFFSET px on the map)
-        return [this.x(track.X[i] + track.NX[i] * o), this.y(track.Z[i] + track.NZ[i] * o)];
-      };
-      const pts: [number, number][] = [];
-      for (let k = 0; k < n; k += 2) pts.push(at(k));
-      pts.push(at(n - 1));
-      this.pit = { pts, box: at(Math.round(lane.box / ds)) };
-    }
+    this.pit = lane ? { pts: this.lanePts, box: this.lanePx(track, lane, lane.box, lane.boxOff) } : null;
     this.drawBase(track, timing);
   }
 
@@ -58,6 +58,11 @@ export class Minimap {
       g.beginPath();
       for (let i = 0; i <= track.N; i++) { const k = i % track.N; i ? g.lineTo(this.x(track.X[k]), this.y(track.Z[k])) : g.moveTo(this.x(track.X[k]), this.y(track.Z[k])); }
     };
+    if (!this.pit && this.lanePts.length) {
+      g.beginPath(); this.lanePts.forEach(([x, y], k) => (k ? g.lineTo(x, y) : g.moveTo(x, y)));
+      g.strokeStyle = 'rgba(0,0,0,.5)'; g.lineWidth = 5; g.stroke();
+      g.strokeStyle = '#9aa3ad'; g.lineWidth = 2; g.stroke();
+    }
     path(); g.strokeStyle = 'rgba(0,0,0,.6)'; g.lineWidth = 12; g.stroke();
     path(); g.strokeStyle = '#e8ecf0'; g.lineWidth = 6; g.stroke();
     timing.lines.forEach((ln, k) => {

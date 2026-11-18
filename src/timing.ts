@@ -1,5 +1,6 @@
 import { GhostRecorder, GHOST_SUFFIX, loadGhost, saveGhost, unpackGhost, type GhostLap } from './ghost';
-import type { Track } from './track';
+import { laneGate } from './pitLane';
+import { inPitLane, type Track } from './track';
 import { lerp } from './util';
 import type { Vehicle } from './vehicle';
 
@@ -23,7 +24,10 @@ export type TimingEvent =
   | { type: 'sector'; k: number; t: number }
   | { type: 'lap'; lap: Lap; deltaToBest: number | null };
 
-interface TimingLine { i: number; s: number; tx: number; tz: number; ax: number; az: number; bx: number; bz: number }
+// A timing line: across the track at sample i (s), and across the pit lane where the lane passes s (pit lanes have
+// their own timing loops): each a segment (a to b) with the racing direction (tx, tz) there.
+interface TimingSeg { tx: number; tz: number; ax: number; az: number; bx: number; bz: number }
+interface TimingLine { i: number; s: number; segs: TimingSeg[] }
 
 export class Timing {
   readonly lines: TimingLine[];                  // start/finish, then the two sector lines
@@ -49,13 +53,20 @@ export class Timing {
   // first one from the start spot and each later one at the end of the lap before: going off the track there (all
   // four wheels out) gains speed for the lap that follows, so that lap is deleted too, as well as the lap under way.
   // A race sets it to 0: there every lap counts, and going off before the line costs only the lap under way.
+  // pitLaneInvalid: a lap that goes into the pit lane is deleted (PIT LANE); a race turns it off.
+  pitLaneInvalid = true;
   constructor(private readonly track: Track, storeKey: string, public runup = 0) {
     const N = track.N;
     this.lines = [0, Math.round(N / 3), Math.round((2 * N) / 3)].map((i) => {
-      const l = Math.max(track.barL[i], track.WL[i] + 30) + 2, r = Math.max(track.barR[i], track.WR[i] + 30) + 2;
-      return { i, s: track.S[i], tx: track.TX[i], tz: track.TZ[i],
+      let l = Math.max(track.barL[i], track.WL[i] + 30) + 2, r = Math.max(track.barR[i], track.WR[i] + 30) + 2;
+      const gate = track.pit && laneGate(track.pit, track.L, track.S[i]);
+      // (where the lane passes the line, the track's segment stops at the lane's road, where the lane's starts)
+      if (gate) { if (track.pit!.side > 0) l = Math.min(l, gate.reach(track.X[i], track.Z[i], track.NX[i], track.NZ[i])); else r = Math.min(r, gate.reach(track.X[i], track.Z[i], -track.NX[i], -track.NZ[i])); }
+      const segs: TimingSeg[] = [{ tx: track.TX[i], tz: track.TZ[i],
         ax: track.X[i] - track.NX[i] * r, az: track.Z[i] - track.NZ[i] * r,
-        bx: track.X[i] + track.NX[i] * l, bz: track.Z[i] + track.NZ[i] * l };
+        bx: track.X[i] + track.NX[i] * l, bz: track.Z[i] + track.NZ[i] * l }];
+      if (gate) segs.push(gate.seg);
+      return { i, s: track.S[i], segs };
     });
     this.useStore(storeKey);
     this.reset();
@@ -90,8 +101,7 @@ export class Timing {
   tick(prev: { x: number; z: number }, curr: { x: number; z: number }, t0: number, dt: number, car: Vehicle) {
     const rx = curr.x - prev.x, rz = curr.z - prev.z;
     this.rec.tick(car);
-    for (let k = 0; k < 3; k++) {
-      const ln = this.lines[k];
+    for (let k = 0; k < 3; k++) for (const ln of this.lines[k].segs) {
       const sx = ln.bx - ln.ax, sz = ln.bz - ln.az;
       const den = rx * sz - rz * sx;
       if (Math.abs(den) < 1e-9) continue;
@@ -102,6 +112,9 @@ export class Timing {
       if (rx * ln.tx + rz * ln.tz < 0) { this.invalidate('WRONG WAY'); if (k === 0) this.next = -1; continue; }
       this.cross(k, tc, t0, t0 + dt, car);
     }
+    // the pit lane: a lap through it is no lap for the best times (in the time trial it would be a shortcut at full
+    // speed); a race times it as any other (the limiter makes it slow)
+    if (this.pitLaneInvalid && inPitLane(this.track, curr.x, curr.z, car.proj.i)) this.invalidate('PIT LANE');
     // track limits
     if (car.wheels.every((w) => w.out)) {
       // in the run-up: on the out lap, or in the last sector at most `runup` m before the line

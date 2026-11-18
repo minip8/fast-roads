@@ -207,10 +207,11 @@ export class Session {
     for (const o of this.others) this.placeExtra(o);
   }
 
-  // The car put at (s, lat), stopped or rolling at speed m/s (a grid slot, a recovery, the pit box): counted as a reset
+  // The car put at (s, lat), stopped or rolling at speed m/s (a grid slot, a recovery, the pit box), `heading` rad off
+  // the track's direction (the pit lane's own, raceGeometry.ts lanePlacement): counted as a reset
   // (resets, onReset) like a restart. The lap under way is dropped unless keepLap (a recovery: the lap goes on).
-  placeCar(s: number, lat: number, speed = 0, keepLap = false) {
-    this.car.placeAt(s, lat, speed);
+  placeCar(s: number, lat: number, speed = 0, keepLap = false, heading = 0) {
+    this.car.placeAt(s, lat, speed, heading);
     if (!keepLap) this.timing.reset();
     this.stuck = 0;
     this.resets++;

@@ -63,6 +63,7 @@ export function buildBrakeMarkers(tr: Track, scene: THREE.Scene) {
       if (Math.abs(tr.KS[i]) > 1 / 250) continue;                   // don't plant boards mid-bend
       const edge = side > 0 ? tr.WL[i] : tr.WR[i], bar = side > 0 ? tr.barL[i] : tr.barR[i];
       const off = Math.min(edge + KERB_W + 2.2, bar - 1.2);
+      if (off < edge + 1) continue;   // (no room: the pit wall close beside the track)
       const q = pointAt(tr, sb, side * off);
       // face the oncoming car: local +z points back along the track (-tangent)
       M.makeRotationY(Math.atan2(-tr.TX[i], -tr.TZ[i])).setPosition(q.x, 0, q.z);

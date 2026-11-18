@@ -128,7 +128,9 @@ export class Multiplayer {
   // the car brakes to a stop where it is, a ghost.
   tick(inp: DriveInput, autopilot: boolean, tickAt: number, parked = false) {
     this.beforeTick(tickAt);
-    this.session.tick(this.weekend.input(inp, tickAt, parked), autopilot && !parked);
+    // (a car the weekend holds still, on the grid, in the box or recovering, is not a stuck autopilot)
+    const driven = this.weekend.input(inp, tickAt, parked), w = this.weekend;
+    this.session.tick(driven, autopilot && !parked && !w.held && w.pit.service === 0 && w.recovering === 0);
     this.afterTick(tickAt);
   }
 

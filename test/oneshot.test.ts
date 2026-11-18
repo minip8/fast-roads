@@ -3,10 +3,10 @@
 // back to the pits. Two, three and eight entrants, through the relay (test/weekendRoom.ts).
 import { describe, expect, test } from 'vitest';
 import { CAR_REASON, ONE_SHOT_GAP, oneShotRelease } from '../src/net';
-import { laneZone } from '../src/raceGeometry';
+import { inPitLane } from '../src/track';
 import { type Client, distXZ, FAST, Room } from './weekendRoom';
 
-const inLane = (c: Client) => laneZone(c.mp.weekend.lane, c.s.track, c.s.car.proj) === 'lane';
+const inLane = (c: Client) => inPitLane(c.s.track, c.s.car.pos.x, c.s.car.pos.z);
 const serverT = (c: Client, room: Room) => c.mp.net.serverTime(room.t);
 
 // Each entrant's release (relay time), recorded as it happens; and at every tick, how many cars were out of the pit
@@ -89,7 +89,7 @@ describe('one-shot qualifying', () => {
     room.run(0.5);
     expect(c.mp.weekend.spectator).toBe(true);
     expect(c.mp.weekend.reason).toBe(CAR_REASON.spectator);
-    expect(laneZone(c.mp.weekend.lane, c.s.track, c.s.car.proj)).toBe('track');
+    expect(inPitLane(c.s.track, c.s.car.pos.x, c.s.car.pos.z)).toBe(false);
     room.hopLap(c, 0.4);
     expect(c.mp.stats.lapsSent).toBe(1);   // counted by us, but NetClient does not send a spectator's laps
     expect(a.mp.net.standings.map((st) => st.name)).toEqual(['Ann', 'Ben']);

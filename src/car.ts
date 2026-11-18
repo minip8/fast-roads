@@ -5,7 +5,7 @@ import { type CarMesh, poseCockpit } from './carMeshes';
 import type { ContactDelta, ContactShape } from './collide';
 import type { CarSpec } from './cars';
 import { COMPOUND_COLOURS, TIME_TRIAL, type Compound, type CompoundId, type Conditions, type GripPlan } from './conditions';
-import { pointAt, projectOnTrack, surfaceAt, trackLimitOut, type SurfaceRes, type Track, type TrackPos } from './track';
+import { locate, pointAt, wheelGround, type SurfaceRes, type Track, type TrackPos } from './track';
 import { clamp, lerp } from './util';
 import type { DriveInput, Vehicle } from './vehicle';
 
@@ -225,7 +225,7 @@ export class Car implements Vehicle {
   step(dt: number, inp: DriveInput) {
     const tr = this.track, b = this.body;
     this.readState();
-    projectOnTrack(tr, this.pos.x, this.pos.z, this.proj.i, this.proj);
+    locate(tr, this.pos.x, this.pos.z, this.proj.i, this.proj);
     const v = this.vel.length(), vF = this.speedF;
     this.tipped = this.up.y < 0.3 && v < 2 ? this.tipped + dt : 0;
 
@@ -343,12 +343,10 @@ export class Car implements Vehicle {
     const up = this.up, ray = this.ray;
     for (const w of this.wheels) {
       const m = _v1.copy(w.local).applyQuaternion(this.quat).add(this.pos);
-      projectOnTrack(tr, m.x, m.z, this.proj.i, w.proj);
-      surfaceAt(tr, w.proj.i, w.proj.lat, w.proj.s, w.sres);
+      w.out = wheelGround(tr, m.x, m.z, this.proj.i, w.proj, w.sres);
       w.surf = this.forceSurface ?? w.sres.surf;
       const sf = SURF[w.surf], kb = 1 - Math.exp(-dt / SURF_BLEND_T);
       w.muBlend += (sf.mu - w.muBlend) * kb; w.rrBlend += (sf.rr - w.rrBlend) * kb; w.decelBlend += (sf.decel - w.decelBlend) * kb;
-      w.out = trackLimitOut(tr, w.proj.i, w.proj.lat);
       ray.origin.x = m.x; ray.origin.y = m.y; ray.origin.z = m.z;
       ray.dir.x = -up.x; ray.dir.y = -up.y; ray.dir.z = -up.z;
       const maxToi = this.spec.suspLen + this.spec.wheelRadius + 0.1;

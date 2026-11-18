@@ -26,6 +26,11 @@
 //                                                                   # --svg also draws each circuit to <dir>/<id>.svg (+ .png with sharp)
 //   git clone --depth 1 https://github.com/bacinger/f1-circuits.git <f1-circuits>
 //
+// The game builds each circuit's pit lane from these files (src/pitLane.ts, through tracks.ts loadPitCsv): the rows'
+// x/y as the lane's path and their s to unwrap its lap position (which it then takes from its own projection where
+// the lane runs beside the track); index.json's working stretch and side became TrackDef.pit / pitSide by hand, and
+// the game reads nothing else from it.
+//
 // Output tracks/pits/<id>.csv (not tracks/*.csv: loadTrackCsv's glob and the tests read only those):
 //   # comment lines (source, OSM ways, transform, quality)
 //   x_m,y_m,s_m,lat_m[,w_m]   rows about 5 m apart in the racing direction, from where the lane leaves the circuit

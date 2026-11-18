@@ -5,7 +5,7 @@ import { type CarMesh, easeFlaps, poseCockpit, poseFlaps } from '../carMeshes';
 import type { LcSpec } from '../cars';
 import type { ContactDelta, ContactShape } from '../collide';
 import { COMPOUND_COLOURS, TIME_TRIAL, waterMm, type Compound, type CompoundId, type Conditions, type FitHeat, type GripPlan } from '../conditions';
-import { pointAt, projectOnTrack, surfaceAt, trackLimitOut, type SurfaceRes, type Track, type TrackPos } from '../track';
+import { locate, pointAt, wheelGround, type SurfaceRes, type Track, type TrackPos } from '../track';
 import type { DriveInput, TyreState, Vehicle, VehicleTyres, VehicleWheel } from '../vehicle';
 import type { EngineDriver } from './engineDriver';
 import { trackGround, trackWalls } from './ground';
@@ -173,7 +173,7 @@ export class LcCar implements Vehicle {
       // lap progress: the per-lap energy allowances reset when it wraps, and the straights are found by it
       locateProgress: (x, z) => {
         if (!Number.isFinite(x + z)) return Number.NaN;
-        this.progressI = projectOnTrack(tr, x, z, this.progressI, this.progress).i;
+        this.progressI = locate(tr, x, z, this.progressI, this.progress).i;
         return this.progress.s / tr.L;
       },
     });
@@ -328,7 +328,7 @@ export class LcCar implements Vehicle {
     this.throttle = this.brake = 0; this.tcActive = this.absActive = false;
     this.readState();
     this.proj.i = -1;
-    projectOnTrack(tr, this.pos.x, this.pos.z, -1, this.proj);
+    locate(tr, this.pos.x, this.pos.z, -1, this.proj);
     this.refresh();
     this.prevPos.copy(this.pos); this.prevQuat.copy(this.quat);
   }
@@ -358,7 +358,7 @@ export class LcCar implements Vehicle {
     const v = this.vehicle, tr = this.track;
     this.readState();
     if (!v.stateIsSane()) { this.tipped = Infinity; return; }   // blown up: needsReset puts it back on track
-    projectOnTrack(tr, this.pos.x, this.pos.z, this.proj.i, this.proj);
+    locate(tr, this.pos.x, this.pos.z, this.proj.i, this.proj);
     const vF = this.speedF;
     this.tipped = this.up.y < 0.3 && this.vel.length() < 2 ? this.tipped + dt : 0;
     if (this.groundFor !== this.forceSurface) { v.setGround(trackGround(tr, this.forceSurface)); this.groundFor = this.forceSurface; }
@@ -466,10 +466,8 @@ export class LcCar implements Vehicle {
       const w = this.wheels[k], e = W[k], hp = e.hardpointWorld;
       w.grounded = e.grounded;
       w.contact.set(hp.x, e.ground.height, hp.z);
-      projectOnTrack(tr, hp.x, hp.z, this.proj.i, w.proj);
-      surfaceAt(tr, w.proj.i, w.proj.lat, w.proj.s, w.sres);
+      w.out = wheelGround(tr, hp.x, hp.z, this.proj.i, w.proj, w.sres);
       w.surf = this.forceSurface ?? w.sres.surf;
-      w.out = trackLimitOut(tr, w.proj.i, w.proj.lat);
       w.slip = e.grounded ? Math.min(SLIP_MAX, peakSlip(e, this.longMult[k < 2 ? 0 : 1])) : 0;
       const t = this.tyres.wheels[k];
       t.coreC = e.coreTempC; t.surfaceC = e.surfaceTempC; t.pressurePsi = e.pressurePsi; t.brakeC = e.brakeDisc.surfaceTempC;

@@ -1,5 +1,6 @@
 import { S_ASPHALT, S_GRASS, S_GRAVEL, S_KERB } from '../config';
-import { surfaceAt, type SurfaceRes, type Track, type TrackPos } from '../track';
+import { laneAt, type LanePos } from '../pitLane';
+import { laneWalls, surfaceAt, type SurfaceRes, type Track, type TrackPos } from '../track';
 import type { GroundHit, GroundQuery, WallQuery } from './vendor/sim/f12026-car/TrackColliderQuery';
 import { DEFAULT_SURFACE_TABLE, type TrackSurfaceKind } from './vendor/sim/track-surfaces';
 
@@ -11,7 +12,8 @@ import { DEFAULT_SURFACE_TABLE, type TrackSurfaceKind } from './vendor/sim/track
 // Both are stateless (an answer depends on the point alone, never on earlier queries), which lets the engine reuse a
 // settle it has done before (its settle memo). The nearest centreline sample is found among each grid cell's
 // candidates, which gives exactly what projectOnTrack's global search does for any point within FAR of the
-// centreline; farther out everything is grass.
+// centreline; farther out everything is grass, but the pit lane's road (laneAt: the lane's own grid, as stateless),
+// which is asphalt wherever it is off the track's road and kerbs.
 // ============================================================================
 const CELL = 8;          // m
 const FAR = 60;          // m from the nearest centreline sample: beyond every barrier and gravel trap
@@ -94,13 +96,20 @@ export class TrackGround implements GroundQuery {
   readonly stateless = true;
   private readonly pos: TrackPos = { i: 0, s: 0, lat: 0 };
   private readonly res: SurfaceRes = { surf: 0, h: 0 };
+  private readonly lp: LanePos = { d: 0, off: 0, k: 0 };
   constructor(private readonly track: Track, private readonly force?: number) {}
 
   query(x: number, z: number, probeY: number, out: GroundHit): boolean {
     let surf = S_GRASS, h = 0;
-    if (projectNear(this.track, x, z, this.pos)) {
-      surf = surfaceAt(this.track, this.pos.i, this.pos.lat, this.pos.s, this.res);
-      h = this.res.h;
+    // the pit lane's road (a grid lookup) is asphalt; between the pit wall's ends it is walled off from the track
+    const pl = this.track.pit, lane = !!pl && laneAt(pl, x, z, this.lp);
+    if (lane && this.lp.d >= pl!.nose && this.lp.d <= pl!.tail) surf = S_ASPHALT;
+    else {
+      if (projectNear(this.track, x, z, this.pos)) {
+        surf = surfaceAt(this.track, this.pos.i, this.pos.lat, this.pos.s, this.res);
+        h = this.res.h;
+      }
+      if (lane && (surf === S_GRASS || surf === S_GRAVEL)) surf = S_ASPHALT;
     }
     if (h > probeY) return false;
     const props = DEFAULT_SURFACE_TABLE[KIND[this.force ?? surf]];
@@ -127,7 +136,7 @@ export function trackGround(tr: Track, force?: number): TrackGround {
 }
 
 // The barriers: the road-facing side of each wall cuboid buildTrackColliders makes, as a vertical segment over the
-// cuboid's height (0..1.6 m) and half a metre below it, in case a kerb lifts the car.
+// cuboid's height (0..1.6 m) and half a metre below it, in case a kerb lifts the car; and the pit lane's walls.
 export class TrackWalls implements WallQuery {
   readonly stateless = true;
   readonly segments: Float32Array;
@@ -147,6 +156,10 @@ export class TrackWalls implements WallQuery {
         if (Math.hypot(bx - ax, bz - az) < 0.01) continue;
         segs.push(ax, az, bx, bz, -0.5, 1.6);
       }
+    }
+    // the pit lane's walls: the pit wall's faces, the far wall, the joins to the barrier (the faces walls meet)
+    if (tr.pit) for (const [pl] of laneWalls(tr.pit)) {
+      for (let j = 0; j + 3 < pl.length; j += 2) if (Math.hypot(pl[j + 2] - pl[j], pl[j + 3] - pl[j + 1]) >= 0.01) segs.push(pl[j], pl[j + 1], pl[j + 2], pl[j + 3], -0.5, 1.6);
     }
     this.segments = Float32Array.from(segs);
     const n = segs.length / 6, s = this.segments;

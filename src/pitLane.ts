@@ -11,7 +11,8 @@ import { clamp, lerp, wrapI } from './util';
 //
 // The lane: a fast lane LANE.fast wide along the path, and along the working stretch (beside the garages:
 // TrackDef.pit) a working lane LANE.work wide on its far side, where the box and one-shot qualifying's waiting spots
-// are. It leaves the track at the entry (its first row, on the racing line) and rejoins at the exit (its last). From
+// are. The speed limit runs from just past the pit wall's nose to its tail (or 150 m past the garages, where the exit
+// road is longer). It leaves the track at the entry (its first row, on the racing line) and rejoins at the exit (its last). From
 // the pit wall's nose to its tail a pit wall stands between it and the track (its lane face along the fast lane's
 // inner edge, LANE.wall thick, thinning to a point at each end over LANE.taper), and an outer wall along its far
 // edge, so the only ways in and out are the openings at either end. The track's own barrier on the pit side becomes
@@ -171,6 +172,28 @@ function nearSample(tr: Track, x: number, z: number, i: number, r: number) {
   return best;
 }
 
+// The lap position of each sample: where the lane runs beside the track (within 25 m of its edge), its foot on the
+// track's middle (so a car crossing from the track onto the lane's road keeps its lap position); where it runs far
+// from it (cutting inside a corner), spread evenly along the lane between those; never decreasing. The data's own
+// positions (which may jump where its nearest point switches between two stretches) only unwrap them.
+function lapPositions(tr: Track, X: Float64Array, Z: Float64Array, S0: Float64Array, I: Int32Array, sep: Float64Array, D: Float64Array) {
+  const n = X.length, L = tr.L, S = new Float64Array(n), known = new Uint8Array(n);
+  for (let k = 0; k < n; k++) {
+    if (sep[k] > 25 && k > 0 && k < n - 1) continue;
+    const i = I[k], s = tr.S[i] + (X[k] - tr.X[i]) * tr.TX[i] + (Z[k] - tr.Z[i]) * tr.TZ[i];
+    S[k] = s + Math.round((S0[k] - s) / L) * L;   // (unwrapped as the data's)
+    known[k] = 1;
+  }
+  for (let k = 1; k < n; k++) {
+    if (known[k]) continue;
+    let e = k; while (!known[e]) e++;
+    for (let j = k; j < e; j++) S[j] = lerp(S[k - 1], S[e], (D[j] - D[k - 1]) / (D[e] - D[k - 1]));
+    k = e;
+  }
+  for (let k = 1; k < n; k++) S[k] = Math.max(S[k], S[k - 1]);
+  return S;
+}
+
 // Each sample's own track sample and how far it is beyond the track's edge on the lane's side.
 function ownStretch(tr: Track, X: Float64Array, Z: Float64Array, S: Float64Array, side: 1 | -1) {
   const n = X.length, I = new Int32Array(n), sep = new Float64Array(n), edge = side > 0 ? tr.WL : tr.WR;
@@ -223,6 +246,7 @@ export function buildPitLane(tr: Track, rowsIn: LaneRow[], opt: LaneOptions): Pi
     while (eout > 0 && sep[eout] < 0) eout--;
   }
   const { TX, TZ, NX, NZ } = frame(X, Z), len = D[n - 1];
+  S = lapPositions(tr, X, Z, S, I, sep, D);
   // the pit wall's ends: where the lane is first and last far enough out for it
   let kn = ein; while (kn < eout && sep[kn] < req - 0.05) kn++;
   let kt = eout; while (kt > kn && sep[kt] < req - 0.05) kt--;
@@ -237,7 +261,9 @@ export function buildPitLane(tr: Track, rowsIn: LaneRow[], opt: LaneOptions): Pi
     return lerp(D[k], D[k + 1], clamp((t - S[k]) / (S[k + 1] - S[k] || 1), 0, 1));
   };
   let w0 = lapAt(opt.work[0]), w1 = lapAt(opt.work[1]);
-  const limIn = Math.max(nose + 25, Math.min(w0 - 60, tail - 200)), limOut = Math.min(tail - 25, Math.max(w1 + 60, limIn + 150));
+  // (the limit from just past the pit wall's nose, as at a real pit entry, to the pit wall's tail, or 150 m past the
+  // garages where the exit road is longer: São Paulo's runs on for 500 m)
+  const limIn = nose + 25, limOut = Math.max(limIn + 150, Math.min(tail - 25, w1 + 150));
   w0 = clamp(w0, limIn + 20, limOut - 60); w1 = clamp(w1, w0 + 40, limOut - 20);
   // widths: the fast lane, the working lane, the gore (to the track's edge and kerb) at the openings
   const kerb = side > 0 ? tr.kerbL : tr.kerbR;
@@ -316,11 +342,27 @@ function buildingBetween(l: PitLane, k0: number, k1: number): PitLane['building'
 
 // The sample nearest d m along the lane.
 export function sampleAt(l: PitLane, d: number): number {
-  return clamp(Math.round((d / l.len) * (l.n - 1)), 0, l.n - 1);
+  const { k, t } = segAt(l, d);
+  return t < 0.5 ? k : k + 1;
+}
+// The segment (samples k, k + 1) d m along the lane and the fraction t along it (the samples are about, not exactly,
+// LANE.step apart).
+export function segAt(l: PitLane, d: number): { k: number; t: number } {
+  const D = l.D;
+  if (!(d > 0)) return { k: 0, t: 0 };
+  if (d >= l.len) return { k: l.n - 2, t: 1 };
+  let lo = 0, hi = l.n - 1;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (D[m] <= d) lo = m; else hi = m; }
+  return { k: lo, t: (d - D[lo]) / (D[lo + 1] - D[lo] || 1) };
+}
+// A per-sample array's value d m along the lane.
+export function laneValue(l: PitLane, a: ArrayLike<number>, d: number): number {
+  const { k, t } = segAt(l, d);
+  return lerp(a[k], a[k + 1], t);
 }
 // The point d m along the lane, `off` m from its path (+ towards the far side).
 export function lanePoint(l: PitLane, d: number, off = 0): { x: number; z: number; tx: number; tz: number } {
-  const f = clamp(d / l.len, 0, 1) * (l.n - 1), k = Math.min(l.n - 2, Math.floor(f)), t = f - k;
+  const { k, t } = segAt(l, d);
   const nx = lerp(l.NX[k], l.NX[k + 1], t), nz = lerp(l.NZ[k], l.NZ[k + 1], t);
   return {
     x: lerp(l.X[k], l.X[k + 1], t) + l.side * nx * off, z: lerp(l.Z[k], l.Z[k + 1], t) + l.side * nz * off,
@@ -329,8 +371,7 @@ export function lanePoint(l: PitLane, d: number, off = 0): { x: number; z: numbe
 }
 // The lap position (m from the line, 0..L) d m along the lane.
 export function laneLapS(l: PitLane, L: number, d: number): number {
-  const f = clamp(d / l.len, 0, 1) * (l.n - 1), k = Math.min(l.n - 2, Math.floor(f));
-  const s = lerp(l.S[k], l.S[k + 1], f - k);
+  const s = laneValue(l, l.S, d);
   return ((s % L) + L) % L;
 }
 
@@ -358,7 +399,7 @@ function cutLane(tr: Track, rows: LaneRow[], at: number, merge: number, sScale: 
 // A uniform grid of the path's segments: segment k (samples k, k+1) is listed in every cell its slab (with the walls
 // and LANE.reach to spare) overlaps.
 const CELL = 8;
-const REACH = 4;   // m beyond the walls a segment's cells cover (footprint queries may look a little further)
+const REACH = 14;  // m beyond the walls a segment's cells cover (how far a footprint query may look: scenery's margins)
 export interface LaneGrid { minX: number; minZ: number; nx: number; nz: number; start: Uint32Array; items: Uint32Array }
 const cellOf = (v: number, min: number, n: number) => Math.min(n - 1, Math.max(0, Math.floor((v - min) / CELL)));
 
@@ -547,4 +588,24 @@ export function fitBarrier(tr: Track, l: PitLane): { iNose: number; iTail: numbe
   (l.walls as { outer: Polyline }).outer = Float64Array.from(pts);
   (l as { building: PitLane['building'] }).building = buildingOf(tr, l);   // (clear of the barriers as they now are)
   return { iNose: iN, iTail: iT };
+}
+
+// ---------------------------------------------------------------------------- timing
+// A timing line at lap position s (m from the line) across the lane, if the lane runs past it: a segment across the
+// lane's road where its lap position passes s, in the lane's direction; and reach, how far a ray from the track's
+// middle (along (dx, dz)) goes before the lane's road (Infinity: never), where the track's own segment must stop.
+export function laneGate(l: PitLane, L: number, s: number): { seg: { tx: number; tz: number; ax: number; az: number; bx: number; bz: number }; reach: (ox: number, oz: number, dx: number, dz: number) => number } | null {
+  const t = l.S[0] + ((((s - l.S[0]) % L) + L) % L);
+  if (t >= l.S[l.n - 1]) return null;
+  let k = 0;
+  while (k < l.n - 2 && l.S[k + 1] <= t) k++;
+  const d = lerp(l.D[k], l.D[k + 1], clamp((t - l.S[k]) / (l.S[k + 1] - l.S[k] || 1), 0, 1));
+  const f = clamp(d / l.len, 0, 1) * (l.n - 1), j = Math.min(l.n - 2, Math.floor(f));
+  const wIn = lerp(l.wIn[j], l.wIn[j + 1], f - j), wOut = lerp(l.wOut[j], l.wOut[j + 1], f - j);
+  const a = lanePoint(l, d, -wIn), b = lanePoint(l, d, wOut + LANE.outerWall + 0.5);
+  const inner = edgeLine(l, 'in');
+  return {
+    seg: { tx: a.tx, tz: a.tz, ax: a.x, az: a.z, bx: b.x, bz: b.z },
+    reach: (ox, oz, dx, dz) => { const r = rayPolyline(ox, oz, dx, dz, inner, 300); return r > 0 ? r : Infinity; },
+  };
 }

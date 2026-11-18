@@ -4,6 +4,7 @@ import { canvasTex, noiseFill } from './textures';
 import { floodlit, type Glow } from './timeOfDay';
 import { WOODS, woodsOf, type SceneKind } from './trackside';
 import { clamp, wrapI } from './util';
+import { LANE, laneAt, pitFootprint, type LanePos } from './pitLane';
 import type { Track } from './track';
 import type { TrackDef } from './tracks';
 
@@ -104,7 +105,7 @@ export function buildScenery(tr: Track, scene: THREE.Scene, def: TrackDef, glow:
     part(stripGeo, 0, 8.98, 1.3, standMats.lights);
   }
   // Pit building
-  const pit = pitBuilding(tr, def);
+  const pit = pitBuilding(tr);
   if (pit) {
     M.compose(pos.set(pit.x, 4, pit.z), q.setFromEuler(e.set(0, pit.yaw, 0)), sc.set(1, 1, 1));
     // garages along the track-facing face (its u runs along the building)
@@ -129,14 +130,19 @@ export function buildScenery(tr: Track, scene: THREE.Scene, def: TrackDef, glow:
 }
 
 // The start gantry's posts: their centres' distance left (wl) and right (wr) of the centreline at the line. 2 m off the
-// track's edge, except on the pit building's side, where the post stands beyond a race weekend's pit lane (whose
-// outer edge stays 0.6 m off the barrier, or 6 m beyond the track's edge where there is none: raceGeometry.ts), not
-// on the lane's inner line.
+// track's edge, except on the pit lane's side: on top of the pit wall where the lane runs beside the line (the
+// track's barrier there is the pit wall's track face: pitLane.ts), else 2 m off the edge if that is clear of the lane
+// and its walls, else just beyond the lane's far wall.
 export const GANTRY_POST = 0.5;   // m square
 export function gantryPosts(tr: Track, def: Pick<TrackDef, 'pitSide'>): { wl: number; wr: number } {
-  const beyond = (bar: number, valid: boolean, edge: number) => Math.max(edge + 2, valid ? bar - 0.3 : edge + 6.5);
-  return def.pitSide > 0 ? { wl: beyond(tr.barL[0], !!tr.barLValid[0], tr.WL[0]), wr: tr.WR[0] + 2 }
-    : { wl: tr.WL[0] + 2, wr: beyond(tr.barR[0], !!tr.barRValid[0], tr.WR[0]) };
+  const side = def.pitSide, edge = side > 0 ? tr.WL[0] : tr.WR[0], bar = side > 0 ? tr.barL[0] : tr.barR[0], valid = side > 0 ? tr.barLValid[0] : tr.barRValid[0];
+  const at = (o: number) => [tr.X[0] + tr.NX[0] * side * o, tr.Z[0] + tr.NZ[0] * side * o] as const;
+  const lane = tr.pit, free = (o: number) => !lane || !pitFootprint(lane, ...at(o), GANTRY_POST / 2 + 0.1);
+  let post = edge + 2;
+  const p: LanePos = { d: 0, off: 0, k: 0 }, onLane = (o: number) => !!lane && laneAt(lane, ...at(o), p);
+  if (lane && valid && !onLane(bar + LANE.wall / 2) && onLane(bar + LANE.wall + 1)) post = bar + LANE.wall / 2;   // (on the pit wall)
+  else while (!free(post) && post < edge + 200) post += 0.5;
+  return side > 0 ? { wl: post, wr: tr.WR[0] + 2 } : { wl: tr.WL[0] + 2, wr: post };
 }
 
 // ---------------------------------------------------------------------------- the clearance test
@@ -144,29 +150,29 @@ export function gantryPosts(tr: Track, def: Pick<TrackDef, 'pitSide'>): { wl: nu
 // goes through clearOf. A thing may not reach any part of the circuit: no point of its footprint may lie inside any
 // stretch's walls (at the side of a centreline sample, closer than its barrier offset + `margin`). `skip`: samples
 // (counted from the line, may be negative) of the stretch it stands beside, whose walls it may reach (and 100 m
-// either side), as a building placed off its own straight's walls, or a bridge's deck over its straight. `reserve`:
-// also keep off the reserved ground (pitReserve: where a race weekend's pit lane goes). `buildings`: also keep `margin`
-// clear of the grandstands and the pit building. A stand bay that would intrude is left out, the pit building
-// shortened from its ends until it fits.
+// either side), as a building placed off its own straight's walls, or a bridge's deck over its straight. Nothing
+// may stand on the circuit's pit lane, its walls, its openings or its building, nor within `margin` of them
+// (pitFootprint, pitLane.ts: the real lane wherever it runs, a cut across the infield included). `reserve`: keep
+// PIT_RESERVE m more round the lane (trees, buildings, masts and bridge legs: room to see and walk round it).
+// `buildings`: also keep `margin` clear of the grandstands and the pit building. A stand bay that would intrude is
+// left out.
+export const PIT_RESERVE = 6;   // m round the pit lane's footprint kept clear by `reserve`
 export interface Keep { margin?: number; skip?: readonly [from: number, to: number]; reserve?: boolean; buildings?: boolean }
 type ClearDef = Pick<TrackDef, 'pitSide'> & Partial<Pick<TrackDef, 'pit' | 'stands'>>;
 export function clearOf(tr: Track, def: ClearDef, pts: readonly (readonly [number, number])[], keep: Keep = {}): boolean {
   const ds = tr.L / tr.N, m = Math.round(100 / ds), margin = keep.margin ?? 0.5, grid = gridOf(tr);
-  const res = keep.reserve ? pitReserve(tr, def) : null, reach = 60 + margin + (res ? res.width : 0);
+  const reach = 60 + margin, lane = tr.pit, laneMargin = margin + (keep.reserve ? PIT_RESERVE : 0);
   // how far along the track a sample's test reaches: its spacing (so a wall whose offset jumps between two samples is
   // still seen), or 1.5 m for things placed off their own stretch (the stands and pit building, as first placed)
   const tol = keep.skip ? 1.5 : ds, built = keep.buildings ? buildingsOf(tr, def) : null;
   for (const [x, z] of pts) {
     if (built) for (const c of built) if ((x - c.x) ** 2 + (z - c.z) ** 2 < (c.r + margin) ** 2) return false;
+    if (lane && pitFootprint(lane, x, z, laneMargin)) return false;
     for (const j of grid.near(x, z, reach)) {
       if (keep.skip && wrapI(j - (keep.skip[0] - m), tr.N) <= keep.skip[1] - keep.skip[0] + 2 * m) continue;
       const dx = x - tr.X[j], dz = z - tr.Z[j], d2 = dx * dx + dz * dz, along = Math.abs(dx * tr.TX[j] + dz * tr.TZ[j]);
       const lat = dx * tr.NX[j] + dz * tr.NZ[j], bar = lat > 0 ? tr.barL[j] : tr.barR[j];
       if (d2 <= 3600 && along <= tol && Math.abs(lat) < bar + margin) return false;
-      // the reserve: on its side, from the track out to `width` beyond the wall (the samples fan out on the outside of
-      // a bend, so the test along the track widens with the distance from it)
-      if (res && lat * res.side > 0 && wrapI(j - res.from, tr.N) <= res.to - res.from &&
-        along <= ds * (1 + Math.abs(lat * tr.KS[j])) && Math.abs(lat) < bar + res.width + margin) return false;
     }
   }
   return true;
@@ -183,7 +189,7 @@ function buildingsOf(tr: Track, def: ClearDef) {
       const tx = Math.sin(b.yaw), tz = Math.cos(b.yaw), cx = b.x - tx * 4.5, cz = b.z - tz * 4.5;
       for (const u of [-8, 0, 8]) out.push({ x: cx + tz * u, z: cz - tx * u, r: 8.5 });
     }
-    const pit = pitBuilding(tr, def as TrackDef);
+    const pit = pitBuilding(tr);
     if (pit) {
       const ax = Math.sin(pit.yaw), az = Math.cos(pit.yaw), n = Math.ceil(pit.len / 8);
       for (let k = 0; k <= n; k++) { const u = -pit.len / 2 + (pit.len * k) / n; out.push({ x: pit.x + ax * u, z: pit.z + az * u, r: 8.5 }); }
@@ -193,24 +199,6 @@ function buildingsOf(tr: Track, def: ClearDef) {
   return out;
 }
 
-// The pit lane's ground, kept clear for it: on def.pitSide, from 60 m before the last corner before the line to 60 m
-// after the first corner after it (samples from..to, counted from the line), `width` m beyond the wall. The race
-// weekends' pit lane (raceGeometry.ts) lies inside it; a lane built from real pit lane data can widen it here.
-export interface Reserve { side: 1 | -1; from: number; to: number; width: number }
-const reserves = new WeakMap<Track, Reserve>();
-export function pitReserve(tr: Track, def: Pick<TrackDef, 'pitSide'>): Reserve {
-  const got = reserves.get(tr);
-  if (got && got.side === def.pitSide) return got;
-  const ds = tr.L / tr.N, corner = (k: number) => Math.abs(tr.KS[wrapI(k, tr.N)]) > 1 / 150, maxK = Math.round(1200 / ds);
-  let from = 0, to = 0;
-  while (from > -maxK && !corner(from)) from--;
-  while (from > -maxK && corner(from)) from--;
-  while (to < maxK && !corner(to)) to++;
-  while (to < maxK && corner(to)) to++;
-  const r: Reserve = { side: def.pitSide, from: from - Math.round(60 / ds), to: to + Math.round(60 / ds), width: 25 };
-  reserves.set(tr, r);
-  return r;
-}
 // The track's samples in 50 m cells, for clearOf and nearestSample (made once per track).
 const grids = new WeakMap<Track, { near(x: number, z: number, r: number): number[] }>();
 function gridOf(tr: Track) {
@@ -268,25 +256,11 @@ export function standBays(tr: Track, def: TrackDef): Footprint[] {
   return bays;
 }
 
-// The pit building (12 m deep, 8 m high) along the chord of the straight from def.pit[0] to def.pit[1]. k0, k1: the
-// samples (counted from the line, negative before it) its ends stand beside, once shortened to fit.
-export function pitBuilding(tr: Track, def: Pick<TrackDef, 'pit' | 'pitSide'>): (Footprint & { len: number; k0: number; k1: number }) | null {
-  const ds = tr.L / tr.N;
-  let k0 = Math.round(def.pit[0] / ds), k1 = Math.round(def.pit[1] / ds);
-  while (k1 - k0 >= 20) {   // at least 40 m long
-    const i0 = wrapI(k0, tr.N), i1 = wrapI(k1, tr.N);
-    const ax = tr.X[i1] - tr.X[i0], az = tr.Z[i1] - tr.Z[i0], len = Math.hypot(ax, az);
-    const im = wrapI(Math.round((k0 + k1) / 2), tr.N), side = def.pitSide, off = side * ((side > 0 ? tr.barL : tr.barR)[im] + 9);
-    const x = tr.X[im] + tr.NX[im] * off, z = tr.Z[im] + tr.NZ[im] * off;
-    // the chord's outward normal, towards the building's side
-    const nx = (side * az) / len, nz = (-side * ax) / len;
-    if (clearOf(tr, def, boxPoints(x, z, ax / len, az / len, len / 2, nx, nz, -6, 6), { skip: [i0, i0 + k1 - k0] })) {
-      // On the left the building's local -x faces the track; on the right it is turned round so that face still does.
-      return { x, z, len, k0, k1, yaw: Math.atan2(ax, az) + (side > 0 ? 0 : Math.PI) };
-    }
-    k0 += 2; k1 -= 2;
-  }
-  return null;
+// The pit building (12 m deep, 8 m high) beside the pit lane's working stretch, beyond its far wall (pitLane.ts
+// places it, shortened or left out where it would reach the circuit). Its local -x (the garages) faces the lane.
+export function pitBuilding(tr: Track): (Footprint & { len: number }) | null {
+  const b = tr.pit?.building;
+  return b ? { x: b.x, z: b.z, len: 2 * b.halfLen, yaw: Math.atan2(b.nz, -b.nx) } : null;
 }
 
 // Pit building frontage, 32 m x 8 m per repeat: four garages under a glazed upper floor and a dark roof band; `lit`

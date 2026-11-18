@@ -1,11 +1,13 @@
 import type { CompoundId } from './conditions';
 import { DT } from './config';
 import { CAR_REASON, COMPOUND, oneShotRelease, type NetClient, type NetEvent, type Phase, type RaceStage, type SessionInfo, type Stage, type StandingStatus } from './net';
-import { brakeCue, buildPitLane, enablePitLane, gridSlots, laneDist, laneIndex, laneLimit, laneZone, PIT, type GridSlot, type PitLane } from './raceGeometry';
+import type { PitPlan } from './autopilot';
+import { laneAt, laneLapS, type LanePos, type PitLane } from './pitLane';
+import { brakeCue, gridSlots, lanePlacement, PIT, type GridSlot } from './raceGeometry';
 import type { Session } from './sim';
 import { Strikes } from './strikes';
 import { clearStore } from './timing';
-import { pointAt, projectOnTrack, type TrackPos } from './track';
+import { inPitLane, locate, pointAt, projectOnTrack, type TrackPos } from './track';
 import type { TrackDef } from './tracks';
 import { fmtTime } from './util';
 import type { DriveInput } from './vehicle';
@@ -60,7 +62,8 @@ export interface PitState {
   zone: 'track' | 'near' | 'lane';
   inLane: boolean;                    // in the pit lane (a ghost; the limiter acts on the entry ramp and the limited stretch)
   limiter: boolean;                   // the limiter is holding the car's speed down this tick
-  dist: number;                       // m along the lane (while in it)
+  dist: number;                       // m along the lane (on its road), else minus the m to its start along the lap
+  off: number;                        // m from the lane's path (+ towards the far side) while on its road
   service: number;                    // s of service left (0: none under way)
   serviceTotal: number;
   stops: number;                      // stops made this session
@@ -97,7 +100,7 @@ export class Weekend {
   // tyres: the set to start each session on (null: by the weather), and the set the next stop or restart fits
   startCompound: CompoundId | null = null;
   nextCompound: CompoundId;
-  readonly pit: PitState = { zone: 'track', inLane: false, limiter: false, dist: 0, service: 0, serviceTotal: 0, stops: 0, stopped: false, passedBox: false, sped: false, speeding: false };
+  readonly pit: PitState = { zone: 'track', inLane: false, limiter: false, dist: 0, off: 0, service: 0, serviceTotal: 0, stops: 0, stopped: false, passedBox: false, sped: false, speeding: false };
   private speedingFor = 0;            // s since the last speeding strike
   // The pit request ("box this lap", the `pit` key): guidance to the box. Entering the lane before the box turns it on;
   // the key turns it off again (a drive-through). Off once the stop is made, or the box passed, and the car is out.
@@ -125,15 +128,16 @@ export class Weekend {
   private wasRaining = false; private wasWet = false;
   private runners = new Map<number, Runner>();
   private readonly proj: TrackPos = { i: -1, s: 0, lat: 0 };
+  private readonly lp: LanePos = { d: 0, off: 0, k: 0 };
   // The race's track limits rule (strikes.ts): strikes, and the penalty limiter they bring
   readonly strikes: Strikes;
   private offTrack = false;           // beyond the track limits (all four wheels out), until back within them REJOIN_SECS
   private backFor = 0;                // s back within the limits since the last excursion
 
   constructor(readonly net: NetClient, readonly session: Session, readonly def: TrackDef, private readonly notify: Notify) {
-    this.lane = buildPitLane(session.track, def);
+    if (!session.track.pit) throw new Error(`${def.id} has no pit lane`);
+    this.lane = session.track.pit;
     this.strikes = new Strikes(notify, PIT.limitKmh / 3.6);
-    enablePitLane(session.track, this.lane);
     this.nextCompound = session.car.compound.id;
     session.setStoreTag('.mp');
     session.autoReset = () => this.autoReset();
@@ -142,8 +146,8 @@ export class Weekend {
   // The weekend's state no more: the time trial's track, conditions and best times (leaving the room).
   dispose() {
     const s = this.session;
-    enablePitLane(s.track, null);
     s.autoReset = null;
+    s.timing.pitLaneInvalid = true;
     s.timing.runup = this.def.startBack;
     s.setConditions({ wearScale: 0, rain: 0, wetness: 0 });
     s.setStoreTag('');
@@ -264,23 +268,26 @@ export class Weekend {
   private startSpotClear(): boolean {
     const tr = this.session.track, L = tr.L, s0 = this.session.startS;
     for (const p of this.mpSamples.values()) {
+      if (inPitLane(tr, p.x, p.z)) continue;
       projectOnTrack(tr, p.x, p.z, -1, this.proj);
-      if (laneZone(this.lane, tr, this.proj) !== 'track') continue;
       const d = ((this.proj.s - s0) % L + L) % L;   // m past the start spot, 0..L
       if (d <= CLEAR_AHEAD || L - d <= CLEAR_BEHIND) return false;
     }
     return true;
   }
 
-  // One-shot: the k-th entrant's spot in the pit lane, at rest facing down the lane, through the limited stretch from
-  // its start (10 m apart, closer if the stretch is short; ghosts, so a full room may overlap).
+  // One-shot: the k-th entrant's spot in the pit lane: at rest in the working lane facing down the lane, along the
+  // working stretch from its start (10 m apart, closer if it is short; ghosts, so a full room may overlap).
   private toPitSpot() {
     const s = this.net.session, n = Math.max(1, s.grid.length), k = Math.max(0, s.grid.indexOf(this.net.selfId));
-    const L = this.lane, tr = this.session.track, room = L.limOut - L.limIn - 16;
-    const d = L.limIn + 8 + (n > 1 ? k * Math.min(10, room / (n - 1)) : 0), j = Math.round(d / (tr.L / tr.N));
-    this.session.placeCar((L.sStart + d) % tr.L, L.side * (L.inner[j] + L.outer[j]) / 2, 0);
+    this.placeInLane(waitingSpot(this.lane, k, n), this.lane.boxOff);
     Object.assign(this.pit, { service: 0, stopped: true, inLane: true, passedBox: false });
     this.pitRequest = false;
+  }
+  // Put the car d m along the lane, `off` m from its path, at rest facing down the lane (keepLap: the lap goes on).
+  private placeInLane(d: number, off: number, keepLap = false) {
+    const p = lanePlacement(this.session.track, this.lane, d, off);
+    this.session.placeCar(p.s, p.lat, 0, keepLap, p.heading);
   }
 
   // Events Multiplayer passes on (ours included).
@@ -311,7 +318,7 @@ export class Weekend {
     inp = this.strikes.input(inp, v);   // (a track limits penalty: no throttle above the pit limit)
     // the pit limiter, between the limit lines: no throttle above the limit (eased off over the last 1.5 m/s below it,
     // so the car settles just under it). It never brakes: the driver brakes for the limit line and stops in the box.
-    const vmax = this.pit.inLane ? laneLimit(this.lane, this.pit.dist) : Infinity;
+    const vmax = this.pit.inLane && this.limited(this.pit.dist) ? this.lane.limitMs : Infinity;
     this.pit.limiter = vmax < Infinity && v > vmax - 2;
     if (vmax < Infinity) return { ...inp, throttle: Math.min(inp.throttle, Math.max(0, (vmax - v) / 1.5)) };
     return inp;
@@ -321,10 +328,12 @@ export class Weekend {
   afterTick(tickAt: number) {
     const car = this.session.car, tr = this.session.track, p = this.pit;
     if (this.recovering > 0) this.recovering = Math.max(0, this.recovering - DT);
-    // the pit lane, with hysteresis: in once the centre is in the lane, out once it is back on the track
-    p.zone = laneZone(this.lane, tr, car.proj);
+    // the pit lane, with hysteresis: in once the centre is on its road off the track's, out once back on the track
+    const onRoad = laneAt(this.lane, car.pos.x, car.pos.z, this.lp);
+    p.zone = inPitLane(tr, car.pos.x, car.pos.z, car.proj.i) ? 'lane' : onRoad ? 'near' : 'track';
     const inLane = p.zone === 'lane' || (p.inLane && p.zone === 'near');
-    p.dist = laneDist(this.lane, tr, car.proj.s);
+    p.dist = onRoad ? this.lp.d : -(((this.lane.sStart - car.proj.s) % tr.L + tr.L) % tr.L);
+    p.off = onRoad ? this.lp.off : 0;
     const pastBox = p.dist > this.lane.box + PIT.boxLen / 2 && p.dist < this.lane.len;
     if (inLane && !p.inLane) {
       // into the lane: a stop is wanted (the request, turned on by driving in before the box; the key turns it off: a
@@ -334,7 +343,7 @@ export class Weekend {
     }
     if (inLane && pastBox) p.passedBox = true;
     // speeding: over the limit (and the tolerance) between the limit lines (a held or recovering car aside)
-    const over = inLane && laneLimit(this.lane, p.dist) < Infinity && car.speedF > this.lane.limitMs + PIT.speedTolKmh / 3.6
+    const over = inLane && this.limited(p.dist) && car.speedF > this.lane.limitMs + PIT.speedTolKmh / 3.6
       && !this.held && this.recovering === 0;
     if (over) {
       this.speedingFor = p.speeding ? this.speedingFor + DT : 0;
@@ -351,8 +360,7 @@ export class Weekend {
     if (p.service > 0) {
       p.service = Math.max(0, p.service - DT);
       if (p.service === 0) this.serviced(tickAt);
-    } else if (inLane && !p.stopped && !p.sped && !p.passedBox && Math.abs(p.dist - this.lane.box) <= PIT.boxLen / 2 && Math.abs(car.speedF) < 0.5
-      && !this.held && this.serviceAllowed) {
+    } else if (inLane && !p.stopped && !p.sped && !p.passedBox && this.inBox() && Math.abs(car.speedF) < 0.5 && !this.held && this.serviceAllowed) {
       // at rest in the box (stopped there by the driver) without having sped on the way in: the service
       p.serviceTotal = p.service = car.spec.race.pitSecs;
     }
@@ -413,7 +421,17 @@ export class Weekend {
   // The box serves the car: not once its race is over (the relay would refuse the stop).
   private get serviceAllowed() { return this.phase !== 'race' || this.racing; }
   // The box is past the start/finish line (the lane runs across it): a stop on a lap is made after the line.
-  get boxPastLine() { const L = this.session.track.L; return (this.lane.sStart + this.lane.box) % L < L / 2; }
+  get boxPastLine() { const L = this.session.track.L; return laneLapS(this.lane, L, this.lane.box) < L / 2; }
+  // Between the limit lines (d m along the lane).
+  private limited(d: number) { return d >= this.lane.limIn && d <= this.lane.limOut; }
+  // The car's centre in the box: within half its length of the box's middle, and in the working lane beside it.
+  private inBox() { const p = this.pit, L = this.lane; return Math.abs(p.dist - L.box) <= PIT.boxLen / 2 && Math.abs(p.off - L.boxOff) <= PIT.boxWidth / 2 + 0.5; }
+  // The autopilot's part in a pit stop (autopilot.ts): stop in the box this lap while the request is on and a stop
+  // can still be made on this visit.
+  get pitPlan(): PitPlan | null {
+    const p = this.pit;
+    return this.pitRequest && this.serviceAllowed && !this.held && !p.stopped && !p.sped && !p.passedBox && p.service === 0 ? { stop: true } : null;
+  }
   togglePitRequest() { return this.setPitRequest(!this.pitRequest); }
   setPitRequest(on: boolean) {
     this.pitRequest = on;
@@ -471,9 +489,9 @@ export class Weekend {
       return box < 50 || brake ? { step: 'box', box, brake } : { step: 'lane', box, limiter: p.limiter };
     }
     if (!this.pitRequest || this.held || this.recovering > 0) return null;
-    if (p.zone !== 'track' && p.dist < L.limIn) return limit();   // (on the way in)
-    // (alongside the entry ramp but not in the lane yet: the entry is here; past the ramp: missed, the next lap's)
-    const d = p.dist < L.limIn ? 0 : ((L.sStart - this.session.car.proj.s) % tr.L + tr.L) % tr.L;
+    if (p.zone !== 'track' && p.dist >= 0 && p.dist < L.limIn) return limit();   // (on the way in)
+    // (on the lane's road where it runs on the track: the entry is here; else the lap's way to it)
+    const d = p.zone === 'near' && p.dist < L.limIn ? 0 : ((L.sStart - this.session.car.proj.s) % tr.L + tr.L) % tr.L;
     return { step: 'entry', dist: d, side: L.side, brake: brakeCue(v, d + L.limIn, L.limitMs, decel) };
   }
   // The braking the BRAKE cue is timed for: PIT.cueShare of the car's low-speed braking.
@@ -497,6 +515,7 @@ export class Weekend {
     if (s.phase === 'race') clearStore(this.def.storeKey + ses.car.spec.storeKey + '.race');
     ses.setStoreTag(s.phase === 'race' ? '.race' : '.mp');
     ses.timing.runup = s.phase === 'race' ? 0 : this.def.startBack;
+    ses.timing.pitLaneInvalid = s.phase !== 'race';   // (a race's lap through the pits counts as any other)
     this.spectator = this.net.isSpectator();
     this.weather(now, true);
     const c = this.startCompoundNow();
@@ -506,9 +525,8 @@ export class Weekend {
     if (s.phase !== 'lobby' && !s.oneShot && !this.spectator) this.explainPits();   // (the weekend's first session)
     if (s.phase === 'race' && slot != null && s.goAt != null && T >= s.goAt) {
       // back in a race under way (a reload): out of our pit box, on a fresh set
-      const k = Math.round(this.lane.box / (tr.L / tr.N));
       ses.car.fitTyres(c, 'blanket');
-      ses.placeCar(this.lane.sStart + this.lane.box, this.lane.side * (this.lane.inner[k] + this.lane.outer[k]) / 2, 0);
+      this.placeInLane(this.lane.box, this.lane.boxOff);
       this.standings();   // (the welcome's standings: whether our race is already over)
       this.notify('flag', 'BACK IN THE RACE', 'Out of the pits');
     } else if (s.phase === 'race' && slot != null) {
@@ -580,15 +598,15 @@ export class Weekend {
     this.pitRequest = false;
   }
 
-  // Put back on the track where the car is (the nearest point, a lane's middle in the pit lane, else at most 2 m
+  // Put back on the track where the car is (the nearest point, the fast lane's middle in the pit lane, else at most 2 m
   // inside the edge), stopped, and held there for RECOVERY_SECS as a ghost: the lap goes on.
   private recover() {
     const ses = this.session, tr = ses.track, car = ses.car, s = car.proj.s;
-    const i = pointAt(tr, s).i, k = laneIndex(this.lane, tr, i);
-    let lat: number;
-    if (k >= 0 && this.pit.zone !== 'track') lat = this.lane.side * (this.lane.inner[k] + this.lane.outer[k]) / 2;
-    else lat = Math.max(-(tr.WR[i] - 2), Math.min(tr.WL[i] - 2, car.proj.lat));
-    ses.placeCar(s, lat, 0, true);
+    if (this.pit.zone !== 'track') this.placeInLane(Math.max(2, Math.min(this.lane.len - 2, this.pit.dist)), 0, true);
+    else {
+      const i = pointAt(tr, s).i;
+      ses.placeCar(s, Math.max(-(tr.WR[i] - 2), Math.min(tr.WL[i] - 2, car.proj.lat)), 0, true);
+    }
     this.recovering = RECOVERY_SECS;
     this.pit.service = 0;
     this.notify('flag', 'RECOVERY', `Held for ${RECOVERY_SECS} s`);
@@ -643,7 +661,7 @@ export class Weekend {
         r = { dist: 0, s: 0, seen: false, hint: -1, times: new Float64Array(n).fill(Number.NaN), ids: new Int32Array(n).fill(-1), last: -1, laps: st.laps };
         this.runners.set(st.player, r);
       }
-      r.hint = projectOnTrack(tr, p.x, p.z, r.hint, this.proj).i;
+      r.hint = locate(tr, p.x, p.z, r.hint, this.proj).i;   // (in the pit lane: the lap position of where it runs)
       const s = this.proj.s;
       if (!r.seen) { r.seen = true; r.dist = st.laps * L + (s > L / 2 ? s - L : s); }
       else { let d = s - r.s; if (d > L / 2) d -= L; if (d < -L / 2) d += L; r.dist += d; }
@@ -696,4 +714,11 @@ export function sessionName(s: Pick<SessionInfo, 'phase' | 'index' | 'oneShot'>)
     case 'qualifying': return s.oneShot ? 'One-shot qualifying' : 'Qualifying';
     case 'race': return 'Race';
   }
+}
+
+// One-shot qualifying's waiting spots: the k-th of n entrants', m along the lane, in the working lane along the working
+// stretch from its start, 10 m apart (closer if the stretch is short).
+export function waitingSpot(l: PitLane, k: number, n: number): number {
+  const room = l.work[1] - l.work[0] - 16;
+  return l.work[0] + 8 + (n > 1 ? k * Math.min(10, room / (n - 1)) : 0);
 }

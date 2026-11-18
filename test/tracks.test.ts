@@ -5,6 +5,7 @@ import { circuitInfo, outlineOf, type Outline } from '../src/catalog';
 import { clearOf, pitBuilding, pitReserve, standBays } from '../src/scenery';
 import { blockSpots, bridgeSpots, MAST_RADIUS, mastSpots, TREE_RADIUS, treeSpots } from '../src/trackside';
 import { S_ASPHALT } from '../src/config';
+import { laneValue } from '../src/pitLane';
 import { parseCSV, surfaceAt } from '../src/track';
 import { OUTLINES } from '../src/trackOutlines';
 import { loadTrackCsv, TRACKS } from '../src/tracks';
@@ -32,10 +33,12 @@ for (const def of Object.values(TRACKS)) {
     // a flying-lap speed for every car
     for (const car of Object.keys(CARS) as CarId[]) expect(def.flying[car]).toBeGreaterThan(60);
     // walls on both sides all the way round, except where another part of the circuit runs through (Suzuka's
-    // crossover, the other side of a hairpin): there the wall would stand on the other road
-    for (const valid of [tr.barLValid, tr.barRValid]) {
+    // crossover, the other side of a hairpin): there the wall would stand on the other road; and at the pit lane's
+    // openings, which test/raceGeometry.test.ts checks (the lane's own walls close them)
+    const lane = tr.pit!, gaps = (i: number) => { const s = ((tr.S[i] - lane.sStart) % tr.L + tr.L) % tr.L; return s < laneValue(lane, lane.S, lane.len) - lane.S[0]; };
+    for (const [side, valid] of [[1, tr.barLValid], [-1, tr.barRValid]] as const) {
       for (let i = 0; i < tr.N; i++) {
-        if (valid[i]) continue;
+        if (valid[i] || (side === lane.side && gaps(i))) continue;
         let near = Infinity;
         for (let j = 0; j < tr.N; j++) {
           const apart = Math.abs(tr.S[i] - tr.S[j]);
@@ -44,10 +47,11 @@ for (const def of Object.values(TRACKS)) {
         expect(near, `${def.id}: no wall at s = ${tr.S[i].toFixed(0)}`).toBeLessThan(40);
       }
     }
-    // the pit building and grandstands fit beside the straight without reaching another part of the circuit
-    const pit = pitBuilding(tr, def)!;
-    expect(pit).not.toBeNull();
-    expect(pit.len).toBeGreaterThan(0.8 * (def.pit[1] - def.pit[0]));
+    // the pit building and grandstands fit beside the lane and the straight without reaching another part of the
+    // circuit (none at Monaco, whose lane runs between the start straight and the Swimming Pool: no room behind it)
+    const pit = pitBuilding(tr);
+    if (def.id === 'monaco') expect(pit).toBeNull();
+    else expect(pit?.len).toBeGreaterThan(Math.min(150, 0.4 * (lane.work[1] - lane.work[0])));
     expect(standBays(tr, def).length).toBeGreaterThanOrEqual(Math.min(4, def.stands[0] + def.stands[1] + 1));
   });
 

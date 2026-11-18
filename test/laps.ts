@@ -1,3 +1,5 @@
+import { pitFootprint } from '../src/pitLane';
+import { laneWalls, type Track } from '../src/track';
 import { expect, it } from 'vitest';
 import type { CarId } from '../src/cars';
 import { TRACKS, type TrackId } from '../src/tracks';
@@ -72,6 +74,8 @@ async function lapCheck(track: TrackId, car: CarId, tc: boolean, time: string, l
   drive(limit, null, () => {   // stops after the first lap; the limit catches a car that never gets there
     const p = c.proj;
     if ((p.lat > 0 ? tr.barLValid : tr.barRValid)[p.i]) nearWall = Math.min(nearWall, (p.lat > 0 ? tr.barL : tr.barR)[p.i] - Math.abs(p.lat));
+    // (and the pit lane's walls: the pit wall, the far wall, the joins)
+    if (tr.pit && pitFootprint(tr.pit, c.pos.x, c.pos.z, 3)) nearWall = Math.min(nearWall, laneWallDistance(tr, c.pos.x, c.pos.z));
     if (atStart < 0 && timing.lapStart != null && timing.next === 0 && p.s >= startS && p.s < tr.L - 1) atStart = c.speedF * 3.6;
     return timing.laps.length > 0;
   });
@@ -81,4 +85,15 @@ async function lapCheck(track: TrackId, car: CarId, tc: boolean, time: string, l
   // the flying start is the speed the car really has there on a lap: retake TrackDef.flying if this drifts
   expect(atStart).toBeGreaterThan(flying - 2);
   expect(atStart).toBeLessThan(flying + 2);
+}
+
+// The distance from (x, z) to the nearest of the pit lane's walls.
+export function laneWallDistance(tr: Track, x: number, z: number): number {
+  let best = Infinity;
+  for (const [pl] of laneWalls(tr.pit!)) for (let j = 0; j + 3 < pl.length; j += 2) {
+    const ax = pl[j], az = pl[j + 1], dx = pl[j + 2] - ax, dz = pl[j + 3] - az, l2 = dx * dx + dz * dz;
+    const t = l2 > 0 ? Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / l2)) : 0;
+    best = Math.min(best, Math.hypot(ax + t * dx - x, az + t * dz - z));
+  }
+  return best;
 }

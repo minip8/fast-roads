@@ -24,8 +24,10 @@ import { buildStage } from './stage';
 import { timeFromUrl } from './timeOfDay';
 import { StartupError } from './startup';
 import { clearStore, loadStore, type Timing } from './timing';
-import { buildTrack, parseCSV, type Track } from './track';
-import { loadTrackCsv, TRACKS, type TrackId } from './tracks';
+import { loadCircuit } from './circuit';
+import { PitLaneMesh } from './pitLaneMesh';
+import type { Track } from './track';
+import { TRACKS, type TrackId } from './tracks';
 import { clamp } from './util';
 import type { DriveInput, Vehicle } from './vehicle';
 import { Weather, weatherFromUrl } from './weather';
@@ -55,7 +57,7 @@ type NetModule = typeof import('./netGame');
 interface NetRuntime {
   mp: Multiplayer; view: InstanceType<NetModule['RemoteCars']>; board: InstanceType<NetModule['NetHud']>;
   mod: NetModule; server: string; log: InstanceType<NetModule['lobby']['RoomLog']>;   // (for the menu's room tab)
-  race: InstanceType<NetModule['RaceHud']>; pitLane: InstanceType<NetModule['PitLaneMesh']>;   // the race weekend's HUD, the pit lane drawn
+  race: InstanceType<NetModule['RaceHud']>;   // the race weekend's HUD
 }
 declare global { interface Window { __game?: GameHook } }
 
@@ -90,12 +92,12 @@ export async function main() {
   $('menuSub').textContent = `Time trial · ${def.name}, ${def.place}`;
   await new Promise((r) => setTimeout(r, 0));   // let the loading text paint
 
-  const csv = await loadTrackCsv(def.id).catch((err: unknown) => { throw new StartupError('download', `${def.name} failed to load`, { cause: err }); });
-  const track = buildTrack(parseCSV(csv), { street: def.street });
+  const track = await loadCircuit(def).catch((err: unknown) => { throw new StartupError('download', `${def.name} failed to load`, { cause: err }); });
   // ?time=night (or day, dusk, or a look's id: timeOfDay.ts) shows that time of day whatever the setting (a development tool)
   const devTime = timeFromUrl(params);
   const stage = buildStage($<HTMLCanvasElement>('view'), track, def, devTime ?? settings.time);
   const { renderer, scene, camera } = stage;
+  if (track.pit) scene.add(new PitLaneMesh(track, track.pit).group);   // (the pit lane is the circuit's, in every mode)
 
   // Physics. session.car is replaced when the Car setting changes: read it at call time.
   const session = new Session(track, scene, CARS[settings.car], def), { timing } = session;
@@ -166,13 +168,12 @@ export async function main() {
   };
   const startNet = (mod: NetModule, net: NetClient, server: string) => {
     clearInterval(bootKeep);
-    const mp = new mod.Multiplayer(net, session, def), pitLane = new mod.PitLaneMesh(track, mp.weekend.lane), race = new mod.RaceHud($('hud'));
-    scene.add(pitLane.group);
+    const mp = new mod.Multiplayer(net, session, def), race = new mod.RaceHud($('hud'));
     race.tyreKey = keysFor(bindings, 'tyre').map(keyLabel)[0] ?? ''; race.pitKey = keysFor(bindings, 'pit').map(keyLabel)[0] ?? '';
     hud.setPitLane(track, mp.weekend.lane);
     mp.weekend.setStartCompound(startTyre);
     hud.clearLaps();   // (the time trial's laps are not the room's)
-    netRt = { mp, view: new mod.RemoteCars(scene, labels), board: new mod.NetHud($('leftCol')), race, pitLane, mod, server, log: new mod.lobby.RoomLog(net) };
+    netRt = { mp, view: new mod.RemoteCars(scene, labels), board: new mod.NetHud($('leftCol')), race, mod, server, log: new mod.lobby.RoomLog(net) };
     netStatus = { state: 'joined', text: '' };
     lastAttempt = () => { void enterRoom('join', net.room, server); };
     saveSeat({ room: net.room, server, token: net.token });
@@ -182,7 +183,7 @@ export async function main() {
   };
   const stopNet = (status: NetStatus) => {
     if (!netRt) return;
-    netRt.mp.close(); netRt.view.dispose(); netRt.board.dispose(); netRt.race.dispose(); netRt.pitLane.dispose(); netRt = null;
+    netRt.mp.close(); netRt.view.dispose(); netRt.board.dispose(); netRt.race.dispose(); netRt = null;
     hud.setPitLane(track, null);
     session.proxies.length = 0;
     hud.clearLaps();
@@ -465,7 +466,7 @@ export async function main() {
       acc += fdt;
       let steps = 0;
       while (acc >= DT && steps < MAX_STEPS_PER_FRAME) {
-        const inp = !live ? PARKED : autoOn ? autopilot(session.car, track) : input.poll(DT);
+        const inp = !live ? PARKED : autoOn ? autopilot(session.car, track, 0, netRt?.mp.weekend.pitPlan ?? null) : input.poll(DT);
         if (netRt) netRt.mp.tick(inp, autoOn && live, nowS - (acc - DT), !live);   // (the local time this tick's state is for)
         else session.tick(inp, autoOn);
         acc -= DT; steps++;

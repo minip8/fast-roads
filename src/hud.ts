@@ -2,7 +2,7 @@ import { DT, SURF } from './config';
 import { $ } from './dom';
 import { keyLabel, keysFor, MENU_KEY, type Action, type Bindings } from './keys';
 import { Minimap, type Bounds, type MapDot } from './minimap';
-import type { PitLane } from './raceGeometry';
+import type { PitLane } from './pitLane';
 import type { Timing } from './timing';
 import type { Track } from './track';
 import { TyreWidget } from './tyreHud';

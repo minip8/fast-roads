@@ -109,8 +109,11 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   the lane always able to drive on, the limiter that never brakes, the pit request and its guidance followed by a
   scripted driver braking at its cues, stops by hand and overshoots, speeding, the drive-through notice;
   `test/track-limits.test.ts`: the race's track limits strikes and the penalty limiter they bring, none outside a race
-  or with the setting off; all four use `test/weekendRoom.ts`. `test/raceGeometry.test.ts` checks the grid, the pit lane and the start gantry's posts
-  clear of it at every circuit. `test/pit-loss.test.ts`
+  or with the setting off; all four use `test/weekendRoom.ts`. `test/raceGeometry.test.ts` checks the grid and the pit lane at every
+  circuit (the lane on the track at its ends and clear of the road, the rest of the lap and its walls between them,
+  its widths, the pit wall whole and the barrier open only at the openings, joined to it, the openings, the grid and
+  start spot, the box and waiting spots, the building, the physics' ground and walls, the timing gates, placements,
+  the start gantry's posts); `PITLANE_SVG=<folder>` draws each circuit (`test/pitLaneDraw.ts`). `test/pit-loss.test.ts`
   is a tool (`PITLOSS=melbourne`): the time a pit stop costs each car.
 - In the browser, `window.__game` exposes `simulate(seconds, driver, probeSecs)`, `car` (a getter: the car object is
   replaced when you switch cars), `simTime`, `session`, `timing`, `track`, `input`, `setSetting(key, value)` and
@@ -207,16 +210,22 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   (`country`, official `lengthKm`, 2026 `round`, none for the cancelled Bahrain and Jeddah), best-times key, start
   spot and each car's flying-lap speed there, scenery placement; `loadTrackCsv(id)` fetches one circuit's CSV
   (`import.meta.glob` makes each CSV its own chunk, so the game downloads only the circuit being driven)
-- `track.ts`: track geometry and colliders (`Track`)
-- `pitLane.ts`: the circuit's real pit lane (`PitLane`, from `tracks/pits/<id>.csv`): its own path in world space
-  (moved out from the data only where the pit wall would not fit), the fast lane and the working lane, the pit wall
-  and the far wall, the limit lines, the box, the pit building; `laneAt` (a grid lookup: where a point is along the
-  lane), `pitFootprint(lane, x, z, margin)` (lane, walls or building: for placing scenery), `fitBarrier` (the
-  track's barrier round the lane). `circuit.ts` `buildCircuit` / `loadCircuit`: the track with its lane. Not yet
-  wired into the game: `test/pitLanes.test.ts` checks every circuit (`PITLANE_SVG=<folder>` draws each, with
-  `test/pitLaneDraw.ts`).
-- `trackMeshes.ts`, `textures.ts`, `scenery.ts`, `brakeMarkers.ts`: visuals (`standBays` / `pitBuilding` in
-  `scenery.ts` place the buildings, leaving out or shortening any that would stand inside another stretch's walls;
+- `track.ts`: track geometry and colliders (`Track`; `Track.pit`, the circuit's pit lane). Where a car is, lane-aware:
+  `locate` (the car's `proj`: on the lane's road off the track's, the lap position of where the lane runs),
+  `wheelGround` (a wheel's surface and track limits: the lane's road is asphalt and inside them), `inPitLane`;
+  `buildTrackColliders` adds the lane's walls (`laneWalls`).
+- `pitLane.ts`: the circuit's real pit lane (`PitLane`, from `tracks/pits/<id>.csv`), part of the circuit in every
+  mode: its own path in world space (moved out from the data only where the pit wall would not fit), the fast lane
+  (6 m) and the working lane (5 m, beside the garages: `TrackDef.pit`), the pit wall (nose to tail, tapered) and the
+  far wall, the limit lines, the box, the pit building, the lap position along it (`S`); `laneAt` (a grid lookup:
+  where a point is along the lane; stateless, cheap: the LibreCorsa engine's ground asks it for every wheel every
+  2 ms), `pitFootprint(lane, x, z, margin)` (on or within margin of the lane, its walls or its building: for placing
+  scenery), `fitBarrier` (the track's barrier round the lane), `laneGate` (the timing lines across it).
+  `TrackDef.pitCut`: Yas Marina's exit (a tunnel in reality) rejoins on its own side. `circuit.ts` `buildCircuit` /
+  `loadCircuit`: the track with its lane (main.ts, the RL environment and the harness build circuits with it).
+- `trackMeshes.ts`, `textures.ts`, `scenery.ts`, `brakeMarkers.ts`: visuals (`standBays` in `scenery.ts` places the
+  stands, leaving out any that would stand inside another stretch's walls or on the pit lane; `pitBuilding` draws
+  the lane's building;
   `clearOf(tr, def, pts, { margin, skip, reserve, buildings })` is the one clearance test every placement goes
   through: no point inside any stretch's walls + margin, except the `skip` stretch's, with `reserve` none on
   `pitReserve`'s ground (the pit side from 60 m before the last corner to 60 m after the first, 25 m beyond the wall:
@@ -378,10 +387,9 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
     the pit request `pitRequest` with its guidance `pitGuide` and its BRAKE cues, and the suggested stop `pitAdvice`), restarts (`requestRestart`; `Session.autoReset`): a flying
     start on fresh tyres, or in a race a recovery (`RECOVERY_SECS`), which laps are sent, and the live running order.
     Plain state for the HUD and the menu (`startCompound`, `nextCompound`, `pit`, `order`, `tyreLife`...).
-    `raceGeometry.ts` (pure): `gridSlots`, `buildPitLane` (a 4 m strip on the pit building's side, on the run-off
-    or up to 1.1 m into a street circuit's road), `enablePitLane` (`Track.pitLane`: asphalt and inside the track
-    limits, only in a room, so single-player is untouched). `pitLaneMesh.ts` draws the lane (countdown boards,
-    chevrons into it, the box under a lit BOX gantry), the minimap its schematic (`Hud.setPitLane`); `raceHud.ts` the
+    `raceGeometry.ts` (pure): `gridSlots`, the pit rules' numbers (`PIT`), `brakeCue`, `lanePlacement` (a car put in
+    the lane). The lane itself is the circuit's (`pitLane.ts`), drawn in every mode by `pitLaneMesh.ts` (main.ts);
+    the minimap draws its real shape (blue with the box in a room: `Hud.setPitLane`); `raceHud.ts` the
     lights, race strip, pit panel and pit guidance (`#pitGuide`) (`#hud.race` declutters); the board turns into a timing tower in a race.
   - `remoteCars.ts` `RemoteCars`: the other cars drawn (the spec's own mesh, own material copies so one car can turn
     translucent, wheels and cockpit posed from the state), name tags (`#netLabels`, DOM, before `#hud` in the page so a tag passes behind the HUD's panels), minimap dots (`MapDot`).
@@ -565,7 +573,9 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   stops sliders at their ends. What the settings reach: `CameraRig` (`fovOffset`, `speedFov`, `shake`), `Hud`
   setters, the stage's `setResolution` / `setShadows` / `setBrightness` / `setTime` / `setDetail`, `Weather.quality`, and `EngineAudio.setVolume` (a gain node of
   its own between the sound graph and the speakers; there are no per-sound volumes).
-- **Timing**: start/finish and two sector lines as segments, with crossings interpolated within a tick; track-limit
+- **Timing**: start/finish and two sector lines as segments (and a segment across the pit lane where it passes a
+  line: `laneGate`), with crossings interpolated within a tick; a lap that goes into the pit lane is deleted (PIT
+  LANE) unless `pitLaneInvalid` is off (a race); track-limit
   invalidation, which in the run-up (the last `startBack` m before the line: from the start spot, or at the end of
   a lap) deletes the next lap too (`nextInvalid`, the `invalid` event's `laps`; a restart forgives it); best lap/sectors/trace stored per circuit and car under `TrackDef.storeKey + spec.storeKey`
   (`useStore` switches). Every lap is recorded (`GhostRecorder`, 10 Hz, from the pose just before the line to the
@@ -586,5 +596,9 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   (`PLAN_LIFT`, `PLAN_COUNTER`: without them full power out of a wet corner spun the F1), and the session's start
   speed is scaled by how much slower the plan is over the next 400 m (`Session.flyingSpeed`). Within 1.5 m of the edge on the outside of a bend it lifts (the drift car slides
   wide under power in fast sweepers such as Monza's Curva Grande); no lap at Melbourne or Silverstone gets that close,
-  so their pins did not move. In a room (`Track.pitLane` set) the road on the pit side reaches the lane's outer edge,
-  so a car put in the lane (out of its box after a reload, recovered into it) is not lifting off there. Brake-marker boards are scenery and are always placed from the `lcf1` profile.
+  so their pins did not move. In the pit lane (`inPitLane`) it follows the lane's path at the lane's own speed plan
+  (its bends, just under the limit between the limit lines, braking for the first), so a car put there (out of its
+  box, recovered into it) drives out; with a pit plan (`autopilot(car, track, lat, { stop: true })`, in a room
+  `Weekend.pitPlan` while the pit request is on) it turns into the lane, brakes for the limit line, pulls into the
+  working lane and brakes to a stop at the box's middle: the game never brakes for it. On a racing lap it never
+  enters the lane. Brake-marker boards are scenery and are always placed from the `lcf1` profile.

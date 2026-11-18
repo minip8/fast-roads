@@ -330,24 +330,26 @@ tyre wear, weather, collisions, track limits) are set in the lobby; the relay ti
   while one on its lap comes past the start spot, and a car whose lap is done goes back to the pits. The race: two
   staggered columns behind the line, pole on the inside of the first corner, held until the five red lights go out;
   lap 1 runs from the grid. The chequered flag after the winner; a finished car drives on as a ghost.
-- **Pit lane.** A lane along the pit building, on the side the map shows it (a blue line beside the track, the box a
-  yellow square). The way in: blue PIT 300 / 200 / 100 boards on that side, white chevrons on a blue band along the
-  track's edge, blue hatching over the entry and a large PIT IN board; then white lines, the 80 km/h boards, a yellow
-  box under a gantry with a lit BOX sign, and PIT OUT (the start gantry's post on that side stands beyond it). In the
-  lane your car is a ghost. The game never brakes for you: between the two limit lines the pit limiter cuts the
-  throttle above 80 km/h, and that is all it does. You brake for the limit line and you stop in the box yourself.
+- **Pit lane.** Each circuit's real pit lane (**Pit lanes**, below), on the side the map shows it (a blue line, the
+  box a yellow square). The way in: blue PIT 300 / 200 / 100 boards on that side, white chevrons on a blue band along
+  the track's edge, blue hatching over the entry's gore and a large PIT IN board; then the 80 km/h limit line and
+  boards, the fast lane and, beside the garages, the working lane with a yellow box under a gantry with a lit BOX
+  sign, and PIT OUT. In the lane your car is a ghost. The game never brakes for you: between the two limit lines (from
+  just past the pit wall's nose to its tail) the pit limiter cuts the throttle above 80 km/h, and that is all it does.
+  You brake for the limit line and you stop in the box yourself.
   **To pit, press L (or the d-pad down): "box this lap".** The HUD then guides you: the distance to the pit entry and
   its side, the limit line coming and a red BRAKE cue when it is time to brake for it (timed for firm braking in your
   car), the limiter, the metres to the box and BRAKE again for it, the tyres going on, GO. The car is serviced once
-  at rest with its centre in the 10 m box (braking fully on a key from 80 km/h works from about 12 to 20 m before the
-  box's middle in the GT3): a fresh set of the tyres shown as NEXT TYRES (N, or the d-pad up, cycles them; on the
+  at rest with its centre in the box (10 m long, in the working lane; braking fully on a key from 80 km/h works from
+  about 12 to 20 m before the box's middle in the GT3): a fresh set of the tyres shown as NEXT TYRES (N, or the d-pad up, cycles them; on the
   request, tyres for the weather if the fitted ones are wrong and you have not chosen): 2.5 s in the F1, 8 s in the
   GT3, 6 s in the drift car. Stop short and drive on into it; overshoot it and there is no service this time (NO
   STOP: drive on and box again next lap). Driving into the lane before the box turns the request on; press L again
   in the lane to drive through. **Speeding** (over 85 km/h between the limit lines) is a strike in a race (PIT LANE
   SPEEDING 1/3, another every second you stay over; three are the 3 s limiter penalty, as for track limits, whatever
-  the room's Track limits option) and costs the stop on that visit in any session. At Melbourne a stop costs about
-  20-24 s in all. In a race the HUD suggests a stop (BOX THIS LAP?) when a required stop is owed and the laps are
+  the room's Track limits option) and costs the stop on that visit in any session. On the autopilot (P) the car makes
+  the stop itself while the request is on: it brakes for the limit line, stops in the box and drives out. At
+  Melbourne a stop costs about 20-24 s in all. In a race the HUD suggests a stop (BOX THIS LAP?) when a required stop is owed and the laps are
   running out, when the tyres are nearly worn out (75%), or when they are wrong for the track. The first session of
   a weekend explains pit stops in one line. Going past the box without stopping, in a race you are still in, is a
   drive-through: not a stop.
@@ -455,6 +457,18 @@ and override the mouse while held.
   Las Vegas and Jeddah, have no gravel and walls 3.5 m from the edge); barriers are shrunk/dropped where they'd
   intrude on another part of the circuit, and grandstands and the pit building are left out or shortened where
   they would. Road, kerbs, gravel, and walls are ribbon meshes built from the samples.
+- **Pit lanes** (`src/pitLane.ts`): every circuit has its real pit lane, in every mode: its path from OpenStreetMap
+  (`tracks/pits/<id>.csv`), a 6 m fast lane and, beside the garages, a 5 m working lane with the box. A pit wall (with
+  a debris fence) stands between it and the track from a tapered nose just after the lane leaves the track to its
+  tail before it rejoins, and a wall along its far side, so the only ways in and out are the entry and the exit;
+  where the lane runs beside the track the track's barrier is the pit wall, and at the openings it bends out round
+  the lane. Where the data puts the lane closer to the track than the wall and a 1.5 m gap allow, it is moved out as
+  little as that takes (5 m at most, at Baku). The lane's road is asphalt and inside the track limits; a car in it
+  is placed on the lap where the lane runs (a lane cutting inside two corners, as Silverstone's does, still counts
+  its way round), and the timing lines cross it where it passes them, so a lap through the pits is timed once.
+  Outside a race a lap that goes into the pit lane is deleted (PIT LANE: in the time trial, with no limiter, it would
+  be a shortcut). Yas Marina's real exit passes under the track in a tunnel; this world is flat, so there the lane
+  rejoins on its own side before Turn 1.
 - **Physics** (the drift car): Rapier rigid body (fixed 120 Hz step, interpolated rendering). Custom raycast suspension with
   anti-roll bars, simplified Pacejka lateral curve with load sensitivity, friction circle, downforce and drag ∝ v²,
   torque curve + gearbox (automatic, or manual with a neutral and over-rev-protected downshifts), per-surface grip. Walls are static cuboid colliders.
@@ -637,7 +651,7 @@ the F1 falls back to its built body.
 
 ## Not yet
 
-Elevation (every circuit is flat: Spa, COTA, Interlagos and the Red Bull Ring will need SRTM data, and Suzuka's crossover a bridge), online leaderboards, a pit lane of its own (the race weekends' is a marked strip beside the start straight), fuel, damage, a safety car.
+Elevation (every circuit is flat: Spa, COTA, Interlagos and the Red Bull Ring will need SRTM data, and Suzuka's crossover a bridge), online leaderboards, Yas Marina's pit exit tunnel, fuel, damage, a safety car.
 
 Track data: [TUMFTM/racetrack-database](https://github.com/TUMFTM/racetrack-database) (LGPL-3.0): Melbourne,
 Shanghai, Suzuka, Montreal, Spielberg, Silverstone, Spa, Budapest, Monza, Austin, Mexico City, São Paulo and Sakhir,
@@ -661,7 +675,7 @@ and Jeddah, converted by `scripts/tracks/convert.mjs` (each CSV's header names i
 > CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 > IN THE SOFTWARE.
 
-Pit lane data (`tracks/pits/`, made by `scripts/tracks/pits.mjs`; not used by the game yet): the real pit lanes'
+Pit lane data (`tracks/pits/`, made by `scripts/tracks/pits.mjs`; the game's pit lanes, `src/pitLane.ts`): the real pit lanes'
 centrelines from [OpenStreetMap](https://www.openstreetmap.org/copyright), © OpenStreetMap contributors, available
 under the Open Database License (ODbL 1.0), fitted to the circuits above. Each file names the OSM ways it comes from;
 `tracks/pits/index.json` marks any lane drawn by hand where OpenStreetMap has none (`"quality": "approx"`).
