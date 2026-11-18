@@ -271,7 +271,7 @@ weekend**:
 A format sets every option. The tyre wear follows the race length at each circuit (a format keeps its tyre life in
 laps when the room moves): the race tyre lasts about 1.4 races where no stop is required (the softs just last), about
 two thirds of the race with one stop and under half with two, so the stops a format asks for are also the ones worth
-making (a stop costs about 20-24 s at Melbourne). Under the formats are the options that matter most (**Cars**,
+making (a stop costs about 25-28 s at Melbourne). Under the formats are the options that matter most (**Cars**,
 race length, qualifying: none, timed or one shot; weather), and **More options** has the rest, in groups: practice
 sessions and length, qualifying length, starting grid (qualifying, random, reversed, join order); tyre life (shown
 as how many laps the tyres last here, − and + in steps of the wear rate) and mandatory pit stops; collisions, track
@@ -349,7 +349,7 @@ tyre wear, weather, collisions, track limits) are set in the lobby; the relay ti
   SPEEDING 1/3, another every second you stay over; three are the 3 s limiter penalty, as for track limits, whatever
   the room's Track limits option) and costs the stop on that visit in any session. On the autopilot (P) the car makes
   the stop itself while the request is on: it brakes for the limit line, stops in the box and drives out. At
-  Melbourne a stop costs about 20-24 s in all. In a race the HUD suggests a stop (BOX THIS LAP?) when a required stop is owed and the laps are
+  Melbourne a stop costs about 25-28 s in all (the real lane: 695 m, most of it at 80 km/h). In a race the HUD suggests a stop (BOX THIS LAP?) when a required stop is owed and the laps are
   running out, when the tyres are nearly worn out (75%), or when they are wrong for the track. The first session of
   a weekend explains pit stops in one line. Going past the box without stopping, in a race you are still in, is a
   drive-through: not a stop.

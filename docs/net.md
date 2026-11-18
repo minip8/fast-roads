@@ -409,9 +409,9 @@ saw the hit (8 ticks each), every event was ignored, and the momentum the two ca
 
 `Multiplayer.weekend` follows `net.session` (each frame, after the events) and decides everything about our car in it.
 It has no DOM; `raceHud.ts` (the lights, the race strip, the pit panel, the pit guidance), `netHud.ts` (the board, a
-timing tower in a race), `pitLaneMesh.ts` (the lane drawn) and the minimap (`Hud.setPitLane`: the lane and the box)
-show it. Every client works the geometry out from the track alone
-(`src/raceGeometry.ts`), so all agree on it.
+timing tower in a race) and the minimap (`Hud.setPitLane`: the lane in blue and the box) show it; the lane itself is
+the circuit's, drawn in every mode (`pitLaneMesh.ts`). Every client works the geometry out from the circuit's data
+alone (`src/raceGeometry.ts`, `src/pitLane.ts`), so all agree on it.
 
 **Conditions.** In a room the physics runs with tyre wear (`settings.tyreWear` x the car's `CarInfo.race.wearScale`:
 1 for the F1 and the drift car, 4.1 for the GT3, whose tyres last 4.1 times the F1's laps at scale 1) and the relay's
@@ -524,9 +524,11 @@ visit): it turns into the lane, brakes for the limit line, pulls into the workin
 box's middle, and drives out after the service; in the lane without a plan (out of the box, recovered into it) it
 drives out along the lane under the limit. On a racing lap it never enters the lane. The start gantry's post on the
 pit side stands on the pit wall where the lane runs beside the line, else clear of the lane (`scenery.ts`). Measured (`PITLOSS=melbourne npx vitest run test/pit-loss.test.ts`: the
-autopilot from the start spot to 300 m past the lane's end, through the lane with a stop, against on the track):
+autopilot from the start spot to 300 m past the lane's end, through the lane with a stop (its pit plan), against on
+the track):
 at Melbourne a stop costs the F1
-19.7 s (38.3 s against 18.5 s; 2.5 s of it in the box), the GT3 23.8 s (8 s in the box), the drift car 21.1 s (6 s).
+25.5 s (44.6 s against 19.1 s; 2.5 s of it in the box), the GT3 28.4 s (8 s in the box), the drift car 24.9 s (6 s):
+the real lane is 695 m long, about 530 m of it under the limit.
 
 **Restarts.** The restart key (`Multiplayer.requestRestart`) and Session's own resets (a stuck autopilot, a car on its
 roof: `Session.autoReset`): in the lobby, practice and timed qualifying a flying start on a fresh set of
