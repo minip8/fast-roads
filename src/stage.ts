@@ -8,6 +8,7 @@ import type { Track } from './track';
 import type { TrackDef } from './tracks';
 import { buildTrackMeshes } from './trackMeshes';
 import { buildTrackside } from './trackside';
+import { PitLaneMesh } from './pitLaneMesh';
 
 // ============================================================================
 // Renderer, scene, lights and everything static around the circuit
@@ -70,6 +71,9 @@ export function buildStage(canvas: HTMLCanvasElement, track: Track, def: TrackDe
   const trackMaterials = buildTrackMeshes(track, scene);
   const { bounds, terrain } = buildScenery(track, scene, def, glow);
   const trackside = buildTrackside(track, def, scene, glow, trackMaterials.lineMat);
+  // the circuit's pit lane, in the track's road and line materials (lit, floodlit and wetted as the track is)
+  const pitLane = track.pit ? new PitLaneMesh(track, track.pit, { roadMat: trackMaterials.roadMat, lineMat: trackMaterials.lineMat, glow }) : null;
+  if (pitLane) scene.add(pitLane.group);
   const brakeMarkers = buildBrakeMarkers(track, scene);
 
   const fit = () => {
@@ -140,8 +144,12 @@ export function buildStage(canvas: HTMLCanvasElement, track: Track, def: TrackDe
     skyUniforms(look, sky.material, def.sunAz);
     scene.background = stage.light.fog;
     if (look.flood < 1 && !flooded) {
-      // the floodlights reach 25 m beyond the walls, then fade out over 110 m
-      const m = floodMap(track.X, track.Z, (i) => Math.max(track.barL[i], track.barR[i]) + 25);
+      // the floodlights reach 25 m beyond the walls, then fade out over 110 m; the pit lane is floodlit as the track
+      // is, 20 m beyond its far side, wherever it runs (Silverstone's across the infield)
+      const lane = track.pit, n = track.N, m2 = lane ? lane.n : 0, xs = new Float64Array(n + m2), zs = new Float64Array(n + m2);
+      xs.set(track.X); zs.set(track.Z);
+      if (lane) { xs.set(lane.X, n); zs.set(lane.Z, n); }
+      const m = floodMap(xs, zs, (i) => (i < n ? Math.max(track.barL[i], track.barR[i]) + 25 : Math.max(lane!.wIn[i - n], lane!.wOut[i - n]) + 20));
       flood.uFloodMap.value = m.tex; flood.uFloodBox.value.copy(m.box);
       flooded = true;
     }
@@ -153,7 +161,7 @@ export function buildStage(canvas: HTMLCanvasElement, track: Track, def: TrackDe
   };
 
   // (weather.ts changes the sky, lights, fog and these materials while it rains or the track is wet, from `light`)
-  const surfaces = { ...trackMaterials, terrain };
+  const surfaces = { ...trackMaterials, terrain, laneRoads: pitLane?.roads ?? [] };
   const stage = {
     renderer, scene, camera, sky, sun, sunDir, hemi, env: null as THREE.Texture | null, surfaces, followSun, bounds, brakeMarkers, trackside,
     look: LOOKS.clear as Look, time, light: lightBase(LOOKS.clear),

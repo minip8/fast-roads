@@ -25,7 +25,6 @@ import { timeFromUrl } from './timeOfDay';
 import { StartupError } from './startup';
 import { clearStore, loadStore, type Timing } from './timing';
 import { loadCircuit } from './circuit';
-import { PitLaneMesh } from './pitLaneMesh';
 import type { Track } from './track';
 import { TRACKS, type TrackId } from './tracks';
 import { clamp } from './util';
@@ -97,7 +96,6 @@ export async function main() {
   const devTime = timeFromUrl(params);
   const stage = buildStage($<HTMLCanvasElement>('view'), track, def, devTime ?? settings.time);
   const { renderer, scene, camera } = stage;
-  if (track.pit) scene.add(new PitLaneMesh(track, track.pit).group);   // (the pit lane is the circuit's, in every mode)
 
   // Physics. session.car is replaced when the Car setting changes: read it at call time.
   const session = new Session(track, scene, CARS[settings.car], def), { timing } = session;

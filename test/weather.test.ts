@@ -99,9 +99,9 @@ function fakeStage(time: LightId = 'clear') {
   const sun = new THREE.DirectionalLight(0xffffff, 3), hemi = new THREE.HemisphereLight(0xcfe3ff, 0x5a6a40, 1.1);
   const m = (p: THREE.MeshStandardMaterialParameters) => new THREE.MeshStandardMaterial(p);
   const roadMat = m({ roughness: 0.92 });
-  const road = new THREE.Mesh(new THREE.PlaneGeometry(10, 10), roadMat);
-  scene.add(sun, hemi, road);
-  const surfaces = { road, roadMat, lineMat: m({ color: 0xf4f4f0, roughness: 0.7 }), kerbMat: m({ roughness: 0.6 }), gravelMat: m({ roughness: 1 }), wallMat: m({ roughness: 0.85 }), terrain: m({ roughness: 1 }) };
+  const road = new THREE.Mesh(new THREE.PlaneGeometry(10, 10), roadMat), laneRoad = new THREE.Mesh(new THREE.PlaneGeometry(4, 10), roadMat);
+  scene.add(sun, hemi, road, laneRoad);
+  const surfaces = { road, laneRoads: [laneRoad], roadMat, lineMat: m({ color: 0xf4f4f0, roughness: 0.7 }), kerbMat: m({ roughness: 0.6 }), gravelMat: m({ roughness: 1 }), wallMat: m({ roughness: 0.85 }), terrain: m({ roughness: 1 }) };
   const stage: WeatherStage = { renderer: null, scene, camera, sky, sun, hemi, env: null, surfaces, light: lightBase(LOOKS[time]) };
   applyBase(stage);
   const spec = CARS.lcf1, mesh = spec.mesh(spec);
@@ -112,7 +112,7 @@ function fakeStage(time: LightId = 'clear') {
 }
 const snapshot = (st: WeatherStage) => ({
   children: [...st.scene.children], fog: (st.scene.fog as THREE.FogExp2).color.getHex(), density: (st.scene.fog as THREE.FogExp2).density,
-  sun: st.sun.intensity, hemi: st.hemi.intensity, hemiColor: st.hemi.color.getHex(), hemiGround: st.hemi.groundColor.getHex(), road: st.surfaces.road.material,
+  sun: st.sun.intensity, hemi: st.hemi.intensity, hemiColor: st.hemi.color.getHex(), hemiGround: st.hemi.groundColor.getHex(), road: st.surfaces.road.material, lane: st.surfaces.laneRoads?.map((r) => r.material),
   colors: Object.values(st.surfaces).filter((m) => m instanceof THREE.MeshStandardMaterial).map((m) => [m.color.getHex(), m.roughness, m.envMap]),
   sky: { ...st.sky.material.defines }, layers: st.camera.layers.mask,
 });
@@ -139,6 +139,7 @@ describe('Weather', () => {
     expect(sound.weather).toEqual({ rain: 1, wetness: 1 });
     expect(w.parts).toEqual({ streaks: true, lens: true, spray: true, wetRoad: true, envMaps: 0 });
     expect(stage.surfaces.road.material).not.toBe(stage.surfaces.roadMat);
+    expect(stage.surfaces.laneRoads![0].material).toBe(stage.surfaces.road.material);   // (the pit lane's road wet with it)
     expect(stage.sky.material.defines.WEATHER).toBe('');
     expect(stage.sun.intensity).toBe(0);
     expect(stage.camera.layers.isEnabled(1)).toBe(true);

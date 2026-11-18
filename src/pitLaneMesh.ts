@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { LANE, lanePoint, laneGate, laneLapS, laneValue, sampleAt, type PitLane } from './pitLane';
 import { PIT } from './raceGeometry';
 import { canvasTex, noiseFill } from './textures';
+import type { Glow } from './timeOfDay';
 import { pointAt, type Track } from './track';
 
 // ============================================================================
@@ -25,16 +26,24 @@ export class PitLaneMesh {
   readonly group = new THREE.Group();
   private readonly owned: { dispose(): void }[] = [];
   private readonly half = LANE.fast / 2;
+  private readonly glow: Glow | null;
 
-  constructor(private readonly tr: Track, private readonly lane: PitLane) {
+  readonly roads: THREE.Mesh[] = [];   // the lane's road (in the track's road material: the weather wets it with it)
+  private shade = false;               // (the strip being made takes the road material's vertex colours)
+
+  // mats: the track's road and line materials (trackMeshes.ts), so the lane's asphalt and paint are the track's, in
+  // the same light and weather; glow: the stage's lamps (the BOX sign brightens at dusk and night).
+  constructor(private readonly tr: Track, private readonly lane: PitLane, mats: { roadMat?: THREE.MeshStandardMaterial; lineMat?: THREE.Material; glow?: Glow } = {}) {
     const L = lane, half = this.half;
-    const tex = canvasTex(256, 256, (g, w, h) => noiseFill(g, w, h, [74, 76, 80], 22, 0.02));
-    const laneMat = this.mat(new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95, metalness: 0, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
-    const white = this.mat(new THREE.MeshStandardMaterial({ color: 0xf4f4f0, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    this.glow = mats.glow ?? null;
+    const laneMat = mats.roadMat ?? this.mat(new THREE.MeshStandardMaterial({ map: canvasTex(256, 256, (g, w, h) => noiseFill(g, w, h, [74, 76, 80], 22, 0.02)), roughness: 0.95, metalness: 0 }));
+    const white = mats.lineMat ?? this.mat(new THREE.MeshStandardMaterial({ color: 0xf4f4f0, roughness: 0.7 }));
     const yellow = this.mat(new THREE.MeshStandardMaterial({ color: 0xffd23f, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
     // the road: the lane's, off the track's (its first and last metres run on the track's road)
     const trackSide = (d: number) => -Math.min(this.wIn(d), Math.max(-L.wOut[sampleAt(L, d)], this.sep(d) - 0.05));
+    this.shade = true;
     this.strip(0, L.len, trackSide, (d) => this.wOut(d), Y.lane, laneMat, 1 / 8);
+    this.shade = false;
     // lines: along the fast lane's track side (from where it leaves the track's road), its far edge, and the fast lane
     // from the working lane (dashed) along the working stretch
     const off = (d: number) => this.sep(d) > half + 0.2;
@@ -55,13 +64,13 @@ export class PitLaneMesh {
     this.strip(b0, b1, () => bi, () => bi + 0.25, Y.paint, yellow);
     this.strip(b0, b1, () => bo - 0.25, () => bo, Y.paint, yellow);
     for (const d of [b0, b1 - 0.25]) this.strip(d, d + 0.25, () => bi, () => bo, Y.paint, yellow);
-    const fill = this.mat(new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.22, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    const fill = this.mat(new THREE.MeshStandardMaterial({ color: 0xffd23f, transparent: true, opacity: 0.22, depthWrite: false, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
     this.strip(b0 + 0.25, b1 - 0.25, () => bi + 0.25, () => bo - 0.25, Y.paint - 0.001, fill);
     const boxTex = canvasTex(256, 512, (g, w, h) => {
       g.clearRect(0, 0, w, h); g.fillStyle = '#ffd23f'; g.font = 'bold 150px system-ui, sans-serif'; g.textAlign = 'center';
       g.save(); g.translate(w / 2, h / 2); g.rotate(Math.PI / 2); g.fillText('BOX', 0, 52); g.restore();
     }, { repeat: false });
-    const boxMat = this.mat(new THREE.MeshBasicMaterial({ map: boxTex, transparent: true, depthWrite: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }));
+    const boxMat = this.mat(new THREE.MeshStandardMaterial({ map: boxTex, transparent: true, depthWrite: false, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }));
     this.strip(b0 + 1.2, b1 - 1.2, () => bi + 0.5, () => bo - 0.5, Y.paint + 0.001, boxMat, 1, undefined, true);
     this.boxGantry(b0);
     // the way in and out: chevrons along the track's edge before the lane leaves it, hatching over the gores
@@ -70,7 +79,7 @@ export class PitLaneMesh {
       g.strokeStyle = '#f4f4f0'; g.lineWidth = 14; g.lineJoin = 'miter';
       g.beginPath(); g.moveTo(14, h * 0.8); g.lineTo(w / 2, h * 0.2); g.lineTo(w - 14, h * 0.8); g.stroke();
     }, { repeat: true });
-    const chevMat = this.mat(new THREE.MeshBasicMaterial({ map: chevTex, transparent: true, depthWrite: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    const chevMat = this.mat(new THREE.MeshStandardMaterial({ map: chevTex, transparent: true, depthWrite: false, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
     const leave = this.leaves(), sLeave = laneLapS(L, tr.L, leave);
     this.trackStrip(sLeave - ENTRY_PAINT, sLeave, (e) => e - 2.6, (e) => e - 0.25, chevMat);
     const hatchTex = canvasTex(128, 128, (g, w, h) => {
@@ -78,7 +87,7 @@ export class PitLaneMesh {
       g.strokeStyle = '#f4f4f0'; g.lineWidth = 12;
       for (let x = -w; x < 2 * w; x += 48) { g.beginPath(); g.moveTo(x, h); g.lineTo(x + w, 0); g.stroke(); }
     }, { repeat: true });
-    const hatchMat = this.mat(new THREE.MeshBasicMaterial({ map: hatchTex, transparent: true, depthWrite: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    const hatchMat = this.mat(new THREE.MeshStandardMaterial({ map: hatchTex, transparent: true, depthWrite: false, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
     const gore = (d: number) => this.wIn(d) > half + 0.3;
     this.strip(0, L.nose, (d) => -this.wIn(d) + 0.1, () => -half - 0.05, Y.paint, hatchMat, 1 / 4, gore);
     this.strip(L.tail, L.len, (d) => -this.wIn(d) + 0.1, () => -half - 0.05, Y.paint, hatchMat, 1 / 4, gore);
@@ -114,11 +123,14 @@ export class PitLaneMesh {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    // (the road material's vertex colours: the track's shading, a little lighter, the lane being less rubbered)
+    if (this.shade) geo.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(pos.length).fill(1.02), 3));
     geo.setIndex(idx);
     geo.computeVertexNormals();
     this.owned.push(geo);
     const m = new THREE.Mesh(geo, mat);
     m.receiveShadow = true; m.castShadow = shadow;
+    if (this.shade) this.roads.push(m);
     this.group.add(m);
   }
 
@@ -234,7 +246,9 @@ export class PitLaneMesh {
       g.fillStyle = '#ffd23f'; g.font = 'bold 84px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
       g.fillText('▼ BOX ▼', w / 2, h / 2 + 4);
     }, { repeat: false });
-    const face = this.mat(new THREE.MeshBasicMaterial({ map: tex, toneMapped: false }));
+    // (a lit sign: its own light by day, brighter at dusk and night through the stage's Glow)
+    const face = this.mat(new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 1, roughness: 0.6 }));
+    this.glow?.add(face, 1.6, 1);
     const metal = this.mat(new THREE.MeshStandardMaterial({ color: 0x2a2e35, roughness: 0.6, metalness: 0.5 }));
     const a = this.half + 0.2, b = this.wOut(d) - 0.2, span = b - a, top = 4.4, p = lanePoint(L, d, (a + b) / 2);
     const g = new THREE.Group();

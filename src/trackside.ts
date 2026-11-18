@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Batch } from './batch';
 import { gridSlots } from './raceGeometry';
+import { pitFootprint } from './pitLane';
 import { clearOf, mulberry32, nearestSample } from './scenery';
 import { canvasTex } from './textures';
 import { floodlit, type Glow } from './timeOfDay';
@@ -384,7 +385,7 @@ function buildHills(tr: Track, def: TrackDef, own: Own): THREE.Object3D {
 
 // ---------------------------------------------------------------------------- fences
 // Catch fences on the walls: all round a street circuit; elsewhere along the walls behind gravel traps and the start
-// straight. A see-through mesh 3 m high above the wall's cap, posts every 3 m (alpha-tested).
+// straight; not where the wall is the pit lane's. A see-through mesh 3 m high above the wall's cap, posts every 3 m (alpha-tested).
 function buildFences(tr: Track, def: TrackDef, own: Own): THREE.Object3D[] {
   const tex = own(canvasTex(128, 128, (g) => {
     g.clearRect(0, 0, 128, 128);
@@ -404,6 +405,9 @@ function buildFences(tr: Track, def: TrackDef, own: Own): THREE.Object3D[] {
     for (let i = 0; i < tr.N; i++) {
       const k = Math.min(i, tr.N - i);
       mask[i] = valid[i] && (def.street || gravel[i] || k < nearLine) ? 1 : 0;
+      // (none where the wall is the pit lane's: the pit wall carries its own debris fence, pitLaneMesh.ts, and the
+      // barrier bent round the lane's far side at its openings is the lane's wall)
+      if (mask[i] && tr.pit) { const o = side * bar[i]; if (pitFootprint(tr.pit, tr.X[i] + tr.NX[i] * o, tr.Z[i] + tr.NZ[i] * o, 0.4)) mask[i] = 0; }
     }
     const pos: number[] = [], uv: number[] = [], idx: number[] = [];
     for (let i = 0; i <= tr.N; i++) {

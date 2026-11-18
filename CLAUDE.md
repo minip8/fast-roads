@@ -136,7 +136,8 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   setting and `?time`, `lightDir`, the fog colour for every look and Brightness, `applyBase`, `floodMap`, `Glow`.
   `test/weather.test.ts` runs rain on the night and dusk bases too (floodlights stay on, dark fog, lit spray, exact
   restore) and a time-of-day change under the weather. `test/tracks.test.ts` also checks each circuit's trees, masts,
-  buildings and bridges against the walls and the pit reserve with its own loop (not `clearOf`), and that they are
+  buildings, bridges and stands against the walls and the pit lane (its road, walls and building, its own test)
+  with its own loop (not `clearOf`), and that they are
   placed the same every time. Look at scenery and time-of-day changes in screenshots (`?time=night`, `?time=dusk`)
   at a desktop and a phone width, with `renderer.info` before and after.
 - `test/storage.test.ts` covers loading settings and key bindings (corrupt, old or invalid data loads as defaults)
@@ -227,10 +228,13 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   stands, leaving out any that would stand inside another stretch's walls or on the pit lane; `pitBuilding` draws
   the lane's building;
   `clearOf(tr, def, pts, { margin, skip, reserve, buildings })` is the one clearance test every placement goes
-  through: no point inside any stretch's walls + margin, except the `skip` stretch's, with `reserve` none on
-  `pitReserve`'s ground (the pit side from 60 m before the last corner to 60 m after the first, 25 m beyond the wall:
-  widen it there for a real pit lane), with `buildings` none within margin of the stands and pit building;
-  `gantryPosts` stands the start gantry's pit-side post beyond the race weekends' pit lane); `batch.ts`: `Batch`, which merges many
+  through: no point inside any stretch's walls + margin, except the `skip` stretch's, nor on the pit lane, its walls,
+  its openings or its building or within margin of them (`pitFootprint`, wherever the lane runs; `reserve`: 6 m
+  more, `PIT_RESERVE`), with `buildings` none within margin of the stands and pit building; catch fences
+  (`trackside.ts`) leave out the walls that are the lane's (the pit wall has its own fence: `pitLaneMesh.ts`);
+  `gantryPosts` stands the start gantry's pit-side post on the pit wall, or clear of the lane); `stage.ts` builds
+  `pitLaneMesh.ts` in the track's road and line materials (weather wets the lane's road: `surfaces.laneRoads`) and
+  floodlights the lane at night (`floodMap` over it too); `batch.ts`: `Batch`, which merges many
   static parts into one mesh per material (grandstands, pit, gantry, brake boards, car bodies)
 - `timeOfDay.ts`: the light. `LOOKS` (clear, high, haze, golden, northern, desert, dusk, night: sun height, colour
   and intensity, sky light, sky colours, haze, cloud, stars, floodlights, lamps, and the greys the weather turns them
@@ -388,7 +392,7 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
     start on fresh tyres, or in a race a recovery (`RECOVERY_SECS`), which laps are sent, and the live running order.
     Plain state for the HUD and the menu (`startCompound`, `nextCompound`, `pit`, `order`, `tyreLife`...).
     `raceGeometry.ts` (pure): `gridSlots`, the pit rules' numbers (`PIT`), `brakeCue`, `lanePlacement` (a car put in
-    the lane). The lane itself is the circuit's (`pitLane.ts`), drawn in every mode by `pitLaneMesh.ts` (main.ts);
+    the lane). The lane itself is the circuit's (`pitLane.ts`), drawn in every mode by `pitLaneMesh.ts` (stage.ts);
     the minimap draws its real shape (blue with the box in a room: `Hud.setPitLane`); `raceHud.ts` the
     lights, race strip, pit panel and pit guidance (`#pitGuide`) (`#hud.race` declutters); the board turns into a timing tower in a race.
   - `remoteCars.ts` `RemoteCars`: the other cars drawn (the spec's own mesh, own material copies so one car can turn

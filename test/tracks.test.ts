@@ -2,11 +2,11 @@ import { expect, it } from 'vitest';
 import { writeFileSync } from 'node:fs';
 import { CARS, type CarId } from '../src/cars';
 import { circuitInfo, outlineOf, type Outline } from '../src/catalog';
-import { clearOf, pitBuilding, pitReserve, standBays } from '../src/scenery';
+import { clearOf, pitBuilding, standBays } from '../src/scenery';
 import { blockSpots, bridgeSpots, MAST_RADIUS, mastSpots, TREE_RADIUS, treeSpots } from '../src/trackside';
 import { S_ASPHALT } from '../src/config';
-import { laneValue } from '../src/pitLane';
-import { parseCSV, surfaceAt } from '../src/track';
+import { edgeLine, laneAt, laneValue, type LanePos } from '../src/pitLane';
+import { laneWalls, parseCSV, surfaceAt } from '../src/track';
 import { OUTLINES } from '../src/trackOutlines';
 import { loadTrackCsv, TRACKS } from '../src/tracks';
 import { wrapI } from '../src/util';
@@ -58,8 +58,22 @@ for (const def of Object.values(TRACKS)) {
   it(`${def.id}: scenery beyond the walls, clear of the track, of other stretches and of the pit lane's ground, the same every time`, async () => {
     const tr = await trackFor(def.id);
     // Independently of clearOf: no point of anything solid inside a stretch's walls (at the side of a centreline
-    // sample, nearer than its barrier) or on the reserved pit-lane ground.
-    const res = pitReserve(tr, def), ds = tr.L / tr.N;
+    // sample, nearer than its barrier), nor on or within its reach of the pit lane (its road, the gores at its
+    // openings, its walls and its building: wherever it runs, across the infield too).
+    const ds = tr.L / tr.N, lane = tr.pit!, lp: LanePos = { d: 0, off: 0, k: 0 };
+    const lines = [edgeLine(lane, 'in'), edgeLine(lane, 'out'), ...laneWalls(lane).map(([pl]) => pl)];
+    const onLane = (x: number, z: number, r: number) => {
+      if (laneAt(lane, x, z, lp)) return true;
+      const b = lane.building;
+      if (b) { const dx = x - b.x, dz = z - b.z; if (Math.abs(dx * b.ax + dz * b.az) < b.halfLen + r && Math.abs(dx * b.nx + dz * b.nz) < b.depth / 2 + r) return true; }
+      for (const pl of lines) for (let j = 0; j + 3 < pl.length; j += 2) {
+        const ax = pl[j], az = pl[j + 1], ex = pl[j + 2] - ax, ez = pl[j + 3] - az, l2 = ex * ex + ez * ez;
+        if (Math.abs(x - ax) > 60 || Math.abs(z - az) > 60) continue;
+        const t = l2 > 0 ? Math.max(0, Math.min(1, ((x - ax) * ex + (z - az) * ez) / l2)) : 0;
+        if (Math.hypot(ax + t * ex - x, az + t * ez - z) < r) return true;
+      }
+      return false;
+    };
     // the samples within 150 m of a thing (found once for all its points)
     const nearby = (x: number, z: number) => { const out: number[] = []; for (let j = 0; j < tr.N; j++) if ((x - tr.X[j]) ** 2 + (z - tr.Z[j]) ** 2 < 22500) out.push(j); return out; };
     const inWalls = (x: number, z: number, r: number, near = nearby(x, z)) => {
@@ -68,9 +82,8 @@ for (const def of Object.values(TRACKS)) {
         if (dx * dx + dz * dz > 6400 || Math.abs(dx * tr.TX[j] + dz * tr.TZ[j]) > ds) continue;
         const lat = dx * tr.NX[j] + dz * tr.NZ[j], bar = lat > 0 ? tr.barL[j] : tr.barR[j];
         if (Math.abs(lat) < bar + r) return `inside the walls at s = ${tr.S[j].toFixed(0)}`;
-        if (wrapI(j - res.from, tr.N) <= res.to - res.from && lat * res.side > 0 && Math.abs(lat) < bar + res.width) return `on the pit lane's ground at s = ${tr.S[j].toFixed(0)}`;
       }
-      return null;
+      return onLane(x, z, r) ? 'on the pit lane' : null;
     };
     const trees = treeSpots(tr, def);
     expect(trees.length).toBeGreaterThan(0.5 * def.trees);
@@ -90,7 +103,10 @@ for (const def of Object.values(TRACKS)) {
       for (const [x, z] of b.legs) expect(inWalls(x, z, 0.1), `${def.id}: a bridge's leg`).toBeNull();
       // its deck crosses this stretch only
       for (const [x, z] of b.deck) expect(clearOf(tr, def, [[x, z]], { skip: [b.i - 60, b.i + 60], margin: 1 })).toBe(true);
+      for (const [x, z] of b.deck) expect(onLane(x, z, 1), `${def.id}: a bridge over the pit lane`).toBe(false);
     }
+    // the stands too
+    for (const b of standBays(tr, def)) expect(onLane(b.x, b.z, 8), `${def.id}: a stand`).toBe(false);
     // deterministic: every client and every reload places the same
     expect(treeSpots(tr, def)).toEqual(trees);
     expect(blockSpots(tr, def)).toEqual(blocks);

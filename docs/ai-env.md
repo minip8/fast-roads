@@ -10,6 +10,16 @@ against it; nothing else is needed.
   automatic resets), `observation.ts` (the observation, a pure function the browser can reuse), `config.ts` (every
   setting and its default), `walls.ts` (wall contact per engine), `rng.ts`, `protocol.ts` (the wire format).
 - `ai/worker.ts`: the worker process (stdin/stdout). `ai/client.mjs` and `ai/client.py`: reference clients.
+
+Every circuit includes its real pit lane, as the game builds it (`src/pitLane.ts`, `src/circuit.ts`), with nothing of
+the race weekends' rules (no limiter, no stops). What it means here: its pit wall and far wall are walls for both
+engines (`wall_contact`, `wall_hit`, the `wall` end); beside the lane the track's barrier on that side is the pit
+wall's face, which `wall_left` / `wall_right` read like any barrier (the lane's own walls are not in those two); its
+road is asphalt and inside the track limits (`wheel_*_asphalt`, never `*_out` or `off_track` there); and a lap that
+goes into it is invalid (`lap_valid` 0, the game's PIT LANE rule: `Timing.pitLaneInvalid` stays on). Progress is still
+the centreline's `projectOnTrack` (not lane-aware), so where a lane cuts inside corners (Silverstone, Shanghai,
+Madrid) the jumps its projection makes are capped as any jump is. Random starts are on the track's road, the autopilot
+never turns into the lane, and every pinned number below is as it was before the lane.
   `ai/bench.mjs`: throughput. None of it is in the game's bundle.
 
 ## Build and launch

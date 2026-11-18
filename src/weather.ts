@@ -21,7 +21,7 @@ import type { Vehicle } from './vehicle';
 //
 //   sky:    the sky shader's WEATHER define (scenery.ts buildSky) while overcast: grey cloud deck, horizon in the fog
 //   light:  sun and its shadows fade behind the cloud, the hemisphere light turns grey; fog thickens and greys
-//   road:   the road mesh swaps to a wet copy of its material (darker, glossy, reflecting the sky; patchy when damp;
+//   road:   the road mesh (and the pit lane's) swaps to a wet copy of its material (darker, glossy, reflecting the sky; patchy when damp;
 //           puddles with standing water); kerbs and lines glossier, grass, gravel and walls darker
 //   reflections: the cars' and the wet road's environment map is the sky's again, made overcast (a few cached
 //           levels, made as the weather crosses them)
@@ -111,6 +111,7 @@ export interface WeatherStage {
   env: THREE.Texture | null;    // the dry environment map (cars)
   surfaces: {
     road: THREE.Mesh; roadMat: THREE.MeshStandardMaterial; lineMat: THREE.MeshStandardMaterial; kerbMat: THREE.MeshStandardMaterial;
+    laneRoads?: readonly THREE.Mesh[];   // the pit lane's road (pitLaneMesh.ts), in the road's material: wet with it
     gravelMat: THREE.MeshStandardMaterial; wallMat: THREE.MeshStandardMaterial; terrain: THREE.MeshStandardMaterial;
   };
 }
@@ -247,6 +248,7 @@ export class Weather {
     const sf = this.stage.surfaces, env = b.env.current;
     b.wetOn = on;
     sf.road.material = on ? b.wetRoad : sf.roadMat;
+    for (const r of sf.laneRoads ?? []) r.material = on ? b.wetRoad : sf.roadMat;
     b.wetRoad.envMap = env;
     for (const m of [sf.kerbMat, sf.lineMat]) { m.envMap = on ? env : null; m.needsUpdate = true; }
   }
