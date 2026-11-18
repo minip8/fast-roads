@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { S_ASPHALT } from '../config';
-import { type CarMesh, poseCockpit } from '../carMeshes';
+import { type CarMesh, easeFlaps, poseCockpit, poseFlaps } from '../carMeshes';
 import type { LcSpec } from '../cars';
 import type { ContactDelta, ContactShape } from '../collide';
 import { COMPOUND_COLOURS, TIME_TRIAL, waterMm, type Compound, type CompoundId, type Conditions, type FitHeat, type GripPlan } from '../conditions';
@@ -120,6 +120,7 @@ export class LcCar implements Vehicle {
   private shiftBusy = 0;                    // s until the engine has finished the manual shift under way
   private neutral = false;                  // our neutral: the engine's box has none, so its clutch is held open
   private flapAsked = false;                // the last engine step asked for the flaps (the engine acts on the rising edge)
+  private flapPos = 0; private flapPrev = 0; // how far open the drawn flaps are (0..1), this tick and the last (looks only)
   private ticks = 0;                        // engine steps owed, in 1/(game tick rate) units of a second
   private groundFor?: number;               // the forceSurface the engine's ground was built for
   private spawnS?: number;                  // where the first placement put the car: placing it there again is a spawn
@@ -323,6 +324,7 @@ export class LcCar implements Vehicle {
     this.vehicle.reset(p.x, p.z, Math.atan2(tr.TX[p.i], tr.TZ[p.i]) + heading, speed > 0 ? speed : spawn ? 0 : 1e-3, true);
     this.driver.reset();
     this.revTimer = 0; this.shiftBusy = 0; this.neutral = false; this.flapAsked = false; this.tipped = 0; this.ticks = 0; this.progressI = -1;
+    this.flapPos = this.flapPrev = 0;
     this.throttle = this.brake = 0; this.tcActive = this.absActive = false;
     this.readState();
     this.proj.i = -1;
@@ -437,6 +439,7 @@ export class LcCar implements Vehicle {
     this.tcActive = tcOn; this.absActive = absOn;
     if (!v.stateIsSane()) this.tipped = Infinity;   // blown up within this tick: reset before anything renders it
     this.throttle = out.throttle; this.brake = out.brake;
+    this.flapPrev = this.flapPos; this.flapPos = easeFlaps(this.flapPos, v.drsOpen, dt);
     this.refresh();
   }
 
@@ -488,6 +491,7 @@ export class LcCar implements Vehicle {
       wm.spinner.rotation.x = e.rotationRad;
     }
     poseCockpit(m.cockpit, this.steer);
+    poseFlaps(m, this.flapPrev + (this.flapPos - this.flapPrev) * alpha);
     m.brakeLight.material.emissiveIntensity = this.brake > 0.1 ? 3 : 0.4;
   }
 }

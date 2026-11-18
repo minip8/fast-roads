@@ -12,7 +12,21 @@ export interface CarMesh {
   wheels: { pivot: THREE.Group; spinner: THREE.Group }[];   // pivot: steer + suspension; spinner: rolling
   brakeLight: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
   cockpit: Cockpit;
+  flaps: Flap[];                     // movable wing flaps (a loaded model's; none on a built body), posed by poseFlaps
   dispose(): void;                   // free its GPU resources (not a loaded model's shared ones) and cancel a pending swap
+}
+
+// A flap turns about its hinge (the pivot's origin) from closed (the pivot's identity) to `open`.
+export interface Flap { pivot: THREE.Group; open: THREE.Quaternion }
+
+// The flaps move over FLAP_SECS. A car keeps how far open they are (0..1) and moves it towards the car's flapsOpen
+// with easeFlaps each tick; poseFlaps draws it, easing in and out.
+export const FLAP_SECS = 0.4;
+export const easeFlaps = (pos: number, open: boolean, dt: number) => Math.min(1, Math.max(0, pos + (open ? dt : -dt) / FLAP_SECS));
+const _closed = new THREE.Quaternion();
+export function poseFlaps(m: CarMesh, pos: number) {
+  const t = pos * pos * (3 - 2 * pos);
+  for (const f of m.flaps) f.pivot.quaternion.slerpQuaternions(_closed, f.open, t);
 }
 
 // The driver and what they see from the seat. Positions are in body coordinates (the root's frame).
@@ -65,6 +79,7 @@ interface DriverOpts {
   // r: grip radius. kind 'model': a loaded model's steering wheel (`model`, centred on its axis), in place of a built one
   wheel: { y: number; z: number; rake: number; r: number; kind: 'f1' | 'gt3' | 'round' | 'model'; model?: THREE.Object3D };
   ratio: number; look: number;
+  eye?: [dy: number, dz: number];              // the driver camera from the helmet centre (default 0.02 up, 0.06 forward)
   seat?: boolean;                              // a seat back behind the torso (default true; a model has its own seat)
 }
 
@@ -132,7 +147,8 @@ function addDriver(group: THREE.Group, add: Add, o: DriverOpts): Cockpit {
     const mesh = new THREE.Mesh(armGeo, suit); mesh.castShadow = true; group.add(mesh);
     arms.push({ mesh, glove: g, shoulder: new THREE.Vector3(o.x + s * 0.17, hy + o.shoulder[0], hz + o.shoulder[1]), side: s, r: grip });
   }
-  const cockpit: Cockpit = { eye: new THREE.Vector3(o.x, hy + 0.02, hz + 0.06), look: o.look, head, mount, wheel, ratio: o.ratio,
+  const [ey, ez] = o.eye ?? [0.02, 0.06];
+  const cockpit: Cockpit = { eye: new THREE.Vector3(o.x, hy + ey, hz + ez), look: o.look, head, mount, wheel, ratio: o.ratio,
     handMax: w.kind === 'round' ? HAND_MAX : Infinity, arms, screen };   // on a racing wheel the hands stay on the grips
   poseCockpit(cockpit, 0);
   return cockpit;
@@ -176,7 +192,7 @@ function disposeTree(obj: THREE.Object3D) {
 }
 
 function carMesh(root: THREE.Group, wheels: CarMesh['wheels'], brakeLight: CarMesh['brakeLight'], cockpit: Cockpit): CarMesh {
-  const mesh: CarMesh = { root, wheels, brakeLight, cockpit, dispose: () => { disposed.add(mesh); disposeTree(root); } };
+  const mesh: CarMesh = { root, wheels, brakeLight, cockpit, flaps: [], dispose: () => { disposed.add(mesh); disposeTree(root); } };
   return mesh;
 }
 const disposed = new WeakSet<CarMesh>();
@@ -184,7 +200,8 @@ const disposed = new WeakSet<CarMesh>();
 // Body colour, accent colour and wheel stripe, so one body can carry more than one livery.
 export interface Paint { body: number; accent: number; stripe: number }
 
-export function buildCarMesh(spec: CarInfo, paint: Paint): CarMesh {
+// Single-seater. With `model`, the model file replaces this body once it has loaded (see loadModel).
+export function buildCarMesh(spec: CarInfo, paint: Paint, model?: CarModelDef): CarMesh {
   const root = new THREE.Group(), bodyGroup = new THREE.Group();
   root.add(bodyGroup);
   const body = mat({ color: paint.body, roughness: 0.3, metalness: 0.25 });
@@ -225,7 +242,9 @@ export function buildCarMesh(spec: CarInfo, paint: Paint): CarMesh {
   const brakeLight = new THREE.Mesh(B(0.12, 0.08, 0.03), new THREE.MeshStandardMaterial({ color: 0x400000, emissive: 0xff1010, emissiveIntensity: 0.4 }));
   brakeLight.position.set(0, 0.05, -2.32); bodyGroup.add(brakeLight);
   const wheels = buildWheels(root, spec, { rim: 0x2a2d33, stripe: paint.stripe });
-  return carMesh(root, wheels, brakeLight, cockpit);
+  const mesh = carMesh(root, wheels, brakeLight, cockpit);
+  if (model) loadModel(mesh, spec, model);
+  return mesh;
 }
 
 // Four wheels (pivot for steer/suspension, spinner for rolling) shared by every car body. The tyre has rounded
@@ -417,10 +436,14 @@ export function buildGt3Mesh(spec: CarInfo, paint: Paint, model?: CarModelDef): 
 // A model file and the driver to seat in it (body coordinates: x left, y up, z forward; origin the centre of mass).
 export interface CarModelDef {
   url: string;                                 // relative to the page, under public/
-  driver: { head: [y: number, z: number]; shoulder: [dy: number, dz: number]; helmet: number; suit: number };
-  // The live display over the model's own (fixed artwork): the materials of the parts it replaces, which are hidden
-  // in each car's copy, and where the screen and its shift lights go (body coordinates).
-  screen?: { style: ScreenStyle; hide: string[]; display: Quad; leds: Quad | null };
+  // eye: the driver camera from the helmet centre; look: how far it looks down over 10 m (default: the built body's)
+  driver: { head: [y: number, z: number]; shoulder: [dy: number, dz: number]; helmet: number; suit: number;
+    eye?: [dy: number, dz: number]; look?: number };
+  // The live display over the model's own (fixed artwork): the materials of the parts it replaces (the screen's, then
+  // the shift lights'), which are hidden in each car's copy, and where the screen and its shift lights go: on the dash
+  // (`on: 'body'`, body coordinates) or on the steering wheel (`on: 'wheel'`, the wheel's own frame: its centre, z
+  // along its axis; it turns with it).
+  screen?: { style: ScreenStyle; on: 'body' | 'wheel'; hide: string[]; display: Quad; leds: Quad | null };
 }
 
 // The Mercedes-AMG GT3 (credits in public/cars/lcgt3/LICENSE.md): the driver sits on the left.
@@ -429,9 +452,22 @@ export const LC_GT3_MODEL: CarModelDef = {
   driver: { head: [0.5, -0.62], shoulder: [-0.2, 0.02], helmet: 0x1b2a4e, suit: 0x1b2a4e },
   // Its dash screen (4:3, its face leaning 4 deg forward) and the ten LEDs above it, 1-2 mm in front of them.
   screen: {
-    style: 'gt3', hide: ['MI_Mercedes_AMG_GT3_Evo_Cockpit_Screen', 'MI_Mercedes_AMG_GT3_Evo_Interactive_Lights'],
+    style: 'gt3', on: 'body', hide: ['MI_Mercedes_AMG_GT3_Evo_Cockpit_Screen', 'MI_Mercedes_AMG_GT3_Evo_Interactive_Lights'],
     display: { x: 0.402, y: 0.3728, z: 0.1253, w: 0.1189, h: 0.0892, tilt: 0.07 },
     leds: { x: 0.402, y: 0.4292, z: 0.1281, w: 0.1, h: 0.0078 },
+  },
+};
+
+// The F1 2026 (credits in public/cars/lcf1/LICENSE.md): the driver lies back in the middle, the helmet where
+// LibreCorsa seats theirs.
+export const LC_F1_MODEL: CarModelDef = {
+  url: 'cars/lcf1/model.glb',
+  driver: { head: [0.458, 0.297], shoulder: [-0.2, -0.04], helmet: 0xf5f5f5, suit: 0x1b2a4e },
+  // The steering wheel's screen and the rev lights above it, 1-2 mm in front of them.
+  screen: {
+    style: 'f1', on: 'wheel', hide: ['INT_DISPLAY', 'vehicle_revs_type1'],
+    display: { x: 0, y: 0.0363, z: -0.0546, w: 0.1, h: 0.055 },
+    leds: { x: 0, y: 0.0707, z: -0.0563, w: 0.0967, h: 0.0068 },
   },
 };
 
@@ -486,7 +522,7 @@ function part(model: THREE.Object3D, name: string) {
   return { obj, origin, rake, data: src.userData };
 }
 
-// Replaces the procedural body, wheels and steering wheel with the model's, and seats a driver in it.
+// Replaces the procedural body, wheels and steering wheel with the model's, adds its flaps, and seats a driver in it.
 function swapInModel(mesh: CarMesh, spec: CarInfo, model: THREE.Object3D, def: CarModelDef) {
   prepareModel(model);
   const body = part(model, 'body'), steering = part(model, 'steering_wheel');
@@ -496,9 +532,18 @@ function swapInModel(mesh: CarMesh, spec: CarInfo, model: THREE.Object3D, def: C
   let screen: CockpitScreen | null = null;
   if (def.screen) {
     const hide = def.screen.hide;
-    body.obj.traverse((o) => { if (o instanceof THREE.Mesh && hide.includes((o.material as THREE.Material).name)) o.visible = false; });   // this car's copy only
+    for (const p of [body.obj, steering.obj]) p.traverse((o) => { if (o instanceof THREE.Mesh && hide.includes((o.material as THREE.Material).name)) o.visible = false; });   // this car's copy only
     screen = buildScreen(def.screen.style, def.screen.display, def.screen.leds);
-    bodyGroup.add(screen.mesh);
+  }
+
+  // Flaps: each on a pivot at its hinge, which poseFlaps turns.
+  const flaps: Flap[] = [];
+  for (const src of model.children) {
+    if (!src.name.startsWith('flap_')) continue;
+    const flap = part(model, src.name)!, pivot = new THREE.Group(), q = flap.data.open as number[] | undefined;
+    pivot.position.copy(flap.origin);
+    pivot.add(flap.obj); bodyGroup.add(pivot);
+    flaps.push({ pivot, open: q ? new THREE.Quaternion(q[0], q[1], q[2], q[3]) : new THREE.Quaternion() });
   }
 
   // The brake light gets its own material, lit by render().
@@ -522,8 +567,9 @@ function swapInModel(mesh: CarMesh, spec: CarInfo, model: THREE.Object3D, def: C
   const { add, done } = parts(bodyGroup);
   const cockpit = addDriver(bodyGroup, add, { x: so.x, head: d.head, helmet: d.helmet, suit: d.suit, shoulder: d.shoulder, seat: false,
     wheel: { y: so.y, z: so.z, rake: steering.rake, r: steering.data.grip ?? 0.12, kind: 'model', model: steering.obj },
-    ratio: mesh.cockpit.ratio, look: mesh.cockpit.look });
+    ratio: mesh.cockpit.ratio, look: d.look ?? mesh.cockpit.look, eye: d.eye });
   cockpit.screen = screen;
+  if (screen) (def.screen!.on === 'wheel' ? cockpit.wheel : bodyGroup).add(screen.mesh);
   done();
 
   // Out with the built body: everything but the wheels' pivots, which render() moves.
@@ -544,4 +590,5 @@ function swapInModel(mesh: CarMesh, spec: CarInfo, model: THREE.Object3D, def: C
   });
   mesh.brakeLight = brakeLight;
   mesh.cockpit = cockpit;
+  mesh.flaps = flaps;
 }

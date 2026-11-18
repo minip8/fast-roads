@@ -132,8 +132,11 @@ and Driver cameras or hide it. It hides while you look back, in the menu, and on
     screen). Pedals from keys and mouse buttons are eased on over about 0.2 s.
   - **Numbers** (measured in the tests): GT3 0–100 km/h 3.5 s, 1.9 g braking from 200 km/h, 1.6–2.0 g cornering
     from 80 to 220 km/h; F1 0–100 km/h 2.7 s, 2.9 g braking from 200 km/h, 2.0–3.9 g cornering from 80 to 220 km/h.
-  The GT3 is VTX's Red Bull Racing Mercedes-AMG GT3 model (see Credits); the F1 2026 has a body built in code. Not
-  used from LibreCorsa: fuel use, track evolution (rubber, marbles), damage, car setup, the F1's manual boost and energy modes, and its car models and sounds.
+  Both cars are 3D models (see Credits): the GT3 is VTX's Red Bull Racing Mercedes-AMG GT3, the F1 2026 is
+  LibreCorsa's (Qvist Designs' F1 2026 concept with the AM26's steering wheel) in a navy and red livery of its own,
+  its front and rear wing flaps opening and closing with the car's. Not used from LibreCorsa: fuel use, track
+  evolution (rubber, marbles), damage, car setup, the F1's manual boost and energy modes, its GT3 model, liveries and
+  sounds.
 
 Each car keeps its own best lap and sector times at each circuit. Switching car puts you back at the start.
 
@@ -476,11 +479,14 @@ and override the mouse while held.
   0.26 m at worst.
 - **Car bodies**: built from boxes and extrusions in code (`src/carMeshes.ts`), each with a seated driver whose
   hands turn the steering wheel in the driver camera. The instruments (`src/cockpitDisplay.ts`) are drawn on a
-  small canvas per car, redrawn only in the Driver camera, when a shown value changes, at most 30 times a second. The GT3 instead shows a 3D model (`public/cars/lcgt3/`, about
-  4.3 MB, 155k triangles, most of them in the cabin): the built body shows until the model has downloaded, and stays if it can't.
-  `scripts/cars/convert.mjs` makes it from the Sketchfab download (turned, scaled to the car's axles, split into
-  body, wheels, calipers, steering wheel and brake lights, simplified, WebP textures, meshopt geometry). The
-  service worker keeps the model once it has been downloaded rather than precaching it.
+  small canvas per car, redrawn only in the Driver camera, when a shown value changes, at most 30 times a second.
+  The GT3 and the F1 instead show 3D models (`public/cars/<id>/`: the GT3 about 4.3 MB, 155k triangles, most of
+  them in the cabin; the F1 about 0.9 MB, 99k): the built body shows until the model has downloaded, and stays if it
+  can't. `scripts/cars/convert.mjs` makes them from the downloads (turned, scaled to the car's axles, split into
+  body, wheels, calipers or brake drums, steering wheel, brake lights and the F1's six wing flaps, simplified, WebP
+  textures, meshopt geometry). The F1's flaps ease open and shut over 0.4 s as the car's do (another player's car's
+  from the flag in its state; the ghost car's stay shut), and its live screen and rev lights are on its steering
+  wheel, turning with it. The service worker keeps a model once it has been downloaded rather than precaching it.
 - **Weather** (`src/weather.ts`, visuals and sound only), from two numbers the game sets every frame: rain (0 a dry
   sky, 1 a downpour) and track wetness (0 dry, about 0.3 damp, 1 standing water), independent of each other (the
   track stays wet after the rain stops; a damp track under a clearing sky keeps the sun). Rain greys the sky over
@@ -558,6 +564,20 @@ file (`public/cars/lcgt3/model.glb`) is an adaptation under the same licence, wh
 (remove the model, and the GT3 falls back to its built body). The Red Bull livery's names and logos, and
 the Mercedes-AMG and Mercedes-Benz names and star, are trademarks of their owners; the model is unofficial and
 the game is not affiliated with or endorsed by Mercedes-AMG, Mercedes-Benz or Red Bull.
+
+- **F1 2026 body**: LibreCorsa's F1 2026 model
+  ([github.com/KhazP/librecorsa](https://github.com/KhazP/librecorsa), `public/cars/f12026/model/f12026.glb`):
+  "F1 2026 concept (polygon model)" by [Qvist Designs](https://qvistdesigns.framer.website/)
+  ([Sketchfab](https://sketchfab.com/3d-models/f1-2026-concept-polygon-model-ea3bde709b1e4dc9b0ec8557d106ed42)),
+  [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), as LibreCorsa adapted it, with the steering wheel
+  (and its shift lights and display) of "AM26" by DeX
+  ([Sketchfab](https://sketchfab.com/3d-models/am26-f1-25f1-2026-dlc-cbb8d4752e6d42b98b5a3eb23e4831a4)), which
+  Sketchfab labels CC BY 4.0 but whose description there says it was taken from the game F1 25.
+
+The converted file (`public/cars/lcf1/model.glb`, its changes in the `LICENSE.md` beside it) is an adaptation
+under CC BY 4.0, which allows commercial use with credit (the steering wheel's origin, above, aside): the F1 is
+not what makes the game non-commercial, the GT3 is. Its navy and red livery is the game's own. Remove the file and
+the F1 falls back to its built body.
 
 - **LibreCorsa** (github.com/KhazP/librecorsa, MIT): the physics engine and car data in `src/lc/vendor/` (licence
   and provenance in its README) and the ports of its driver aids in `src/lc/`.

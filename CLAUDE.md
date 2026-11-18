@@ -27,7 +27,7 @@ dev and the tests use the inline copy.
     npm run server      # multiplayer relay -> build/server/server.mjs, listening on ws://*:8787 (PORT, HOST, MAX_PLAYERS, BATCH_MS, MIN_LAP_SECS)
     npm run relay:cf    # the same relay on Cloudflare Workers, locally (wrangler dev, workerd, no account) on ws://127.0.0.1:8787
     npm run relay:deploy   # deploys it (the owner deploys: needs `wrangler login`)
-    node scripts/cars/convert.mjs lcgt3 <source.glb>   # remake a car model (sources: see its header)
+    node scripts/cars/convert.mjs lcf1 <source.glb>    # remake a car model, lcf1 or lcgt3 (sources: see its header)
     node scripts/tracks/convert.mjs <racetrack-database> <f1-circuits> [id ...]   # remake circuit CSVs (see its header)
 
 Run `npm run typecheck` and `npm test` before committing, and `npm run test:laps` too after a change to physics,
@@ -173,14 +173,21 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   (`Cockpit`: the Driver camera's eye, the helmet it hides, and `poseCockpit`, which both cars' `render` call to turn
   the wheel and arms, and `screen`, the live instruments). Paint and metal reflect the environment map that
   `stage.ts` hands over with `setCarEnvironment` before any car is built. `CarMesh.dispose()` frees a body on car
-  switch. The GT3 (`LC_GT3_MODEL`) is a 3D model (`public/cars/<id>/model.glb` + `LICENSE.md`,
-  CC BY-NC-SA: credits in README): the procedural body is built first (and is all the tests get), and when
-  `carModels.ts` (GLTFLoader + meshopt, browser only, installed by `stage.ts`) has loaded the file, the body,
-  wheels (`spinner` moves to the model's wheel centre), calipers, steering wheel and brake light are swapped in
-  place, so `mesh.cockpit` / `mesh.brakeLight` change: read them at use. A loaded model is cached and shared by
-  every car built from it (`userData.shared`: never disposed). `scripts/cars/convert.mjs` makes the files from the
-  Sketchfab downloads (part names and `extras.frame` documented there); `test/carModels.test.ts` checks them
-  against the specs' axles. The vite config finds every `public/cars/<id>/model.glb` by itself (`__CAR_MODELS__`).
+  switch. The GT3 and the F1 (`LC_GT3_MODEL`, `LC_F1_MODEL`: a `CarModelDef` each) are 3D models
+  (`public/cars/<id>/model.glb` + `LICENSE.md`; the GT3's CC BY-NC-SA, the F1's CC BY: credits in README): the
+  procedural body is built first (and is all the tests get), and when `carModels.ts` (GLTFLoader + meshopt, browser
+  only, installed by `stage.ts`) has loaded the file, the body, wheels (`spinner` moves to the model's wheel
+  centre), calipers or drums (`hub_*`), steering wheel, brake light and flaps are swapped in place, so
+  `mesh.cockpit` / `mesh.brakeLight` / `mesh.flaps` change: read them at use. The model's own screen is hidden and
+  the live one put over it on the dash or, on the F1, on the steering wheel (`CarModelDef.screen.on`). Flaps
+  (`flap_*`, the F1's six) each hang on a pivot at its hinge (`Flap`); `poseFlaps(mesh, pos)` turns them by how
+  far open the car has them (0..1, eased in and out), which `LcCar` moves each tick with `easeFlaps` towards
+  `drsOpen` (over `FLAP_SECS`) and `RemoteCars` towards the state's flaps flag; the ghost's stay shut. A loaded model
+  is cached and shared by every car built from it (`userData.shared`: never disposed). `scripts/cars/convert.mjs`
+  makes the files from the downloads (per car: `part`, `cabin`, `flap`, `materials`; part names and `extras.frame`
+  documented there); `test/carModels.test.ts` checks them against the specs' axles (the screens over the model's
+  own, the flaps' hinges and travel). The vite config finds every `public/cars/<id>/model.glb` by itself
+  (`__CAR_MODELS__`).
 - `cockpitDisplay.ts`: the live instruments in the Driver camera (`Cockpit.screen`): one unlit mesh per car (the
   screen plus its shift-light strip, `buildScreen`, built with the body, Node too) textured by a canvas made in the
   browser on first use (`userData.owned`: disposed with the car). `CockpitDisplay.update` (from `main.ts`'s frame

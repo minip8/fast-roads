@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { poseCockpit, type CarMesh, type Cockpit } from './carMeshes';
+import { easeFlaps, poseCockpit, poseFlaps, type CarMesh, type Cockpit } from './carMeshes';
 import type { CarInfo } from './cars';
 import type { MapDot } from './minimap';
 import type { Multiplayer } from './multiplayer';
@@ -10,7 +10,8 @@ import type { SprayCar } from './spray';
 // ============================================================================
 // Other players' cars, drawn: each a body of its car (the car spec's own mesh builder, as the player's car), posed
 // every frame from its RemoteCar sampled at the time the player's car is drawn at. Wheels steer and roll from the
-// state, the cockpit wheel turns, the brake light follows the brake. No physics: Multiplayer has the proxy bodies.
+// state, the cockpit wheel turns, the flaps open and close with the state's flag, the brake light follows the brake.
+// No physics: Multiplayer has the proxy bodies.
 // A car that is not collidable (its owner's noCollide or pause, gone stale, or ours not collidable) is drawn
 // translucent; a stale one fades out. A name tag over each car (DOM, in `labels`) and a dot for the minimap.
 // ============================================================================
@@ -25,7 +26,7 @@ export interface RemoteStatus { shown: boolean; ghost: boolean; paused: boolean;
 interface View {
   spec: CarInfo; mesh: CarMesh; cockpit: Cockpit | null;
   base: Map<THREE.Material, { transparent: boolean; opacity: number; depthWrite: boolean }>;
-  ghost: boolean | null; opacity: number; spin: number;
+  ghost: boolean | null; opacity: number; spin: number; flap: number;
   label: HTMLElement; labelText: string;
   readonly sample: RemoteSample;
   readonly spray: SprayCar & { vel: { x: number; y: number; z: number } };
@@ -80,7 +81,7 @@ export class RemoteCars {
     label.className = 'nametag';
     label.hidden = true;
     this.labels.append(label);
-    const v: View = { spec, mesh, cockpit: null, base: new Map(), ghost: null, opacity: -1, spin: 0, label, labelText: '', sample: emptySample(),
+    const v: View = { spec, mesh, cockpit: null, base: new Map(), ghost: null, opacity: -1, spin: 0, flap: 0, label, labelText: '', sample: emptySample(),
       spray: { root: mesh.root, spec, vel: { x: 0, y: 0, z: 0 } } };
     this.adopt(v);
     return v;
@@ -139,6 +140,8 @@ export class RemoteCars {
       wh.spinner.rotation.x = v.spin;
     }
     poseCockpit(m.cockpit, s.steer);
+    v.flap = easeFlaps(v.flap, (s.flags & STATE_FLAG.flapsOpen) !== 0, dt);
+    poseFlaps(m, v.flap);
     m.brakeLight.material.emissiveIntensity = s.brake > 0.1 ? 3 : 0.4;
   }
 

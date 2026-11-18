@@ -1,5 +1,5 @@
 import type { EngineVoice } from './audioGraph';
-import { buildCarMesh, buildDriftMesh, buildGt3Mesh, type CarMesh, LC_GT3_MODEL, type Paint } from './carMeshes';
+import { buildCarMesh, buildDriftMesh, buildGt3Mesh, type CarMesh, LC_F1_MODEL, LC_GT3_MODEL, type Paint } from './carMeshes';
 import type { EngineDriverFactory } from './lc/engineDriver';
 import { f1Driver, gt3Driver } from './lc/driver';
 import type { CompoundId } from './conditions';
@@ -184,13 +184,13 @@ const F1_COMPOUND_WEAR: Partial<Record<CompoundId, number>> = {
 };
 
 const LC_GT3_PAINT: Paint = { body: 0xc3c7cc, accent: 0x00a19b, stripe: 0x00a19b };   // silver, teal (the built body, until its model loads)
-const LC_F1_PAINT: Paint = { body: 0x1b2a4e, accent: 0xe8112d, stripe: 0xf5f5f5 };   // navy, red
+const LC_F1_PAINT: Paint = { body: 0x1b2a4e, accent: 0xe8112d, stripe: 0xf5f5f5 };   // navy, red (the built body, until its model loads; the model is painted the same)
 
 export const CARS: Record<CarId, AnyCarSpec> = {
   // LibreCorsa's 2026 F1 car (the LC26, tuned) on their engine: 768 kg, a hybrid that deploys and harvests by itself
   // (RAC mode), and flaps that open on every straight.
   lcf1: {
-    id: 'lcf1', name: 'F1 2026', storeKey: '.lcf1', physics: 'lc', mesh: (spec) => buildCarMesh(spec, LC_F1_PAINT),
+    id: 'lcf1', name: 'F1 2026', storeKey: '.lcf1', physics: 'lc', mesh: (spec) => buildCarMesh(spec, LC_F1_PAINT, LC_F1_MODEL),
     blurb: 'Hybrid single-seater with active aero', powerKw: 771,   // 421 kW engine (Lc26Tune) + 350 kW MGU-K
     hint: 'LibreCorsa physics: hybrid and flaps work themselves · ABS always on · keep TC on unless you like spinning',
     config: LC26_CONFIG, driver: f1Driver, fuelKg: 35, turbo: true, straightMode: true, compoundWear: F1_COMPOUND_WEAR,
