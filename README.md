@@ -49,7 +49,8 @@ The game opens on a menu with **Drive** at the top right and four tabs:
     and panel background (0–100%).
   - *Graphics*: render resolution (50–100% of the screen's pixels), shadows (off / low / high), brightness, weather
     effects (full / reduced / off: falling rain, spray and drops on the lens; reduced has fewer of them and no lens
-    drops, off has none, while the sky, light and wet road always show the weather), and scenery detail (high / low: low draws 40% of the
+    drops, off has none, while the sky, light and wet road always show the weather), time of day (the circuit's own /
+    day / dusk / night: **Time of day** under *How it works*) and scenery detail (high / low: low draws 40% of the
     trees).
   - *Audio*: sound on/off and volume.
 
@@ -503,6 +504,21 @@ and override the mouse while held.
   close; yours is fainter. Rain hiss and patter and the hiss and swish of wet tyres (`src/weatherAudio.ts`) go
   through the sound graph. With both numbers at 0 nothing is built and the game is exactly as dry; back at 0,
   everything is undone and freed.
+- **Time of day** (`src/timeOfDay.ts`): each circuit is raced at its Grand Prix's time. Bahrain, Jeddah, Singapore,
+  Las Vegas and Lusail at night under floodlights, Yas Marina at dusk, the rest by day under a sky of their own:
+  a high hard sun in thin air (Miami, Barcelona, Mexico City, Interlagos), summer haze (Shanghai, the Hungaroring,
+  Monza), low golden afternoon light (Suzuka, Baku, Austin), a northern sky full of cumulus (Silverstone, Spa,
+  Zandvoort), or the plain clear day (Melbourne, Montreal, Monaco, the Red Bull Ring, Madrid); the sun stands where it
+  does at the race (south-west of the circuit in the north, north-west in the south). At night the floodlights are
+  the key light, high overhead (their soft shadow keeps the cars on the ground): the road, kerbs, walls, boards and
+  cars are as easy to read as by day, while the land falls dark beyond the circuit (a darkening by distance from the
+  track that the terrain, trees, hills and buildings take), under a dark sky with stars and a city's glow on the
+  horizon. Lamps on the floodlight masts glow with a halo, the grandstands' roofs, the pit building's windows and the
+  city's windows and signs light up, and the cars' paint and a wet road reflect lamps instead of a blue sky. Dusk is a
+  low orange sun in a warm-to-blue sky with the lights coming on. The weather works on top of the time of day: rain
+  at night keeps the floodlights on, greys the dark sky and lights the spray. The **Time of day** setting (Graphics)
+  shows any circuit by day, at dusk or at night (its own by default); `?time=night` (or `day`, `dusk`, or one of the
+  looks: `clear`, `high`, `haze`, `golden`, `northern`, `desert`) does the same in the URL.
 - **Scenery** (`src/trackside.ts`), from a few fields of each circuit (its kind of place, trees, hills, buildings):
   woods with clearings at the forest circuits (conifers at Spa and the Red Bull Ring, broadleaf at Monza, both at
   Suzuka), parkland trees, palms and desert scrub; city blocks along the walls of the street circuits with lit
@@ -510,7 +526,7 @@ and override the mouse while held.
   sand, dry grass or green ground by the place; a ring of hills on the horizon (the Alps behind the Red Bull Ring,
   mountains behind Monaco and Las Vegas, dunes in the desert); catch fences on the walls (all round a street
   circuit, elsewhere behind the gravel traps and along the start straight); an advertising bridge over one or two
-  long straights; the grid's slots painted on the start straight.
+  long straights; the grid's slots painted on the start straight; floodlight masts at the night and dusk races.
   Everything is placed from the track by a seeded generator (the same for every player and every reload) and through
   one clearance test (`clearOf` in `src/scenery.ts`): nothing on the road or run-off, inside the walls, over another
   stretch of the lap, inside a bend close enough to hide the corner, or on the ground the pit lane takes. Looks only:

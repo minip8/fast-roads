@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Batch } from './batch';
 import { canvasTex, noiseFill } from './textures';
+import { floodlit, type Glow } from './timeOfDay';
 import { WOODS, woodsOf, type SceneKind } from './trackside';
 import { clamp, wrapI } from './util';
 import type { Track } from './track';
@@ -21,7 +22,7 @@ const GROUND: Record<SceneKind, { c: [number, number, number]; sand?: boolean }>
   dunes: { c: [0xddcc9c, 0xa8ae70, 0xe6d6aa], sand: true },
 };
 
-export function buildScenery(tr: Track, scene: THREE.Scene, def: TrackDef) {
+export function buildScenery(tr: Track, scene: THREE.Scene, def: TrackDef, glow: Glow) {
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
   for (let i = 0; i < tr.N; i++) { minX = Math.min(minX, tr.X[i]); maxX = Math.max(maxX, tr.X[i]); minZ = Math.min(minZ, tr.Z[i]); maxZ = Math.max(maxZ, tr.Z[i]); }
   const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
@@ -55,7 +56,7 @@ export function buildScenery(tr: Track, scene: THREE.Scene, def: TrackDef) {
     cols[i * 3] = tmp.r; cols[i * 3 + 1] = tmp.g; cols[i * 3 + 2] = tmp.b;
   }
   tg.setAttribute('color', new THREE.BufferAttribute(cols, 3));
-  const terrainMat = new THREE.MeshStandardMaterial({ map: grassTex, vertexColors: true, roughness: 1 });
+  const terrainMat = floodlit(new THREE.MeshStandardMaterial({ map: grassTex, vertexColors: true, roughness: 1 }));
   const terrain = new THREE.Mesh(tg, terrainMat);
   terrain.position.set(cx, -0.03, cz);
   terrain.receiveShadow = true;
@@ -83,13 +84,15 @@ export function buildScenery(tr: Track, scene: THREE.Scene, def: TrackDef) {
       }
     }), roughness: 1 }),
     roof: new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 0.6, metalness: 0.3 }),
+    // the strip of lamps under each roof's front edge (lit at dusk and night)
+    lights: glow.add(new THREE.MeshStandardMaterial({ color: 0x55585c, emissive: 0xfff2dc, emissiveIntensity: 0, roughness: 0.5 }), 2.4),
   };
   // Every stand, the pit building and the gantry are merged into one mesh per material (a few draw calls in all).
   const batch = new Batch(), M = new THREE.Matrix4(), L = new THREE.Matrix4(), e = new THREE.Euler();
   const part = (geo: THREE.BufferGeometry, x: number, y: number, z: number, mat: THREE.Material | THREE.Material[]) =>
     batch.add(geo, L.multiplyMatrices(M, L.makeTranslation(x, y, z)), mat);
   const tierGeo = new THREE.BoxGeometry(24, 1.2, 2.2), backGeo = new THREE.BoxGeometry(24, 9, 0.5);
-  const roofGeo = new THREE.BoxGeometry(25, 0.3, 13), postGeo = new THREE.BoxGeometry(0.4, 9, 0.4);
+  const roofGeo = new THREE.BoxGeometry(25, 0.3, 13), postGeo = new THREE.BoxGeometry(0.4, 9, 0.4), stripGeo = new THREE.BoxGeometry(23, 0.12, 0.5);
   const tierMats = [standMats.concrete, standMats.concrete, standMats.concrete, standMats.concrete, standMats.crowd, standMats.concrete];
   for (const { x, z, yaw } of standBays(tr, def)) {
     // local +z points to the track centre
@@ -98,20 +101,21 @@ export function buildScenery(tr: Track, scene: THREE.Scene, def: TrackDef) {
     part(backGeo, 0, 4.5, -10.2, standMats.concrete);
     part(roofGeo, 0, 9.2, -4.5, standMats.roof);
     for (const x of [-11.5, 11.5]) part(postGeo, x, 4.5, 1.5, standMats.concrete);
+    part(stripGeo, 0, 8.98, 1.3, standMats.lights);
   }
   // Pit building
   const pit = pitBuilding(tr, def);
   if (pit) {
     M.compose(pos.set(pit.x, 4, pit.z), q.setFromEuler(e.set(0, pit.yaw, 0)), sc.set(1, 1, 1));
     // garages along the track-facing face (its u runs along the building)
-    const front = pitTexture(), pitFront = new THREE.MeshStandardMaterial({ map: front.map, emissive: 0xffffff, emissiveMap: front.lit, emissiveIntensity: 0, roughness: 0.8 });
+    const front = pitTexture(), pitFront = glow.add(new THREE.MeshStandardMaterial({ map: front.map, emissive: 0xffffff, emissiveMap: front.lit, emissiveIntensity: 0, roughness: 0.8 }), 1.2);
     for (const t of [front.map, front.lit]) t.repeat.set(Math.max(1, Math.round(pit.len / 32)), 1);
     part(new THREE.BoxGeometry(12, 8, pit.len), 0, 0, 0, [standMats.concrete, pitFront, standMats.roof, standMats.concrete, standMats.concrete, standMats.concrete]);
   }
   // Start gantry: local x maps to the left normal, rotation.y = atan2(-NZ, NX) maps (1,0,0) -> (NX, 0, NZ)
   {
     const m = new THREE.MeshStandardMaterial({ color: 0x2a2e35, roughness: 0.5, metalness: 0.6 });
-    const lamp = new THREE.MeshStandardMaterial({ color: 0x220000, emissive: 0x330000 });
+    const lamp = glow.add(new THREE.MeshStandardMaterial({ color: 0x220000, emissive: 0x330000 }), 3, 1);
     const { wl, wr } = gantryPosts(tr, def);
     M.compose(pos.set(tr.X[0], 0, tr.Z[0]), q.setFromEuler(e.set(0, Math.atan2(-tr.NZ[0], tr.NX[0]), 0)), sc.set(1, 1, 1));
     const gpost = new THREE.BoxGeometry(GANTRY_POST, 7, GANTRY_POST);
@@ -136,7 +140,7 @@ export function gantryPosts(tr: Track, def: Pick<TrackDef, 'pitSide'>): { wl: nu
 }
 
 // ---------------------------------------------------------------------------- the clearance test
-// Everything placed round the circuit (stands, the pit building, trees, buildings, bridges: trackside.ts)
+// Everything placed round the circuit (stands, the pit building, trees, buildings, masts, bridges: trackside.ts)
 // goes through clearOf. A thing may not reach any part of the circuit: no point of its footprint may lie inside any
 // stretch's walls (at the side of a centreline sample, closer than its barrier offset + `margin`). `skip`: samples
 // (counted from the line, may be negative) of the stretch it stands beside, whose walls it may reach (and 100 m
@@ -315,39 +319,64 @@ export function mulberry32(a: number): () => number {
   return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 }
 
-// The sky dome. With the WEATHER define (weather.ts sets it only while it is overcast, so a dry day's shader is the
-// plain one) the uniforms uOvercast (0..1), uRain (0..1) and uFog (the fog colour, display space) turn it grey: the
-// horizon is the fog's colour, the cloud closes over and the sun goes behind it.
+// The sky dome. Its colours are uniforms the time of day sets (timeOfDay.ts skyUniforms; display space, matching the
+// fog's colour at the horizon): zenith and horizon, the sun's disc and halo (the moon's at night), a warm band along
+// the horizon towards a low sun (dusk), a glow low all round (a city's lights at night), cloud cover and colours,
+// stars. The defaults are the plain day's. With the WEATHER define (weather.ts sets it only while it is overcast, so a
+// dry sky's shader is the plain one) the uniforms uOvercast (0..1), uRain (0..1) and uFog (the fog colour, display
+// space) turn it grey: the horizon is the fog's colour, the cloud closes over and the sun, moon and stars go behind it.
 export function buildSky(scene: THREE.Scene, sunDir: THREE.Vector3) {
+  const C = (r: number, g: number, b: number) => ({ value: new THREE.Color(r, g, b) });
   const mat = new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, fog: false, toneMapped: false,
-    uniforms: { sunDir: { value: sunDir }, uOvercast: { value: 0 }, uRain: { value: 0 }, uFog: { value: new THREE.Color(0.80, 0.87, 0.93) } },
+    uniforms: {
+      sunDir: { value: sunDir }, uOvercast: { value: 0 }, uRain: { value: 0 }, uFog: C(0.80, 0.87, 0.93),
+      uZenith: C(0.28, 0.52, 0.86), uHorizon: C(0.80, 0.87, 0.93), uSunCol: C(1.0, 0.92, 0.75), uSunGlow: { value: 1 }, uSunSize: { value: 900 }, uBand: { value: 0 },
+      uGlow: C(0, 0, 0), uClouds: { value: 0.5 }, uCloudLit: C(1.0, 0.99, 0.97), uCloudShade: C(0.74, 0.79, 0.86), uStars: { value: 0 },
+    },
     vertexShader: `varying vec3 vDir; void main(){ vDir = position; vec4 p = projectionMatrix * modelViewMatrix * vec4(position,1.); gl_Position = p.xyww; }`,
-    // Colours are display-space and match the fog colour at the horizon. Clouds: value-noise fbm on a flat layer
-    // (direction projected onto a plane overhead), thinned out towards the horizon so it stays hazy there.
+    // Clouds: value-noise fbm on a flat layer (direction projected onto a plane overhead), thinned out towards the
+    // horizon so it stays hazy there. Stars: one in a few hundred cells of a grid on the direction, twinkle-free.
     fragmentShader: `varying vec3 vDir; uniform vec3 sunDir;
+      uniform vec3 uZenith, uHorizon, uSunCol, uGlow, uCloudLit, uCloudShade; uniform float uSunGlow, uSunSize, uBand, uClouds, uStars;
       #ifdef WEATHER
       uniform float uOvercast, uRain; uniform vec3 uFog;
       #endif
       float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float hash3(vec3 p){ return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
       float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3. - 2. * f);
         return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y); }
       float fbm(vec2 p){ float v = 0., a = 0.5; for (int k = 0; k < 5; k++) { v += a * vnoise(p); p = p * 2.03 + 17.1; a *= 0.5; } return v; }
       void main(){ vec3 d = normalize(vDir); float h = clamp(d.y, 0., 1.);
         #ifdef WEATHER
-        vec3 horizon = uFog, zenith = mix(vec3(0.28, 0.52, 0.86), uFog, 0.5 * uOvercast);
+        float clear = 1. - uOvercast;
+        vec3 horizon = uFog, zenith = mix(uZenith, uFog, 0.5 * uOvercast);
         #else
-        vec3 horizon = vec3(0.80, 0.87, 0.93), zenith = vec3(0.28, 0.52, 0.86);
+        float clear = 1.;
+        vec3 horizon = uHorizon, zenith = uZenith;
         #endif
         vec3 col = mix(horizon, zenith, pow(h, 0.55));
-        float s = max(dot(d, normalize(sunDir)), 0.);
+        vec3 sd = normalize(sunDir);
+        float s = max(dot(d, sd), 0.);
+        // dusk: warm low down towards the sun; night: a city's glow all round the horizon
+        float toward = 0.5 + 0.5 * dot(normalize(d.xz + vec2(1e-5)), normalize(sd.xz + vec2(1e-5)));
+        col += (uSunCol * uBand * toward * toward * 0.55 * exp(-h * 7.) + uGlow * exp(-h * 10.)) * clear;
+        float cloud = 0.;
         if (d.y > 0.) {
           vec2 uv = d.xz / (d.y + 0.12) * 1.6;
-          float c = smoothstep(0.50, 0.78, fbm(uv + vec2(3.7, 1.2)));
+          // stars, behind the cloud
+          if (uStars > 0.) {
+            vec3 p = d * 160.; vec3 c = floor(p); float r = hash3(c);
+            float st = step(0.985, r) * smoothstep(0.42, 0.05, length(fract(p) - 0.5 - 0.3 * (vec3(hash3(c + 1.7), hash3(c + 3.1), hash3(c + 5.3)) - 0.5)));
+            col += vec3(0.85, 0.88, 1.0) * st * (0.35 + 0.65 * fract(r * 97.)) * uStars * smoothstep(0.05, 0.3, d.y) * clear;
+          }
+          float lo = mix(0.64, 0.36, uClouds);
+          float c = smoothstep(lo, lo + 0.28, fbm(uv + vec2(3.7, 1.2)));
           c *= smoothstep(0.02, 0.22, d.y);
           float shade = 0.82 + 0.18 * fbm(uv * 1.7 + 5.);            // lumpy undersides
-          vec3 cloud = mix(vec3(0.74, 0.79, 0.86), vec3(1.0, 0.99, 0.97), shade) + vec3(1.0, 0.9, 0.7) * pow(s, 8.) * 0.25;
-          col = mix(col, cloud, c * 0.85);
+          vec3 cl = mix(uCloudShade, uCloudLit, shade) + uSunCol * pow(s, 8.) * 0.25 * uSunGlow;
+          col = mix(col, cl, c * 0.85);
+          cloud = c;
           #ifdef WEATHER
           // Overcast: one grey deck, darker and lumpier the heavier the rain. Low down it is exactly the fog's colour:
           // anything far off (a city skyline) is fogged to that colour too, and must not stand out against the sky.
@@ -356,11 +385,7 @@ export function buildSky(scene: THREE.Scene, sunDir: THREE.Vector3) {
           col = mix(col, mix(deck, uFog, 1. - smoothstep(0.14, 0.5, d.y)), uOvercast);
           #endif
         }
-        #ifdef WEATHER
-        col += vec3(1.0, 0.92, 0.75) * (pow(s, 900.) * 6. + pow(s, 12.) * 0.18) * (1. - uOvercast) * (1. - uOvercast);
-        #else
-        col += vec3(1.0, 0.92, 0.75) * (pow(s, 900.) * 6. + pow(s, 12.) * 0.18);
-        #endif
+        col += uSunCol * (pow(s, uSunSize) * 6. * (1. - 0.8 * cloud) + pow(s, 12.) * 0.18 * uSunGlow) * clear * clear;
         if (d.y < 0.) col = horizon * mix(1.0, 0.85, clamp(-d.y * 4., 0., 1.));
         gl_FragColor = vec4(col, 1.); }`,
   });

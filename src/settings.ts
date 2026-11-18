@@ -4,6 +4,7 @@ import type { MouseDeadzone, MouseSensitivity, PadDeadzone } from './input';
 import type { MirrorMode } from './mirror';
 import { TRACKS, type TrackId } from './tracks';
 import type { SceneryDetail } from './stage';
+import type { TimeChoice } from './timeOfDay';
 import { clamp, wrapI } from './util';
 import type { WeatherQuality } from './weather';
 
@@ -25,7 +26,7 @@ export interface Settings {
   units: 'kmh' | 'mph'; timingPanel: 'full' | 'compact' | 'off'; delta: OnOff; minimap: 'off' | 'small' | 'medium' | 'large';
   tyres: OnOff; mirror: MirrorMode; mouseBar: OnOff; help:'auto' | 'always' | 'off'; fps: OnOff; hudScale: number; hudOpacity: number;
   // graphics
-  resolution: number; shadows: 'off' | 'low' | 'high'; brightness: number; weather: WeatherQuality; scenery: SceneryDetail;
+  resolution: number; shadows: 'off' | 'low' | 'high'; brightness: number; weather: WeatherQuality; time: TimeChoice; scenery: SceneryDetail;
   // audio
   sound: OnOff; volume: number;
 }
@@ -91,6 +92,7 @@ export const SETTING_DEFS: { [K in SettingKey]: SettingDef<K> } = {
   shadows: { label: 'Shadows', section: 'graphics', options: [['off', 'Off'], ['low', 'Low'], ['high', 'High']] },
   brightness: { label: 'Brightness', section: 'graphics', slider: true, options: steps(70, 130, 10, pct) },
   weather: { label: 'Weather effects', section: 'graphics', hint: 'Rain, spray and drops on the lens; lower is faster on slow GPUs', options: [['full', 'Full'], ['reduced', 'Reduced'], ['off', 'Off']] },
+  time: { label: 'Time of day', section: 'graphics', hint: 'Circuit’s own: as its Grand Prix is run (five night races under floodlights, Yas Marina at dusk)', options: [['circuit', 'Circuit’s own'], ['day', 'Day'], ['dusk', 'Dusk'], ['night', 'Night']] },
   scenery: { label: 'Scenery detail', section: 'graphics', hint: 'Low draws fewer trees; faster on slow GPUs', options: [['high', 'High'], ['low', 'Low']] },
 
   sound: { label: 'Sound', section: 'audio', options: onOff() },
@@ -103,7 +105,7 @@ export const DEFAULT_SETTINGS: Settings = {
   steering: 'keyboard', mouseSens: 'medium', mouseDeadzone: 'small', padDeadzone: 'medium',
   camera: 'onboard', fov: 0, speedFov: 'on', shake: 'on', hands: 'off',
   units: 'kmh', timingPanel: 'full', delta: 'on', minimap: 'medium', tyres: 'on', mirror: 'on', mouseBar: 'on', help: 'auto', fps: 'off', hudScale: 100, hudOpacity: 70,
-  resolution: 100, shadows: 'high', brightness: 100, weather: 'full', scenery: 'high',
+  resolution: 100, shadows: 'high', brightness: 100, weather: 'full', time: 'circuit', scenery: 'high',
   sound: 'on', volume: 100,
 };
 

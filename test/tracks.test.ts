@@ -3,7 +3,7 @@ import { writeFileSync } from 'node:fs';
 import { CARS, type CarId } from '../src/cars';
 import { circuitInfo, outlineOf, type Outline } from '../src/catalog';
 import { clearOf, pitBuilding, pitReserve, standBays } from '../src/scenery';
-import { blockSpots, bridgeSpots, TREE_RADIUS, treeSpots } from '../src/trackside';
+import { blockSpots, bridgeSpots, MAST_RADIUS, mastSpots, TREE_RADIUS, treeSpots } from '../src/trackside';
 import { S_ASPHALT } from '../src/config';
 import { parseCSV, surfaceAt } from '../src/track';
 import { OUTLINES } from '../src/trackOutlines';
@@ -71,6 +71,9 @@ for (const def of Object.values(TRACKS)) {
     const trees = treeSpots(tr, def);
     expect(trees.length).toBeGreaterThan(0.5 * def.trees);
     for (const t of trees) expect(inWalls(t.x, t.z, TREE_RADIUS - 0.5), `${def.id}: a ${t.kind} tree`).toBeNull();
+    const masts = mastSpots(tr, def);
+    expect(masts.length).toBeGreaterThan(tr.L / 250);
+    for (const m of masts) expect(inWalls(m.x, m.z, MAST_RADIUS - 0.5), `${def.id}: a mast`).toBeNull();
     const blocks = blockSpots(tr, def);
     if (def.scene === 'city') expect(blocks.length).toBeGreaterThan(tr.L / 100);
     for (const b of blocks) {

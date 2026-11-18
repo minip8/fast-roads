@@ -21,6 +21,7 @@ import { clearSeat, defaultServer, inviteUrl, loadNetPrefs, loadSeat, parseInvit
 import { DEFAULT_SETTINGS, loadSettings, nextOption, saveSettings, SETTING_KEYS, type SettingKey, type Settings } from './settings';
 import { Session } from './sim';
 import { buildStage } from './stage';
+import { timeFromUrl } from './timeOfDay';
 import { StartupError } from './startup';
 import { clearStore, loadStore, type Timing } from './timing';
 import { buildTrack, parseCSV, type Track } from './track';
@@ -91,7 +92,9 @@ export async function main() {
 
   const csv = await loadTrackCsv(def.id).catch((err: unknown) => { throw new StartupError('download', `${def.name} failed to load`, { cause: err }); });
   const track = buildTrack(parseCSV(csv), { street: def.street });
-  const stage = buildStage($<HTMLCanvasElement>('view'), track, def);
+  // ?time=night (or day, dusk, or a look's id: timeOfDay.ts) shows that time of day whatever the setting (a development tool)
+  const devTime = timeFromUrl(params);
+  const stage = buildStage($<HTMLCanvasElement>('view'), track, def, devTime ?? settings.time);
   const { renderer, scene, camera } = stage;
 
   // Physics. session.car is replaced when the Car setting changes: read it at call time.
@@ -320,6 +323,8 @@ export async function main() {
     shadows: (v) => stage.setShadows(v),
     brightness: (v) => stage.setBrightness(v / 100),
     weather: (v) => { weather.quality = v; },
+    // (the weather is undone first and redone on the new time of day next frame: the time of day is its base)
+    time: (v) => { if (!devTime && v !== stage.time) { weather.dispose(); stage.setTime(v); } },
     scenery: (v) => stage.setDetail(v),
     sound: (v) => { audio.setMuted(v === 'off'); },
     volume: (v) => audio.setVolume(v / 100),

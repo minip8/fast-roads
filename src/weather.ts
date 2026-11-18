@@ -3,6 +3,7 @@ import { bodyBox } from './camera';
 import { setCarEnvironment } from './carMeshes';
 import { LENS_LAYER, LensDrops, RainStreaks } from './rain';
 import { Spray, type SprayCar } from './spray';
+import { applyBase, disposeEnvLamps, envLamps, fogForDisplay, LOOKS, type LightBase, type RGB } from './timeOfDay';
 import { clamp, lerp } from './util';
 import type { Vehicle } from './vehicle';
 
@@ -27,6 +28,10 @@ import type { Vehicle } from './vehicle';
 //   rain.ts:  streaks round the camera, drops on the lens/visor (Onboard, Driver);  spray.ts: spray behind every car
 //   weatherAudio.ts: rain and wet tyres, through the sound graph (EngineAudio.weather)
 // The Weather effects setting (`quality`) scales the particles; the sky, light and road cost nothing extra.
+//
+// The weather works on the time of day (timeOfDay.ts): the stage's `light` is the dry base for the look shown (its
+// fog, key light and sky light, the greys its cloud and rain turn to, whether cloud hides the key light: the sun, yes;
+// the floodlights at night, no), read every frame; when it is dry again the base is put back as it is then.
 // ============================================================================
 export interface WeatherState { rain: number; wetness: number }
 export type WeatherQuality = 'full' | 'reduced' | 'off';
@@ -38,8 +43,7 @@ export const WEATHER_BUDGET: Record<WeatherQuality, { streaks: number; spray: nu
   off: { streaks: 0, spray: 0, sprayShare: 0, lens: false },
 };
 
-export const FOG_DENSITY = 0.00042;   // the dry fog (stage.ts)
-const FOG_DRY = [0.80, 0.87, 0.93], FOG_GREY = [0.66, 0.70, 0.74], FOG_RAIN = [0.47, 0.50, 0.54];   // display space
+export const FOG_DENSITY = 0.00042;   // the dry fog of the plain day (timeOfDay.ts LOOKS.clear)
 const EASE = 4;                       // s: time constant of the shown values following the set ones
 const SPRAY_FAR = 400;                // m: cars further from the camera throw no spray (the fog has them)
 const ENV_LEVELS = 5;                 // overcast reflection maps, made as the weather reaches each
@@ -52,26 +56,34 @@ export interface WeatherLook {
   hemi: number;          // the sky light's intensity, a factor on the dry one
   fogDensity: number;    // FogExp2
   fog: [number, number, number];   // fog and horizon colour, display space
+  mist: [number, number, number];  // the colour rain and spray are lit to, display space (the fog's, lighter under floodlights)
   wet: number;           // the road's wet look 0..1: darker, glossy
   puddles: number;       // standing water 0..1
   spray: number;         // water thrown up 0..1
   rain: number;          // falling rain 0..1
 }
-export const newLook = (): WeatherLook => ({ overcast: 0, sun: 1, hemi: 1, fogDensity: FOG_DENSITY, fog: [FOG_DRY[0], FOG_DRY[1], FOG_DRY[2]], wet: 0, puddles: 0, spray: 0, rain: 0 });
+export const newLook = (): WeatherLook => ({ overcast: 0, sun: 1, hemi: 1, fogDensity: FOG_DENSITY, fog: [...LOOKS.clear.horizon], mist: [...LOOKS.clear.horizon], wet: 0, puddles: 0, spray: 0, rain: 0 });
+// What weatherLook needs of the time of day (a LightBase; the plain day's by default).
+export type WeatherBase = Pick<LightBase, 'fogDisplay' | 'fogDensity' | 'overcastFog' | 'rainFog' | 'mistLift'>;
+const DAY: WeatherBase = { fogDisplay: LOOKS.clear.horizon, fogDensity: FOG_DENSITY, overcastFog: LOOKS.clear.overcastFog, rainFog: LOOKS.clear.rainFog, mistLift: 0 };
 const smooth = (a: number, b: number, x: number) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 
 // What rain and wetness look like. Light rain (0.3) already has a grey sky and no sun; heavier rain darkens and
 // thickens the fog (a downpour leaves a few hundred metres). The road looks wet from damp on (patchily: weather.ts),
-// spray comes in once there is a film of water, and puddles with standing water.
-export function weatherLook(rain: number, wetness: number, out: WeatherLook = newLook()): WeatherLook {
+// spray comes in once there is a film of water, and puddles with standing water. The fog's colours are the time of
+// day's (`base`): its dry horizon, and the greys of its cloud and rain.
+export function weatherLook(rain: number, wetness: number, out: WeatherLook = newLook(), base: WeatherBase = DAY): WeatherLook {
   rain = clamp(rain, 0, 1); wetness = clamp(wetness, 0, 1);
   const o = 1 - (1 - clamp(rain / 0.4, 0, 1)) ** 2;
   out.overcast = o;
   out.sun = (1 - o) ** 2;
   out.hemi = 1 + 0.55 * o - 0.3 * rain;
-  out.fogDensity = FOG_DENSITY + 0.0005 * o + 0.0024 * rain ** 1.5;
+  out.fogDensity = base.fogDensity + 0.0005 * o + 0.0024 * rain ** 1.5;
   const r = rain ** 1.2;
-  for (let k = 0; k < 3; k++) out.fog[k] = lerp(lerp(FOG_DRY[k], FOG_GREY[k], o), FOG_RAIN[k], r);
+  for (let k = 0; k < 3; k++) {
+    out.fog[k] = lerp(lerp(base.fogDisplay[k], base.overcastFog[k], o), base.rainFog[k], r);
+    out.mist[k] = Math.min(1, out.fog[k] + base.mistLift);
+  }
   out.wet = clamp(wetness / 0.45, 0, 1) ** 0.7;
   out.puddles = smooth(0.55, 1, wetness);
   out.spray = smooth(0.12, 0.8, wetness);
@@ -92,6 +104,7 @@ export function weatherFromUrl(params: URLSearchParams): WeatherState | null {
 // What the weather changes on the stage (stage.ts's Stage has it all; tests pass their own, without a renderer).
 export interface WeatherStage {
   renderer: THREE.WebGLRenderer | null;
+  light: LightBase;             // the time of day: the dry values the weather starts from and puts back
   scene: THREE.Scene; camera: THREE.PerspectiveCamera;
   sky: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
   sun: THREE.DirectionalLight; hemi: THREE.HemisphereLight;
@@ -108,10 +121,7 @@ export interface WeatherRemote { readonly drawn: readonly SprayCar[] }
 
 // Everything built while the weather is not dry, and the dry values it changed.
 interface Built {
-  base: {
-    fogColor: THREE.Color; fogDensity: number; sun: number; hemi: number; hemiSky: THREE.Color; hemiGround: THREE.Color;
-    colors: Map<THREE.MeshStandardMaterial, THREE.Color>; rough: Map<THREE.MeshStandardMaterial, number>;
-  };
+  base: { colors: Map<THREE.MeshStandardMaterial, THREE.Color>; rough: Map<THREE.MeshStandardMaterial, number> };
   wetRoad: THREE.MeshStandardMaterial; roadU: { uWet: { value: number }; uPuddle: { value: number }; uPuddleMap: { value: THREE.Texture } };
   wetOn: boolean;     // the road wears the wet material, kerbs and lines reflect
   streaks: RainStreaks | null; lens: LensDrops | null; spray: Spray | null; budget: WeatherQuality | null;
@@ -119,8 +129,7 @@ interface Built {
   car: { cockpit: object | null; box: THREE.Box3 };
 }
 
-const _c = new THREE.Color(), _c2 = new THREE.Color(), _c3 = new THREE.Color();
-const GREY_SKY = new THREE.Color(0xdfe3e8), GREY_GROUND = new THREE.Color(0x4c5444);
+const _c = new THREE.Color(), _c3 = new THREE.Color();
 const WET_TINT = { gravel: new THREE.Color(0.62, 0.6, 0.58), terrain: new THREE.Color(0.74, 0.8, 0.68), wall: new THREE.Color(0.84, 0.84, 0.84), kerb: new THREE.Color(0.82, 0.8, 0.8) };
 
 export class Weather {
@@ -158,8 +167,8 @@ export class Weather {
     if (this.sound) { this.sound.weather.rain = s.rain; this.sound.weather.wetness = s.wetness; }
     if (s.rain === 0 && s.wetness === 0) { if (this.built) this.teardown(); return; }
     const b = this.built ?? (this.built = this.build());
-    const look = weatherLook(s.rain, s.wetness, this.look);
-    this.applyLight(b, look);
+    const look = weatherLook(s.rain, s.wetness, this.look, this.stage.light);
+    this.applyLight(look);
     this.applySurfaces(b, look);
     this.applyEnv(b, look, dt);
     this.particles(b, look, dt, cam, cars, remote);
@@ -170,12 +179,12 @@ export class Weather {
 
   // ------------------------------------------------------------------------
   private build(): Built {
-    const st = this.stage, f = st.scene.fog as THREE.FogExp2, sf = st.surfaces;
+    const st = this.stage, sf = st.surfaces;
     const colors = new Map<THREE.MeshStandardMaterial, THREE.Color>(), rough = new Map<THREE.MeshStandardMaterial, number>();
     for (const m of [sf.lineMat, sf.kerbMat, sf.gravelMat, sf.wallMat, sf.terrain]) { colors.set(m, m.color.clone()); rough.set(m, m.roughness); }
     const { material: wetRoad, uniforms: roadU } = wetRoadMaterial(sf.roadMat);
     return {
-      base: { fogColor: f.color.clone(), fogDensity: f.density, sun: st.sun.intensity, hemi: st.hemi.intensity, hemiSky: st.hemi.color.clone(), hemiGround: st.hemi.groundColor.clone(), colors, rough },
+      base: { colors, rough },
       wetRoad, roadU, wetOn: false, streaks: null, lens: null, spray: null, budget: null,
       env: { level: 0, maps: Array<THREE.Texture | null>(ENV_LEVELS + 1).fill(null), scene: null, current: st.env, recheck: 0 },
       car: { cockpit: null, box: new THREE.Box3() },
@@ -183,10 +192,9 @@ export class Weather {
   }
 
   private teardown() {
-    const b = this.built!, st = this.stage, f = st.scene.fog as THREE.FogExp2;
+    const b = this.built!, st = this.stage;
     this.built = null;
-    f.color.copy(b.base.fogColor); f.density = b.base.fogDensity;
-    st.sun.intensity = b.base.sun; st.hemi.intensity = b.base.hemi; st.hemi.color.copy(b.base.hemiSky); st.hemi.groundColor.copy(b.base.hemiGround);
+    applyBase(st);
     const sky = st.sky.material;
     if (sky.defines?.WEATHER !== undefined) { delete sky.defines.WEATHER; sky.needsUpdate = true; }
     for (const [m, c] of b.base.colors) m.color.copy(c);
@@ -196,20 +204,22 @@ export class Weather {
     this.dropParticles(b);
     if (b.env.current !== st.env) this.useEnv(b, st.env);
     for (const m of b.env.maps) m?.dispose();
-    b.env.scene?.traverse((o) => { if (o instanceof THREE.Mesh && o.name === 'envGround') { o.geometry.dispose(); (o.material as THREE.Material).dispose(); } else if (o instanceof THREE.Mesh) o.geometry.dispose(); });
+    b.env.scene?.traverse((o) => { if (o instanceof THREE.Mesh && o.name === 'envGround') { o.geometry.dispose(); (o.material as THREE.Material).dispose(); } else if (o instanceof THREE.Mesh && o.parent === b.env.scene) o.geometry.dispose(); });
+    const lamps = b.env.scene?.getObjectByName('envLamps');
+    if (lamps) disposeEnvLamps(lamps as THREE.Group);
   }
 
-  private applyLight(b: Built, look: WeatherLook) {
-    const st = this.stage, f = st.scene.fog as THREE.FogExp2;
+  private applyLight(look: WeatherLook) {
+    const st = this.stage, f = st.scene.fog as THREE.FogExp2, base = st.light, k = base.cloudHidesKey;
     // Fogged far off, the scenery must meet the sky (whose colours are display space) in the same grey: the fog's
-    // colour is the one that tone-maps to it. The dry fog does not quite (the clear sky's horizon is a little
-    // lighter), so the weather's takes over with the cloud.
-    f.color.copy(b.base.fogColor).lerp(fogForDisplay(look.fog, st.renderer?.toneMappingExposure ?? 1, _c), look.overcast);
+    // colour is the one that tone-maps to it.
+    f.color.copy(base.fog).lerp(fogForDisplay(look.fog, st.renderer?.toneMappingExposure ?? 1, _c), look.overcast);
     f.density = look.fogDensity;
-    st.sun.intensity = b.base.sun * look.sun;
-    st.hemi.intensity = b.base.hemi * look.hemi;
-    st.hemi.color.copy(b.base.hemiSky).lerp(GREY_SKY, look.overcast);
-    st.hemi.groundColor.copy(b.base.hemiGround).lerp(GREY_GROUND, look.overcast);
+    // the sun goes behind the cloud and its light spreads into the sky's; floodlights shine on (k = 0)
+    st.sun.intensity = base.sun * lerp(1, look.sun, k);
+    st.hemi.intensity = base.hemi * lerp(1, look.hemi, k);
+    st.hemi.color.copy(base.hemiSky).lerp(base.greySky, look.overcast);
+    st.hemi.groundColor.copy(base.hemiGround).lerp(base.greyGround, look.overcast);
     const sky = st.sky.material, on = look.overcast > 0;
     if (on !== (sky.defines?.WEATHER !== undefined)) {
       sky.defines ??= {};
@@ -256,9 +266,10 @@ export class Weather {
       if (!e.scene) {
         e.scene = new THREE.Scene();
         e.scene.add(new THREE.Mesh(new THREE.SphereGeometry(50, 32, 16), this.stage.sky.material));
-        const ground = new THREE.Mesh(new THREE.CircleGeometry(45, 32), new THREE.MeshBasicMaterial({ color: new THREE.Color().setRGB(0.1, 0.12, 0.1) }));
+        const ground = new THREE.Mesh(new THREE.CircleGeometry(45, 32), new THREE.MeshBasicMaterial({ color: this.stage.light.envGround.clone().multiplyScalar(0.7) }));
         ground.name = 'envGround'; ground.rotation.x = -Math.PI / 2; ground.position.y = -2;
         e.scene.add(ground);
+        if (this.stage.light.lamps > 0) e.scene.add(envLamps(this.stage.light.lamps));   // the floodlights in the wet road
       }
       const pmrem = new THREE.PMREMGenerator(renderer);
       map = e.maps[level] = pmrem.fromScene(e.scene, 0.02, 0.1, 100, { size: ENV_SIZE }).texture;
@@ -296,14 +307,14 @@ export class Weather {
       const car = cars.car, mc = b.car;
       if (mc.cockpit !== car.mesh.cockpit) { bodyBox(car.mesh.root, mc.box); mc.cockpit = car.mesh.cockpit; }
       const height = st.renderer ? st.renderer.domElement.height : 720;
-      b.streaks.update(dt, look.rain, st.camera, height, car.vel, display(_c, look.fog, 1.3),
+      b.streaks.update(dt, look.rain, st.camera, height, car.vel, display(_c, look.mist, 1.3),
         { root: car.mesh.root, box: mc.box });
     } else if (b.streaks) { b.streaks.dispose(); b.streaks = null; }
     // drops on the lens or visor
     if (q.lens && (look.rain > 0 || b.lens)) {
       if (!b.lens) { st.scene.add((b.lens = new LensDrops()).mesh); st.camera.layers.enable(LENS_LAYER); }
       const lensCam = (cam.mode === 'onboard' || cam.mode === 'driver') && !cam.lookBack;
-      b.lens.update(dt, look.rain, lensCam, Math.abs(cars.car.speedF), st.camera.aspect, display(_c, look.fog, 1.15), _c3.setRGB(0.16, 0.17, 0.18));
+      b.lens.update(dt, look.rain, lensCam, Math.abs(cars.car.speedF), st.camera.aspect, display(_c, look.mist, 1.15), _c3.setRGB(0.16, 0.17, 0.18));
     }
     // spray behind the cars
     if (q.spray && look.spray > 0) {
@@ -316,36 +327,16 @@ export class Weather {
     }
     if (b.spray) {
       // the mist catches the sky's light, whiter in sunshine
-      b.spray.update(dt, st.camera, display(_c, look.fog, 1.06 + 0.12 * look.sun), look.fogDensity);
+      b.spray.update(dt, st.camera, display(_c, look.mist, 1.06 + 0.12 * look.sun), look.fogDensity);
     }
   }
 }
 
-// three.js's ACES filmic tone mapping (tonemapping_pars_fragment), linear in, display (sRGB) out.
-const ACES_IN = [[0.59719, 0.35458, 0.04823], [0.07600, 0.90834, 0.01566], [0.02840, 0.13383, 0.83777]];
-const ACES_OUT = [[1.60475, -0.53108, -0.07367], [-0.10208, 1.10813, -0.00605], [-0.00327, -0.07276, 1.07602]];
-const rrt = (v: number) => (v * (v + 0.0245786) - 0.000090537) / (v * (0.983729 * v + 0.4329510) + 0.238081);
-const _lin = new THREE.Color(), _tm = [0, 0, 0], _a = [0, 0, 0];
-export function toneMap(lin: readonly number[], exposure: number, out: number[] = [0, 0, 0]) {
-  for (let i = 0; i < 3; i++) _a[i] = rrt((ACES_IN[i][0] * lin[0] + ACES_IN[i][1] * lin[1] + ACES_IN[i][2] * lin[2]) * exposure / 0.6);
-  for (let i = 0; i < 3; i++) out[i] = clamp(ACES_OUT[i][0] * _a[0] + ACES_OUT[i][1] * _a[1] + ACES_OUT[i][2] * _a[2], 0, 1);
-  _lin.setRGB(out[0], out[1], out[2]).convertLinearToSRGB();
-  out[0] = _lin.r; out[1] = _lin.g; out[2] = _lin.b;
-  return out;
-}
-// The linear colour that the renderer shows as `display` (sRGB): found by iterating, the mapping is monotonic.
-export function fogForDisplay(display: readonly number[], exposure: number, out: THREE.Color) {
-  const want = _c2.setRGB(display[0], display[1], display[2], THREE.SRGBColorSpace), l = [want.r, want.g, want.b], w = [want.r, want.g, want.b];
-  for (let k = 0; k < 16; k++) {
-    toneMap(l, exposure, _tm);
-    _lin.setRGB(_tm[0], _tm[1], _tm[2], THREE.SRGBColorSpace);
-    l[0] *= w[0] / Math.max(1e-4, _lin.r); l[1] *= w[1] / Math.max(1e-4, _lin.g); l[2] *= w[2] / Math.max(1e-4, _lin.b);
-  }
-  return out.setRGB(l[0], l[1], l[2]);
-}
+// (the tone mapping maths moved to timeOfDay.ts with the time of day; kept here for weather's tests and callers)
+export { fogForDisplay, toneMap } from './timeOfDay';
 
 // The particles' shaders write display-space colours (as the sky's and the dust's do): the fog's colour, brighter.
-const display = (c: THREE.Color, fog: readonly number[], k: number) => c.setRGB(Math.min(1, fog[0] * k), Math.min(1, fog[1] * k), Math.min(1, fog[2] * k));
+const display = (c: THREE.Color, fog: Readonly<RGB>, k: number) => c.setRGB(Math.min(1, fog[0] * k), Math.min(1, fog[1] * k), Math.min(1, fog[2] * k));
 
 // A Vehicle as a spray source (one object per vehicle, reused).
 const sprayOf = new WeakMap<Vehicle, SprayCar>();

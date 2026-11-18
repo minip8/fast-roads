@@ -3,6 +3,7 @@ import { Batch } from './batch';
 import { gridSlots } from './raceGeometry';
 import { clearOf, mulberry32, nearestSample } from './scenery';
 import { canvasTex } from './textures';
+import { floodlit, type Glow } from './timeOfDay';
 import { pointAt, type Track } from './track';
 import type { TrackDef } from './tracks';
 import { wrapI } from './util';
@@ -10,7 +11,7 @@ import { wrapI } from './util';
 // ============================================================================
 // What stands round a circuit beyond its walls, from the track and a few fields of its TrackDef (scene, flora, hills,
 // buildings): woods and trees of the place's kind, city blocks along a street circuit's walls and a skyline, hills on
-// the horizon, catch fences, a bridge or two over the straights, the grid's painted slots.
+// the horizon, catch fences, a bridge or two over the straights, the grid's painted slots, floodlight masts.
 // Everything is placed from the track and a seeded generator (the same for every client and reload), and every solid
 // thing goes through scenery.ts's clearOf: never on the road or run-off, inside a wall, over another stretch of the
 // lap or where the pit lane will be. Looks only: no colliders. Built in the browser only (canvas textures).
@@ -25,10 +26,11 @@ const KIND_BUILDINGS: Buildings = { h: [14, 40], towers: 0.1, tower: 90, colors:
 
 export interface Trackside {
   setDetail(level: 'high' | 'low'): void;
+  setLamps(on: boolean): void;   // floodlight masts shown (night and dusk; night-raced circuits keep them by day)
   dispose(): void;
 }
 
-export function buildTrackside(tr: Track, def: TrackDef, scene: THREE.Scene, lineMat: THREE.Material): Trackside {
+export function buildTrackside(tr: Track, def: TrackDef, scene: THREE.Scene, glow: Glow, lineMat: THREE.Material): Trackside {
   const group = new THREE.Group();
   group.name = 'trackside';
   scene.add(group);
@@ -38,15 +40,18 @@ export function buildTrackside(tr: Track, def: TrackDef, scene: THREE.Scene, lin
 
   const trees = buildTrees(tr, def, own);
   for (const m of trees) { group.add(m); counted.push({ mesh: m, full: m.count }); }
-  const facade = facadeMaterials(own);
+  const facade = facadeMaterials(own, glow);
   const parts = [
     ...(def.scene === 'city' ? buildCity(tr, def, facade, own) : []), ...(def.skyline ? buildSkyline(tr, def, facade, own) : []),
     buildHills(tr, def, own), ...buildFences(tr, def, own), ...buildBridges(tr, def, own), buildGridMarks(tr, lineMat, own),
   ];
   group.add(...parts);
+  const masts = buildMasts(tr, def, own, glow);
+  group.add(masts);
 
   return {
     setDetail(level) { for (const c of counted) c.mesh.count = level === 'high' ? c.full : Math.round(c.full * 0.4); },
+    setLamps(on) { masts.visible = on; },
     dispose() { scene.remove(group); for (const o of owned) o.dispose(); },
   };
 }
@@ -161,8 +166,8 @@ function buildTrees(tr: Track, def: TrackDef, own: Own): THREE.InstancedMesh[] {
   const meshes: THREE.InstancedMesh[] = [], mats = new Map<TreeKind, [THREE.Material, THREE.Material]>();
   for (const list of groups.values()) {
     const kind = list[0].kind, t = types[kind];
-    if (!mats.has(kind)) mats.set(kind, [own(new THREE.MeshStandardMaterial({ color: t.trunkColor, roughness: 1 })),
-      own(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, flatShading: true, side: t.double ? THREE.DoubleSide : THREE.FrontSide }))]);
+    if (!mats.has(kind)) mats.set(kind, [own(floodlit(new THREE.MeshStandardMaterial({ color: t.trunkColor, roughness: 1 }))),
+      own(floodlit(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, flatShading: true, side: t.double ? THREE.DoubleSide : THREE.FrontSide })))]);
     const [trunkMat, crownMat] = mats.get(kind)!;
     const trunks = new THREE.InstancedMesh(t.trunk, trunkMat, list.length), crowns = new THREE.InstancedMesh(t.crown, crownMat, list.length);
     list.forEach((p, k) => {
@@ -183,9 +188,9 @@ function buildTrees(tr: Track, def: TrackDef, own: Own): THREE.InstancedMesh[] {
 
 // ---------------------------------------------------------------------------- buildings
 // Façades: one window texture (24 m x 24 m a tile: eight storeys of twelve windows) for every building, tinted by vertex
-// colour, with its lit windows as the emissive map (dark by day).
+// colour, with its lit windows as the emissive map (on at dusk and night: Glow).
 interface Facade { wall: THREE.MeshStandardMaterial; sign: THREE.MeshBasicMaterial }
-function facadeMaterials(own: Own): Facade {
+function facadeMaterials(own: Own, glow: Glow): Facade {
   const rng = mulberry32(99);
   // a tile is 24 m x 24 m: eight storeys of twelve windows (each building starts at its own window and storey of it,
   // so neighbours do not light the same windows)
@@ -210,8 +215,8 @@ function facadeMaterials(own: Own): Facade {
       g.fillRect(x, y, 29, 40);
     }
   }));
-  const wall = own(new THREE.MeshStandardMaterial({ map: day, vertexColors: true, roughness: 0.75, metalness: 0.05, emissive: 0xffffff, emissiveMap: lit, emissiveIntensity: 0 }));
-  wall;
+  const wall = own(floodlit(new THREE.MeshStandardMaterial({ map: day, vertexColors: true, roughness: 0.75, metalness: 0.05, emissive: 0xffffff, emissiveMap: lit, emissiveIntensity: 0 })));
+  glow.add(wall, 1.1);
   // a sign: neon tubes (an outline, a bar and a ring, tinted by the sign's colour) on a dark panel
   const neon = own(canvasTex(256, 64, (g, w, h) => {
     g.fillStyle = '#141418'; g.fillRect(0, 0, w, h);
@@ -221,7 +226,7 @@ function facadeMaterials(own: Own): Facade {
     g.beginPath(); g.arc(34, h / 2, 14, 0, Math.PI * 2); g.stroke();
   }, { repeat: false }));
   const sign = own(new THREE.MeshBasicMaterial({ map: neon, vertexColors: true }));
-  sign;
+  glow.add(sign, 1.25, 0.6);
   return { wall, sign };
 }
 
@@ -371,7 +376,7 @@ function buildHills(tr: Track, def: TrackDef, own: Own): THREE.Object3D {
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   g.setIndex(idx); g.computeVertexNormals();
-  const m = new THREE.Mesh(own(g), own(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide })));
+  const m = new THREE.Mesh(own(g), own(floodlit(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide }))));
   m.name = 'hills';
   return m;
 }
@@ -493,4 +498,56 @@ function buildGridMarks(tr: Track, lineMat: THREE.Material, own: Own): THREE.Obj
   const m = new THREE.Mesh(own(geo), lineMat);
   m.receiveShadow = true; m.name = 'grid';
   return m;
+}
+
+// ---------------------------------------------------------------------------- floodlight masts
+// Lighting towers along the lap, each side in turn about every 80 m, 22 m tall beyond the walls with a bank of lamps
+// turned towards the track (lit at dusk and night, with a halo), placed through clearOf.
+export interface Mast { x: number; z: number; yaw: number; tx: number; tz: number }   // (tx, tz): unit vector towards the track
+export const MAST_RADIUS = 1.5;   // m: the pole's base and the lamps' overhang, for clearOf
+export function mastSpots(tr: Track, def: TrackDef): Mast[] {
+  const ds = tr.L / tr.N, step = Math.round(80 / ds), rng = mulberry32(seedOf(def.id) ^ 0x1a), out: Mast[] = [];
+  for (let k = 0; k < tr.N; k += step) {
+    const side = (k / step) % 2 === 0 ? 1 : -1, i = wrapI(k + Math.round(rng() * 6), tr.N);
+    if (!(side > 0 ? tr.barLValid[i] : tr.barRValid[i])) continue;
+    const off = side * ((side > 0 ? tr.barL[i] : tr.barR[i]) + 3.5), x = tr.X[i] + tr.NX[i] * off, z = tr.Z[i] + tr.NZ[i] * off;
+    if (!clearOf(tr, def, [[x, z]], { margin: MAST_RADIUS, reserve: true, buildings: true })) continue;
+    out.push({ x, z, yaw: Math.atan2(-side * tr.NX[i], -side * tr.NZ[i]), tx: -side * tr.NX[i], tz: -side * tr.NZ[i] });
+  }
+  return out;
+}
+
+function buildMasts(tr: Track, def: TrackDef, own: Own, glow: Glow): THREE.Object3D {
+  const group = new THREE.Group();
+  group.name = 'masts'; group.visible = false;
+  const steel = own(new THREE.MeshStandardMaterial({ color: 0x6a7078, roughness: 0.55, metalness: 0.6 }));
+  const lamp = own(new THREE.MeshStandardMaterial({ color: 0x3a3c40, emissive: 0xfff4e2, emissiveIntensity: 0, roughness: 0.4 }));
+  glow.add(lamp, 3.2);
+  const batch = new Batch(), M = new THREE.Matrix4(), L = new THREE.Matrix4(), halos: number[] = [];
+  const pole = new THREE.CylinderGeometry(0.22, 0.32, 22, 6), head = new THREE.BoxGeometry(3.6, 1.7, 0.35);
+  for (const { x, z, yaw, tx, tz } of mastSpots(tr, def)) {
+    // local +z towards the track
+    M.compose(_p.set(x, 0, z), _q.setFromEuler(_e.set(0, yaw, 0)), _s.set(1, 1, 1));
+    batch.add(pole, L.multiplyMatrices(M, L.makeTranslation(0, 11, 0)), steel);
+    L.multiplyMatrices(M, L.compose(_p.set(0, 22.2, 0.6), _q.setFromEuler(_e.set(0.5, 0, 0)), _s.set(1, 1, 1)));
+    batch.add(head, L, [steel, steel, steel, steel, lamp, steel]);
+    halos.push(x + tx * 1.0, 21.9, z + tz * 1.0);
+  }
+  for (const m of batch.build(group, { castShadow: false, receiveShadow: false })) own(m.geometry);
+  pole.dispose(); head.dispose();
+  if (halos.length) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(halos, 3));
+    const sprite = own(canvasTex(64, 64, (c) => {
+      const grd = c.createRadialGradient(32, 32, 0, 32, 32, 32);
+      grd.addColorStop(0, 'rgba(255,250,235,1)'); grd.addColorStop(0.18, 'rgba(255,240,210,0.55)'); grd.addColorStop(1, 'rgba(255,230,200,0)');
+      c.fillStyle = grd; c.fillRect(0, 0, 64, 64);
+    }, { repeat: false }));
+    const pm = own(new THREE.PointsMaterial({ map: sprite, size: 14, sizeAttenuation: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, color: 0xffffff }));
+    glow.add(pm, 0.9);
+    const pts = new THREE.Points(own(g), pm);
+    pts.name = 'halos';
+    group.add(pts);
+  }
+  return group;
 }

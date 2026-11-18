@@ -3,6 +3,7 @@ import { buildBrakeMarkers } from './brakeMarkers';
 import { setCarEnvironment } from './carMeshes';
 import { installCarModels } from './carModels';
 import { buildScenery, buildSky } from './scenery';
+import { applyBase, disposeEnvLamps, envLamps, flood, floodMap, Glow, lightBase, lightDir, lookFor, LOOKS, skyUniforms, type LightId, type Look, type TimeChoice } from './timeOfDay';
 import type { Track } from './track';
 import type { TrackDef } from './tracks';
 import { buildTrackMeshes } from './trackMeshes';
@@ -16,8 +17,9 @@ const SHADOW_HALF = 60, SHADOW_AHEAD = 28, SUN_DIST = 250;
 export const SHADOW_MAPS = { off: 0, low: 1024, high: 2048 };
 export type ShadowQuality = keyof typeof SHADOW_MAPS;
 export type SceneryDetail = 'high' | 'low';
+const UP = new THREE.Vector3(0, 1, 0);
 
-export function buildStage(canvas: HTMLCanvasElement, track: Track, def: TrackDef) {
+export function buildStage(canvas: HTMLCanvasElement, track: Track, def: TrackDef, time: TimeChoice | LightId = 'circuit') {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
   let resolution = 1;   // the Render resolution setting: a share of the screen's pixels (up to 2 per CSS pixel)
   const pixelRatio = () => Math.min(devicePixelRatio, 2) * resolution;
@@ -29,25 +31,12 @@ export function buildStage(canvas: HTMLCanvasElement, track: Track, def: TrackDe
   renderer.shadowMap.type = THREE.PCFShadowMap;
 
   const scene = new THREE.Scene();
-  const horizon = new THREE.Color(0.80, 0.87, 0.93);   // matches sky shader horizon (display space)
-  scene.fog = new THREE.FogExp2(new THREE.Color().setRGB(0.80, 0.87, 0.93, THREE.SRGBColorSpace), 0.00042);
-  scene.background = horizon;
+  scene.fog = new THREE.FogExp2(0xffffff, 0.00042);   // (colour and density: the time of day's, setTime)
   const camera = new THREE.PerspectiveCamera(68, innerWidth / innerHeight, 0.1, 9000);
 
-  const sunDir = new THREE.Vector3(-0.45, 0.62, 0.35).normalize();
-  const sky = buildSky(scene, sunDir);
-  let env: THREE.Texture;
-  // Blurred sky-and-ground environment for car paint, glass and rims (cars only; the circuit keeps its lighting).
-  {
-    const envScene = new THREE.Scene(), pmrem = new THREE.PMREMGenerator(renderer);
-    envScene.add(new THREE.Mesh(new THREE.SphereGeometry(50, 32, 16), sky.material));
-    const ground = new THREE.Mesh(new THREE.CircleGeometry(45, 32), new THREE.MeshBasicMaterial({ color: new THREE.Color().setRGB(0.16, 0.2, 0.13) }));
-    ground.rotation.x = -Math.PI / 2; ground.position.y = -2;
-    envScene.add(ground);
-    env = pmrem.fromScene(envScene, 0.02).texture;
-    setCarEnvironment(env);
-    pmrem.dispose(); ground.geometry.dispose(); ground.material.dispose();
-  }
+  // The key light: the sun, or at night the floodlights, nearly overhead. sunDir points towards it.
+  const sunDir = new THREE.Vector3(0, 1, 0), skyDir = new THREE.Vector3(0, 1, 0);
+  const sky = buildSky(scene, skyDir);
   installCarModels();   // cars with a model file swap it in when it has loaded
   const hemi = new THREE.HemisphereLight(0xcfe3ff, 0x5a6a40, 1.1);
   scene.add(hemi);
@@ -60,8 +49,7 @@ export function buildStage(canvas: HTMLCanvasElement, track: Track, def: TrackDe
 
   // Light-space axes, for snapping the shadow camera to whole shadow-map texels: without it, shadow edges crawl
   // as the car moves.
-  const lx = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), sunDir).normalize();
-  const ly = new THREE.Vector3().crossVectors(sunDir, lx).normalize();
+  const lx = new THREE.Vector3(), ly = new THREE.Vector3();
   let texel = (2 * SHADOW_HALF) / SHADOW_MAPS.high;
   const centre = new THREE.Vector3();
   // Centre the shadow map a little ahead of the view (where shadows are seen), snapped to texels.
@@ -74,9 +62,10 @@ export function buildStage(canvas: HTMLCanvasElement, track: Track, def: TrackDe
     sun.position.copy(centre).addScaledVector(sunDir, SUN_DIST);
   };
 
+  const glow = new Glow();   // lamps, lit windows and signs (on at dusk and night)
   const trackMaterials = buildTrackMeshes(track, scene);
-  const { bounds, terrain } = buildScenery(track, scene, def);
-  const trackside = buildTrackside(track, def, scene, trackMaterials.lineMat);
+  const { bounds, terrain } = buildScenery(track, scene, def, glow);
+  const trackside = buildTrackside(track, def, scene, glow, trackMaterials.lineMat);
   const brakeMarkers = buildBrakeMarkers(track, scene);
 
   const fit = () => {
@@ -98,11 +87,74 @@ export function buildStage(canvas: HTMLCanvasElement, track: Track, def: TrackDe
       texel = (2 * SHADOW_HALF) / size;
     }
   };
-  const setBrightness = (exposure: number) => { renderer.toneMappingExposure = exposure; };
+  // Brightness is the tone mapping's exposure; the fog's colour follows, so far scenery still meets the sky.
+  const setBrightness = (exposure: number) => {
+    renderer.toneMappingExposure = exposure;
+    lightBase(stage.look, exposure, stage.light);
+    applyBase(stage);
+  };
   const setDetail = (level: SceneryDetail) => trackside.setDetail(level);
 
-  // (weather.ts changes the sky, lights, fog and these materials while it rains or the track is wet)
+  // The reflections (cars' paint and glass, the wet road): the sky as it is now over a dark ground, with the lamps
+  // at dusk and night. Every material reflecting the old map is moved onto the new one.
+  const makeEnv = (look: Look) => {
+    const envScene = new THREE.Scene(), pmrem = new THREE.PMREMGenerator(renderer);
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(50, 32, 16), sky.material);
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(45, 32), new THREE.MeshBasicMaterial({ color: new THREE.Color().setRGB(...look.envGround) }));
+    ground.rotation.x = -Math.PI / 2; ground.position.y = -2;
+    const lamps = look.lamps > 0 ? envLamps(look.lamps) : null;
+    envScene.add(dome, ground);
+    if (lamps) envScene.add(lamps);
+    const tex = pmrem.fromScene(envScene, 0.02).texture;
+    pmrem.dispose(); dome.geometry.dispose(); ground.geometry.dispose(); ground.material.dispose();
+    if (lamps) disposeEnvLamps(lamps);
+    return tex;
+  };
+  const useEnv = (env: THREE.Texture) => {
+    const old = stage.env;
+    if (old) scene.traverse((o) => {
+      if (!(o instanceof THREE.Mesh)) return;
+      for (const m of Array.isArray(o.material) ? o.material : [o.material]) if (m instanceof THREE.MeshStandardMaterial && m.envMap === old) m.envMap = env;
+    });
+    stage.env = env;
+    setCarEnvironment(env);
+    old?.dispose();
+  };
+
+  let flooded = false;
+  // The time of day: the circuit's own (TrackDef.light), or Day, Dusk or Night (the Time of day setting), or any look
+  // by its id (?time=). The weather must be dry (Weather.dispose) while it changes: it is the weather's base.
+  const setTime = (choice: TimeChoice | LightId) => {
+    const look = lookFor(def.light, choice, def.scene === 'desert');
+    stage.time = choice; stage.look = look;
+    lightDir(look.sunElev, def.sunAz, sunDir);
+    lx.crossVectors(UP, sunDir).normalize(); ly.crossVectors(sunDir, lx).normalize();
+    sun.color.set(look.sun);
+    lightBase(look, renderer.toneMappingExposure, stage.light);
+    applyBase(stage);
+    skyUniforms(look, sky.material, def.sunAz);
+    scene.background = stage.light.fog;
+    if (look.flood < 1 && !flooded) {
+      // the floodlights reach 25 m beyond the walls, then fade out over 110 m
+      const m = floodMap(track.X, track.Z, (i) => Math.max(track.barL[i], track.barR[i]) + 25);
+      flood.uFloodMap.value = m.tex; flood.uFloodBox.value.copy(m.box);
+      flooded = true;
+    }
+    flood.uFloodDark.value = look.flood;
+    glow.set(look.lamps);
+    // floodlight masts: at dusk and night, and always at a circuit raced at night (they stand there by day too)
+    trackside.setLamps(look.lamps > 0 || LOOKS[def.light].phase !== 'day');
+    useEnv(makeEnv(look));
+  };
+
+  // (weather.ts changes the sky, lights, fog and these materials while it rains or the track is wet, from `light`)
   const surfaces = { ...trackMaterials, terrain };
-  return { renderer, scene, camera, sky, sun, sunDir, hemi, env, surfaces, followSun, bounds, brakeMarkers, trackside, setResolution, setShadows, setBrightness, setDetail };
+  const stage = {
+    renderer, scene, camera, sky, sun, sunDir, hemi, env: null as THREE.Texture | null, surfaces, followSun, bounds, brakeMarkers, trackside,
+    look: LOOKS.clear as Look, time, light: lightBase(LOOKS.clear),
+    setResolution, setShadows, setBrightness, setDetail, setTime,
+  };
+  setTime(time);
+  return stage;
 }
 export type Stage = ReturnType<typeof buildStage>;

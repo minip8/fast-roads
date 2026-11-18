@@ -128,9 +128,13 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   set while wear is on, blanket fitting, a wet track against slicks and wets, rain arriving and drying mid-run, the
   drift car's grip scale. `test/tyres-report.test.ts` is a tool (skipped unless `TYRES` is set) that measures the
   numbers README's **Race conditions** table quotes; rerun it after a change to wear, compounds or the wet.
-- `test/tracks.test.ts` also checks each circuit's trees, buildings and bridges against the walls and the pit
-  reserve with its own loop (not `clearOf`), and that they are placed the same every time. Look at scenery changes
-  in screenshots at a desktop and a phone width, with `renderer.info` before and after.
+- `test/timeOfDay.test.ts`: every circuit's time (five night races, Yas Marina at dusk, five or more day looks), the
+  setting and `?time`, `lightDir`, the fog colour for every look and Brightness, `applyBase`, `floodMap`, `Glow`.
+  `test/weather.test.ts` runs rain on the night and dusk bases too (floodlights stay on, dark fog, lit spray, exact
+  restore) and a time-of-day change under the weather. `test/tracks.test.ts` also checks each circuit's trees, masts,
+  buildings and bridges against the walls and the pit reserve with its own loop (not `clearOf`), and that they are
+  placed the same every time. Look at scenery and time-of-day changes in screenshots (`?time=night`, `?time=dusk`)
+  at a desktop and a phone width, with `renderer.info` before and after.
 - `test/storage.test.ts` covers loading settings and key bindings (corrupt, old or invalid data loads as defaults)
   and `nextOption`; `test/tracks.test.ts` checks each circuit's menu card (length, outline).
 
@@ -211,6 +215,18 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   widen it there for a real pit lane), with `buildings` none within margin of the stands and pit building;
   `gantryPosts` stands the start gantry's pit-side post beyond the race weekends' pit lane); `batch.ts`: `Batch`, which merges many
   static parts into one mesh per material (grandstands, pit, gantry, brake boards, car bodies)
+- `timeOfDay.ts`: the light. `LOOKS` (clear, high, haze, golden, northern, desert, dusk, night: sun height, colour
+  and intensity, sky light, sky colours, haze, cloud, stars, floodlights, lamps, and the greys the weather turns them
+  to), `lookFor(TrackDef.light, choice)` (the Time of day setting: circuit / day / dusk / night; `?time=` also takes
+  a look's id, `timeFromUrl`), `lightDir` (elevation and compass bearing: `TrackDef.sunAz`). `lightBase` / `applyBase`:
+  `LightBase`, the dry fog (via `fogForDisplay`, so it meets the sky's horizon at any Brightness), key and sky light,
+  which `stage.light` holds and the weather reads every frame and restores. `skyUniforms` sets `buildSky`'s uniforms.
+  Night is floodlit: the key light is the floodlights, 72 deg up (their shadow keeps the cars grounded), and
+  `floodlit(material)` (an `onBeforeCompile`) darkens a scenery material's reflected light by its distance from the
+  track (`floodMap`: a texture over the circuit, shared uniforms `flood`; a white pixel and factor 1 by day), not its
+  emissive. `Glow` sets every lamp, window and sign material from `Look.lamps`; `envLamps` puts lamps into the
+  reflections. `stage.setTime(choice)` changes all of it live (main.ts disposes the weather first: it is its base);
+  `stage.setDetail` is the Scenery detail setting.
 - `trackside.ts`: scenery beyond the walls from `TrackDef.scene` (forest / park / country / dry / city / desert /
   dunes), `flora`, `hills`, `buildings` and `skyline`: instanced trees (`treeSpots`: woods and clearings from seeded
   noise, none within 55 m on the inside of a bend; shuffled so the low Scenery detail draws the first 40%; only those
@@ -218,7 +234,8 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   (`blockSpots`, `city` kind, `Buildings.setback` from the walls, footprints tested every 2.5 m; one vertex-coloured
   mesh with a window texture whose lit windows are the emissive map, each building starting at its own window; neon
   signs) and the skyline, a ring of hills, catch fences, bridges
-  (`bridgeSpots`), the grid's slots (`gridSlots`). The placement functions are pure and seeded (`mulberry32`, `noise2`),
+  (`bridgeSpots`), the grid's slots (`gridSlots`), floodlight masts (`mastSpots`, shown at dusk and night and at
+  night-raced circuits) with additive halos. The placement functions are pure and seeded (`mulberry32`, `noise2`),
   each through `clearOf`; `buildTrackside` builds the meshes (browser only: canvas textures) and owns their disposal.
 - `weather.ts`: `Weather`, rain and track wetness as seen and heard (no physics). The game calls `weather.set({ rain,
   wetness })` (0..1 each; the first call is shown at once, later ones eased over ~4 s) and `weather.update(dt, cam,
@@ -406,7 +423,7 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   line against a real map: the source does not always start at the line or run in the racing direction.
   The menu's circuit outlines are in the generated `src/trackOutlines.ts` (`catalog.ts` reads it; only the driven circuit's CSV is loaded): run `npm run tracks:outlines` after adding or changing a CSV, or `test/tracks.test.ts` fails. A new circuit is a CSV plus a `TRACKS` entry: the Circuit menu row, labels, best-times keys (`TrackDef.storeKey` +
   the car's `storeKey` suffix) and scenery follow from it. Its look comes from a few fields: `scene`, `flora`, `hills`, `buildings`, `skyline`,
-  `trees` (trackside.ts). Check the start straight (pit building and stands ranges
+  `trees` (trackside.ts) and `light`, `sunAz` (the time and sun of its Grand Prix: timeOfDay.ts). Check the start straight (pit building and stands ranges
   must sit on it), that the autopilot laps it cleanly, and how it looks. A new circuit needs its start spot
   (`startBack`) and every circuit a new car its `flying` speeds (km/h at the start spot): `npm run tracks:flying`
   prints both (see `test/flying.test.ts` under **Testing**), then the lap tests check them. Everything is
@@ -537,7 +554,7 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   older versions load with the newer keys at their defaults; a value not among a setting's options (sliders
   included: their options are the listed numbers) falls back to the default. `nextOption` wraps buttons round and
   stops sliders at their ends. What the settings reach: `CameraRig` (`fovOffset`, `speedFov`, `shake`), `Hud`
-  setters, the stage's `setResolution` / `setShadows` / `setBrightness` / `setDetail`, `Weather.quality`, and `EngineAudio.setVolume` (a gain node of
+  setters, the stage's `setResolution` / `setShadows` / `setBrightness` / `setTime` / `setDetail`, `Weather.quality`, and `EngineAudio.setVolume` (a gain node of
   its own between the sound graph and the speakers; there are no per-sound volumes).
 - **Timing**: start/finish and two sector lines as segments, with crossings interpolated within a tick; track-limit
   invalidation, which in the run-up (the last `startBack` m before the line: from the start spot, or at the end of
