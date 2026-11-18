@@ -56,6 +56,8 @@ export class Input {
       else if (e.button === 2) m.rmb = true;
       else if (e.button === 1) e.preventDefault();   // no autoscroll
     });
+    // nothing on the page is dragged (a link, the circuit outlines, selected text) while a button is held to steer
+    addEventListener('dragstart', (e) => { if (!(e.target instanceof HTMLInputElement)) e.preventDefault(); });
     addEventListener('mouseup', (e) => { if (e.button === 0) this.mouse.lmb = false; else if (e.button === 2) this.mouse.rmb = false; });
     addEventListener('contextmenu', (e) => { if (this.mouse.enabled && this.mouse.active) e.preventDefault(); });
     addEventListener('mousemove', (e) => { this.mouse.x = e.clientX; });
