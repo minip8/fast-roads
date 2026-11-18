@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { bodyBox } from './camera';
+import type { Cockpit } from './carMeshes';
 import { S_GRASS, S_GRAVEL } from './config';
 import { clamp, lerp } from './util';
 import type { Vehicle } from './vehicle';
@@ -9,6 +11,23 @@ import type { Vehicle } from './vehicle';
 // Light, dry dust (lighter than the ground, so it reads against grass and gravel alike)
 const COLOR_GRASS = [0.70, 0.68, 0.52], COLOR_GRAVEL = [0.86, 0.78, 0.62];
 const rnd = () => Math.random() - 0.5;
+const _p = new THREE.Vector3(), _qi = new THREE.Quaternion();
+
+// A puff is a soft disc facing the camera, up to 3 m across, so one inside the car or close beside it is drawn through
+// the body (and fills the cockpit cameras). keepOut moves a point p, in the car's frame, out of the body's box grown
+// by `margin`, horizontally through the nearest side or end (so nothing jumps as the car moves into it); a point
+// above the box is left alone. Returns whether it moved it.
+export function keepOut(p: THREE.Vector3, box: THREE.Box3, margin: number): boolean {
+  if (p.y >= box.max.y + margin) return false;
+  const right = p.x - (box.min.x - margin), left = box.max.x + margin - p.x;
+  const back = p.z - (box.min.z - margin), front = box.max.z + margin - p.z;
+  const least = Math.min(right, left, back, front);
+  if (least <= 0) return false;
+  if (least === left) p.x += left; else if (least === right) p.x -= right;
+  else if (least === back) p.z -= back; else p.z += front;
+  return true;
+}
+const BODY_MARGIN = 0.3;   // of a puff's size: about the radius it is visible to
 
 export class Dust {
   private next = 0;
@@ -22,6 +41,8 @@ export class Dust {
   private readonly geo: THREE.BufferGeometry;
   private readonly mat: THREE.ShaderMaterial;
   private readonly points: THREE.Points;
+  private readonly box = new THREE.Box3();   // the car's body in its own frame
+  private boxOf: Cockpit | null = null;      // (a car switch or a loaded model brings another cockpit)
 
   constructor(scene: THREE.Scene, private readonly max = 600) {
     this.pos = new Float32Array(max * 3); this.vel = new Float32Array(max * 3);
@@ -89,6 +110,9 @@ export class Dust {
           v.x * 0.3 + rnd() * 3, (gravel ? 1.4 : 0.9) + Math.random() * 1.2, v.z * 0.3 + rnd() * 3, gravel);
       }
     }
+    const root = car.mesh.root;
+    if (this.boxOf !== car.mesh.cockpit) { bodyBox(root, this.box); this.boxOf = car.mesh.cockpit; }
+    _qi.copy(root.quaternion).invert();
     const drag = Math.exp(-1.6 * dt);
     let alive = false;
     for (let k = 0; k < this.max; k++) {
@@ -101,6 +125,12 @@ export class Dust {
       if (this.pos[k * 3 + 1] < 0.02) { this.pos[k * 3 + 1] = 0.02; this.vel[k * 3 + 1] = 0; }
       this.alpha[k] = this.a0[k] * Math.min(1, t * 8) * (1 - t) * (1 - t * 0.3);
       this.size[k] = lerp(this.s0[k], this.s1[k], Math.sqrt(t));
+      // round the body, never through it
+      _p.set(this.pos[k * 3], this.pos[k * 3 + 1], this.pos[k * 3 + 2]).sub(root.position).applyQuaternion(_qi);
+      if (keepOut(_p, this.box, BODY_MARGIN * this.size[k])) {
+        _p.applyQuaternion(root.quaternion).add(root.position);
+        this.pos[k * 3] = _p.x; this.pos[k * 3 + 2] = _p.z;
+      }
     }
     // Upload to the GPU only while there is dust (and once more as the last of it fades); colours only change on spawn.
     if (alive || this.wasAlive) {
