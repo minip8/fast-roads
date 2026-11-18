@@ -185,9 +185,9 @@ describe('settings', () => {
     b.c.setSettings({ raceLaps: 3 });
     w.run(0.3);
     expect(lastError(b)).toMatchObject({ code: ERROR.notHost });
-    a.c.setSettings({ raceLaps: 500, practice: 9, practiceMinutes: 0, tyreWear: 2.6, invalidPenalty: 6, finishSecs: 5, qualifying: 'none', grid: 'reversed' });
+    a.c.setSettings({ raceLaps: 500, practice: 9, practiceMinutes: 0, tyreWear: 2.6, trackLimits: true, finishSecs: 5, qualifying: 'none', grid: 'reversed' });
     w.run(0.3);
-    expect(b.c.settings).toMatchObject({ raceLaps: 99, practice: 3, practiceMinutes: 1, tyreWear: 2.5, invalidPenalty: 5, finishSecs: 30, grid: 'joinOrder' });
+    expect(b.c.settings).toMatchObject({ raceLaps: 99, practice: 3, practiceMinutes: 1, tyreWear: 2.5, trackLimits: true, finishSecs: 30, grid: 'joinOrder' });
     expect(a.c.settings).toEqual(b.c.settings);
     a.c.setSettings({ circuit: 'nurburg' });
     a.c.setSettings({ car: 'tank' });
@@ -242,14 +242,14 @@ describe('settings', () => {
 });
 
 describe('race weekends', () => {
-  it('runs practice, timed qualifying and a race with a grid from qualifying, penalties and a DNF, then the lobby', () => {
+  it('runs practice, timed qualifying and a race with a grid from qualifying, a missed-stop penalty and a DNF, then the lobby', () => {
     const w = new World();
     const a = w.join('Ann', { mode: 'create' });
     w.run(0.3);
     const b = w.join('Ben', { mode: 'join' }), c = w.join('Cat', { mode: 'join' });
     w.run(1);
     a.c.setSettings({ practice: 1, practiceMinutes: 1, qualifying: 'timed', qualifyingMinutes: 2, raceLaps: 3, grid: 'qualifying',
-      pitStops: 1, invalidPenalty: 5, finishSecs: 30, weather: 'changeable' });
+      pitStops: 1, trackLimits: true, finishSecs: 30, weather: 'changeable' });
     w.run(0.3);
     a.c.startWeekend();
     w.run(0.3);
@@ -346,10 +346,10 @@ describe('race weekends', () => {
     const res = a.c.standings;
     expect(res.map((s) => [s.name, s.status, s.laps, s.pits, s.invalid, s.penalty])).toEqual([
       ['Cat', 'finished', 3, 1, 0, 0],
-      ['Ann', 'finished', 3, 0, 1, 65],   // 5 s for the invalid lap, 60 s for the missed stop
+      ['Ann', 'finished', 3, 0, 1, 60],   // 60 s for the missed stop; the invalid lap costs no time (track limits are the car's)
       ['Ben', 'dnf', 1, 0, 0, 0],
     ]);
-    expect(res[1].time! < res[0].time!).toBe(true);   // Ann crossed first, but the penalties put her behind
+    expect(res[1].time! < res[0].time!).toBe(true);   // Ann crossed first, but the missed stop puts her behind
     expect(res[0].best).toBeCloseTo(2.1, 5);
     expect(errors(a).length).toBe(0);
     // results, then the lobby with the results kept

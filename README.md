@@ -246,7 +246,7 @@ Cloudflare, below; it runs no physics). The menu's **Online** tab:
 In a room, the **Room** tab opens at the top: the room code in large letters with **Copy invite link** (and
 **Share…** where the browser can), the session (what is on, the time or laps left, what comes next; the host's
 **Start weekend**), the times (the session's board, the race order, and after the race its results: positions, time
-or gap, best lap, stops, penalties, DNF / out of time, which a phone shows under each name; the last qualifying too),
+or gap, best lap, stops, missed-stop penalties, DNF / out of time, which a phone shows under each name; the last qualifying too),
 the weekend, the drivers (host, car, on track / in the menu / no signal, grid slot in a race), your car (its best lap
 here in race conditions; not to be changed during the race or one-shot qualifying, where a change would put it back
 at the start; and starting tyres: Auto, the weather's choice, or one compound for every session) and the circuit.
@@ -270,7 +270,7 @@ making (a stop costs about 20-24 s at Melbourne). Under the formats are the opti
 race length, qualifying: none, timed or one shot; weather), and **More options** has the rest, in groups: practice
 sessions and length, qualifying length, starting grid (qualifying, random, reversed, join order); tyre life (shown
 as how many laps the tyres last here, − and + in steps of the wear rate) and mandatory pit stops; collisions, track
-limits penalty, time to finish after the winner. Each is explained in a line. A change marks the format it came from
+limits in the race (on or off), time to finish after the winner. Each is explained in a line. A change marks the format it came from
 as changed (choose it again to go back). Everyone else sees the weekend as a few lines of text, changing as the host
 changes it.
 
@@ -309,7 +309,7 @@ reverse proxy, or host the relay on Cloudflare. Without a room joined the game i
 ### Race weekends
 
 The host's settings (circuit, car, practice and qualifying sessions, race laps, grid order, mandatory pit stops,
-tyre wear, weather, collisions, penalties) are set in the lobby; the relay times each session. In the car
+tyre wear, weather, collisions, track limits) are set in the lobby; the relay times each session. In the car
 (docs/net.md, **Race weekends in the game**, has every rule):
 
 - **Conditions.** Every room runs with tyre wear (the room's rate: 0.5-20, as fast as the F1's tyres wear, which the
@@ -341,6 +341,12 @@ tyre wear, weather, collisions, penalties) are set in the lobby; the relay times
   THIS LAP?) when a required stop is owed and the laps are running out, when the tyres are nearly worn out (75%), or
   when they are wrong for the track. The first session of a weekend explains pit stops in one line. Going past the
   box without stopping, in a race you are still in, is a drive-through: not a stop.
+- **Track limits in a race** (the room's Track limits option; the Sprint, Grand Prix and Endurance formats have it
+  on): every time all four wheels go off the track is a strike (TRACK LIMITS 1/3, 2/3; being pushed off counts too,
+  and you must be back on the track for half a second before the next one counts). The third puts you on the pit
+  limiter for 3 s once you are back on the track: no throttle above 80 km/h (the game does not brake for you), shown
+  over the dash with the seconds left; then the count starts again. A lap off the track is never your best lap, but
+  costs no time. In practice and qualifying, as in the time trial, going off deletes the lap.
 - **Restart in a race** is a recovery: put back on the track where you are, at rest, held 5 s as a ghost. In
   practice and qualifying R is the flying start on a fresh set.
 - **The menu during a race** does not stop it: your car brakes to a stop where it is, a ghost, while the race goes on
@@ -348,10 +354,11 @@ tyre wear, weather, collisions, penalties) are set in the lobby; the relay times
   box, which serves the car as a stop (a fresh set, counted as a stop).
 - **HUD.** The start lights and, under them, your position, lap and the gaps to the cars ahead and behind (practice
   and qualifying: the session and its clock); the board becomes a timing tower (gaps to the leader, tyres, PIT);
-  over the dash the pit panel (BOX THIS LAP while the request is on, NEXT TYRES, pit stops made of those required);
+  over the dash the pit panel (BOX THIS LAP while the request is on, NEXT TYRES, pit stops made of those required,
+  track limits strikes and the limiter penalty);
   under the race strip the pit guidance;
   messages for lights out (with the pit stops to make), the final lap ("pit this lap" while a required stop is still
-  owed; where the box is past the line, a stop on the last lap is too late: PIT THIS LAP comes a lap earlier), the flag, penalties and rain. In a race the timing panel counts the race's
+  owed; where the box is past the line, a stop on the last lap is too late: PIT THIS LAP comes a lap earlier), the flag, track limits strikes and rain. In a race the timing panel counts the race's
   laps (ON THE GRID, LAP 2/5, FINISHED), its BEST is your best lap of this race, and the delta to your best lap and
   the list of laps are hidden. On a phone the timing panel gives way to the tower in a race.
 

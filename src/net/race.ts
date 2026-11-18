@@ -14,7 +14,10 @@ export type GridOrder = (typeof GRID_ORDERS)[number];
 // a race of 10-30 laps (at 5: 8.6, 12.8 and 18 laps). Fine steps there, so the menu's presets can set the tyre life
 // to suit the race length at each circuit (lobby.ts). The wire carries tenths in a u8 (at most 25.5).
 export const TYRE_WEAR = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 6, 7, 8, 9, 10, 12, 15, 20] as const;
-export const INVALID_PENALTIES = [0, 1, 2, 3, 5, 10] as const;  // s per invalid race lap
+// Track limits in the race (RoomSettings.trackLimits; docs/net.md, **Track limits in a race**): every STRIKES_PER_PENALTY-th
+// excursion beyond the track limits puts the car on the pit limiter for LIMITER_PENALTY_SECS.
+export const STRIKES_PER_PENALTY = 3;
+export const LIMITER_PENALTY_SECS = 3;
 
 export interface RoomSettings {
   circuit: string;               // a circuit id; changing it (lobby only) means every client reloads onto it
@@ -29,7 +32,7 @@ export interface RoomSettings {
   tyreWear: number;              // one of TYRE_WEAR
   weather: WeatherKind;
   collisions: boolean;           // in the race (practice and timed qualifying always collide; one-shot never)
-  invalidPenalty: number;        // s added per invalid race lap, one of INVALID_PENALTIES
+  trackLimits: boolean;          // the race's track limits rule: strikes, every third a spell on the pit limiter (the client's)
   finishSecs: number;            // s the others have to finish after the winner, 30-600
 }
 export const SETTING_RANGES = {
@@ -40,11 +43,11 @@ export const SETTING_RANGES = {
 export function defaultSettings(circuit: string): RoomSettings {
   return {
     circuit, car: '', practice: 1, practiceMinutes: 10, qualifying: 'timed', qualifyingMinutes: 10, raceLaps: 5,
-    grid: 'qualifying', pitStops: 0, tyreWear: 1, weather: 'dry', collisions: true, invalidPenalty: 0, finishSecs: 120,
+    grid: 'qualifying', pitStops: 0, tyreWear: 1, weather: 'dry', collisions: true, trackLimits: false, finishSecs: 120,
   };
 }
 
-// Settings made valid: numbers rounded and clamped to their ranges, tyre wear and the penalty to the nearest allowed
+// Settings made valid: numbers rounded and clamped to their ranges, tyre wear to the nearest allowed
 // value, unknown enum values to the default, the grid order to joinOrder when there is no qualifying to order by.
 // (Ids are checked by the relay against the ones it knows; this leaves them as they are.)
 export function normaliseSettings(s: RoomSettings): RoomSettings {
@@ -61,7 +64,7 @@ export function normaliseSettings(s: RoomSettings): RoomSettings {
     qualifying, qualifyingMinutes: int(s.qualifyingMinutes, r.qualifyingMinutes, d.qualifyingMinutes),
     raceLaps: int(s.raceLaps, r.raceLaps, d.raceLaps), grid, pitStops: int(s.pitStops, r.pitStops, d.pitStops),
     tyreWear: nearest(s.tyreWear, TYRE_WEAR, d.tyreWear), weather: WEATHER_KINDS.includes(s.weather) ? s.weather : d.weather,
-    collisions: !!s.collisions, invalidPenalty: nearest(s.invalidPenalty, INVALID_PENALTIES, d.invalidPenalty),
+    collisions: !!s.collisions, trackLimits: !!s.trackLimits,
     finishSecs: int(s.finishSecs, r.finishSecs, d.finishSecs),
   };
 }
@@ -133,7 +136,7 @@ export interface Standing {
   grid: number | null;           // grid slot (0 = pole)
   laps: number;                  // laps completed
   time: number | null;           // s from the lights going out to the last crossing (null: no lap yet), penalty excluded
-  penalty: number;               // s: invalid laps x the setting, and a missed mandatory stop once the race is over
+  penalty: number;               // s: a missed mandatory stop, once the race is over
   best: number | null;           // best valid lap (s)
   pits: number;                  // pit stops made
   invalid: number;               // invalid laps

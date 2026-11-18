@@ -205,8 +205,8 @@ describe('the session in words', () => {
   const se = (o: Partial<SessionInfo>): SessionInfo => ({ ...lobbySession(0), ...o });
   it('says what is on, how long is left and what is next', () => {
     expect(weekendSummary(s)).toBe('2 × 10 min practice · 10 min qualifying · 5 laps · no stops · softs ~45 laps · dry · any car');
-    expect(weekendSummary({ ...s, practice: 0, qualifying: 'oneShot', pitStops: 1, weather: 'random', car: 'drift', collisions: false, invalidPenalty: 5 })).toBe(
-      'one-shot qualifying · 5 laps · 1 stop · tyres ~60 laps · random · no collisions · 5 s a lap off track · Drift car only');
+    expect(weekendSummary({ ...s, practice: 0, qualifying: 'oneShot', pitStops: 1, weather: 'random', car: 'drift', collisions: false, trackLimits: true })).toBe(
+      'one-shot qualifying · 5 laps · 1 stop · tyres ~60 laps · random · no collisions · track limits strikes · Drift car only');
     expect(sessionTitle(lobbySession(0), s)).toBe('Lobby');
     expect(nextSession(lobbySession(0), s)).toBe('Custom weekend · first: Practice 1');
     expect(nextSession(lobbySession(0), withPreset(s, PRESETS[1]))).toBe('Sprint · first: Qualifying');

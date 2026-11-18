@@ -106,8 +106,9 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   the timing panel's race laps (`lapState`), a race's best times starting empty, no chequered flag for
   the winner after its finish. `test/oneshot.test.ts`: one-shot qualifying with 2, 3 and 8 entrants (released one at
   a time from the pit lane; the 8-car test idles the cars waiting, `Room.idle`); `test/pit-request.test.ts`: the pit
-  request, its guidance followed by a scripted driver, the assisted stop in the box, the drive-through notice; all
-  three use `test/weekendRoom.ts`. `test/raceGeometry.test.ts` checks the grid, the pit lane and the start gantry's posts
+  request, its guidance followed by a scripted driver, the assisted stop in the box, the drive-through notice;
+  `test/track-limits.test.ts`: the race's track limits strikes and the penalty limiter they bring, none outside a race
+  or with the setting off; all four use `test/weekendRoom.ts`. `test/raceGeometry.test.ts` checks the grid, the pit lane and the start gantry's posts
   clear of it at every circuit. `test/pit-loss.test.ts`
   is a tool (`PITLOSS=melbourne`): the time a pit stop costs each car.
 - In the browser, `window.__game` exposes `simulate(seconds, driver, probeSecs)`, `car` (a getter: the car object is
@@ -321,7 +322,9 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
     game**): follows `net.session` (placement at each session: flying start, one-shot's pit-lane spot and its own
     release (`oneShotRelease`, `ONE_SHOT_GAP` apart), the grid slot; held until then; the race's standing lap 1, `Timing.startStanding`), conditions (the room's wear x
     `CarInfo.race.wearScale`, the relay's weather into `Session.setConditions`), store tags (`.mp`, `.race`: never the
-    time trial's bests), the input it overrides (held, recovering, parked, the pit limiter and service), the pit
+    time trial's bests), the input it overrides (held, recovering, parked, the track limits penalty, the pit limiter
+    and service), the race's track limits rule (`strikes.ts` `Strikes`, `weekend.strikes`: a strike per excursion,
+    every third 3 s on the pit limiter once back on track; `addStrike(reason)` for any rule), the pit
     lane (box, service `CarInfo.race.pitSecs`, `sendPit`; the pit request `pitRequest` with its guidance `pitGuide`,
     the assisted stop in the box and the suggested stop `pitAdvice`), restarts (`requestRestart`; `Session.autoReset`): a flying
     start on fresh tyres, or in a race a recovery (`RECOVERY_SECS`), which laps are sent, and the live running order.

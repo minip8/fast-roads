@@ -370,7 +370,7 @@ function writeSettings(w: Writer, s: RoomSettings) {
   w.u8(Math.max(0, QUALIFYING.indexOf(s.qualifying))); w.u8(u8of(s.qualifyingMinutes));
   w.u8(u8of(s.raceLaps)); w.u8(Math.max(0, GRID_ORDERS.indexOf(s.grid))); w.u8(u8of(s.pitStops));
   w.u8(u8of(s.tyreWear * 10)); w.u8(Math.max(0, WEATHER_KINDS.indexOf(s.weather))); w.u8(s.collisions ? 1 : 0);
-  w.u8(u8of(s.invalidPenalty)); w.u16(clamp(Math.round(fin(s.finishSecs)), 0, 65535));
+  w.u8(s.trackLimits ? 1 : 0); w.u16(clamp(Math.round(fin(s.finishSecs)), 0, 65535));
 }
 const timeOrNone = (t: number | null) => (t == null ? -1 : t);
 function writeSession(w: Writer, s: SessionInfo) {
@@ -506,9 +506,10 @@ function readSettings(r: Reader): RoomSettings {
   const qualifying = r.pick(QUALIFYING), qualifyingMinutes = r.u8(), raceLaps = r.u8(), grid = r.pick(GRID_ORDERS);
   const pitStops = r.u8(), tyreWear = r.u8() / 10, weather = r.pick(WEATHER_KINDS), f = r.u8();
   if (f > 1) r.fail('out of range');
-  const invalidPenalty = r.u8(), finishSecs = r.u16();
+  // (the track limits byte was protocol 2's invalidPenalty, s per invalid lap: an older client's non-zero value is on)
+  const trackLimits = r.u8() !== 0, finishSecs = r.u16();
   return { circuit, car, practice, practiceMinutes, qualifying, qualifyingMinutes, raceLaps, grid, pitStops, tyreWear, weather,
-    collisions: f === 1, invalidPenalty, finishSecs };
+    collisions: f === 1, trackLimits, finishSecs };
 }
 function readSession(r: Reader): SessionInfo {
   const phase = r.pick(PHASES), index = r.u8(), stage = r.pick(STAGES), f = r.u8();

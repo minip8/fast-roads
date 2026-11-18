@@ -567,7 +567,7 @@ export class Relay {
 
   private classification(room: Room, final: boolean): Standing[] {
     const s = room.session, st = room.settings;
-    return classify(room.entries.values(), { goAt: s.goAt ?? s.start, invalidPenalty: st.invalidPenalty, pitStops: st.pitStops,
+    return classify(room.entries.values(), { goAt: s.goAt ?? s.start, pitStops: st.pitStops,
       missedStopPenalty: this.opt.missedStopPenalty, final });
   }
   private standingsNow(room: Room): { final: boolean; standings: Standing[] } {

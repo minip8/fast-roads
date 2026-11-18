@@ -27,12 +27,12 @@ const state = (o: Partial<CarState> = {}): CarState => {
 const board = [{ player: 2, name: 'Zoë', car: 'lcf1', best: 116.548123, sectors: [30.1, 40.2, 46.248123], laps: 3 },
   { player: 0, name: 'Left Early', car: 'drift', best: 158.25, sectors: [null, null, null], laps: 1 }];
 const settings: RoomSettings = { ...defaultSettings('monza'), practice: 2, practiceMinutes: 15, qualifying: 'oneShot', raceLaps: 12,
-  grid: 'reversed', pitStops: 1, tyreWear: 3, weather: 'changeable', invalidPenalty: 5, finishSecs: 90 };
+  grid: 'reversed', pitStops: 1, tyreWear: 3, weather: 'changeable', trackLimits: true, finishSecs: 90 };
 const race: SessionInfo = { phase: 'race', index: 0, stage: 'finishing', collisions: true, oneShot: false, start: 100.25, end: 700,
   lightsAt: 115.25, goAt: 121.75, finishAt: 600.5, seed: 3000000000, grid: [3, 1, 7] };
 const weather: WeatherInfo = { origin: 100.25, kind: 'changeable', keys: weatherKeys('changeable', 77, 0, 64) };
 const standings: Standing[] = [
-  { player: 3, name: 'Zoë', car: 'lcf1', status: 'finished', grid: 0, laps: 12, time: 540.123456, penalty: 5, best: 44.5, pits: 1, invalid: 1 },
+  { player: 3, name: 'Zoë', car: 'lcf1', status: 'finished', grid: 0, laps: 12, time: 540.123456, penalty: 60, best: 44.5, pits: 1, invalid: 1 },
   { player: 0, name: 'Gone', car: 'drift', status: 'dnf', grid: null, laps: 0, time: null, penalty: 0, best: null, pits: 0, invalid: 0 },
 ];
 const samples: NetMessage[] = [
@@ -169,6 +169,16 @@ describe('protocol', () => {
     expect(helloVersion(new Uint8Array([MSG.ping, 1, 0]))).toBe(null);
   });
 
+  it('carries the track limits rule in the byte that was the invalid-lap penalty: 0 off, anything else on', () => {
+    const set = encodeMessage({ type: 'settings', settings }), at = set.length - 3;   // (before the u16 finish time)
+    expect(set[at]).toBe(1);
+    expect(encodeMessage({ type: 'settings', settings: { ...settings, trackLimits: false } })[at]).toBe(0);
+    for (const [byte, on] of [[0, false], [1, true], [5, true], [10, true]] as const) {   // (an older client's seconds)
+      set[at] = byte;
+      const d = decodeMessage(set);
+      expect(d.ok && d.msg.type === 'settings' && d.msg.settings.trackLimits).toBe(on);
+    }
+  });
   it('rejects malformed input', () => {
     const bad: [string, Uint8Array][] = [
       ['empty', new Uint8Array(0)],
@@ -208,7 +218,7 @@ describe('protocol', () => {
     bad.push(['reserved status bit', status]);
     const sess = encodeMessage({ type: 'session', session: race }); sess[1] = 4;
     bad.push(['unknown phase', sess]);
-    const set = encodeMessage({ type: 'settings', settings }); set[set.length - 5] = 9;   // the weather (before the collisions flag, the penalty and the u16 finish time)
+    const set = encodeMessage({ type: 'settings', settings }); set[set.length - 5] = 9;   // the weather (before the collisions flag, the track limits flag and the u16 finish time)
     bad.push(['unknown weather', set]);
     const wx = encodeMessage({ type: 'weather', weather }); wx[15] = wx[11]; wx[16] = wx[12];   // the second keyframe at the first's time
     bad.push(['keyframes out of order', wx]);

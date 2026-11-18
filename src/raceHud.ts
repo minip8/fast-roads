@@ -1,13 +1,14 @@
 import { COMPOUND_COLOURS, type CompoundId } from './conditions';
 import type { Multiplayer } from './multiplayer';
+import { STRIKES_PER_PENALTY } from './net';
 import { COMPOUND_LETTER, sessionName } from './weekend';
 
 // ============================================================================
 // The race weekend's HUD (weekend.ts has the state): the start lights over the top of the screen, a strip under them
 // (the race: position, lap and the gaps to the cars ahead and behind; practice and qualifying: the session and its
 // clock, our place on the board), and a pit panel over the dash (pit lane and limiter, the service under way, the
-// tyres the next stop fits, stops made of those required, a recovery's hold), and the pit guidance (#pitGuide, under
-// the race strip: the pit request's steps from the entry to the box and out, a suggested stop, the one-line explanation of
+// tyres the next stop fits, stops made of those required, a recovery's hold, the track limits strikes and penalty),
+// and the pit guidance (#pitGuide, under the race strip: the pit request's steps from the entry to the box and out, a suggested stop, the one-line explanation of
 // pit stops the first time). In a race #hud gets the class `race`,
 // which hides what a race does not need (the delta to a best lap, the optimal lap, the list of laps). Written only
 // when a text changes.
@@ -122,9 +123,14 @@ export class RaceHud {
   }
 
   private pitHtml(mp: Multiplayer): string {
-    const w = mp.weekend, p = w.pit, car = mp.session.car, race = w.inRace && !w.spectator && !w.finished;
+    const net = mp.net, w = mp.weekend, p = w.pit, car = mp.session.car, race = w.inRace && !w.spectator && !w.finished;
     const rows: string[] = [];
     if (w.recovering > 0) rows.push(`<div class="prow warn"><span>RECOVERY</span><b class="num">${Math.ceil(w.recovering)} s</b></div>`);
+    // the track limits rule: the penalty limiter (earned, then serving), and the strikes towards the next
+    const k = w.strikes;
+    if (k.serving) rows.push(`<div class="prow warn${k.limiting ? ' on' : ''}"><span>LIMITER PENALTY · ${Math.round(k.limitMs * 3.6)} KM/H</span><b class="num">${k.left.toFixed(1)} s</b></div>`);
+    else if (k.pending) rows.push(`<div class="prow warn"><span>LIMITER PENALTY</span><b>REJOIN THE TRACK</b></div>`);
+    if (race && net.settings.trackLimits && k.count > 0) rows.push(`<div class="prow"><span>TRACK LIMITS</span><b class="num">${k.count}/${STRIKES_PER_PENALTY}</b></div>`);
     // (the lane, the limiter and the service are the guidance's, below)
     const stops = w.mandatoryStops;
     const showTyre = car.compounds.length > 1 && (race || p.inLane || p.zone !== 'track' || w.pitRequest);

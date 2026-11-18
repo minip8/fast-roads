@@ -119,10 +119,13 @@ states.
 
 `player` record: `u8 id | str name (<= 48 bytes) | str car`.
 `board` body: `u8 n (<= 32) | n x { u8 player (0 = has left) | str name | str car | u32 best | u32 s1 | u32 s2 | u32 s3 | u16 laps }`, sorted by best.
-`settings` body (`RoomSettings`; numbers as sent, the relay clamps them): `str circuit | str car ('' = any) | u8 practice | u8 practiceMinutes | u8 qualifying (0 none, 1 timed, 2 oneShot) | u8 qualifyingMinutes | u8 raceLaps | u8 grid (0 qualifying, 1 random, 2 reversed, 3 joinOrder) | u8 pitStops | u8 tyreWear (tenths: 5 = 0.5) | u8 weather (0 dry, 1 damp, 2 wet, 3 changeable, 4 random) | u8 collisions (0/1) | u8 invalidPenalty (s) | u16 finishSecs` (13 bytes after the two ids).
+`settings` body (`RoomSettings`; numbers as sent, the relay clamps them): `str circuit | str car ('' = any) | u8 practice | u8 practiceMinutes | u8 qualifying (0 none, 1 timed, 2 oneShot) | u8 qualifyingMinutes | u8 raceLaps | u8 grid (0 qualifying, 1 random, 2 reversed, 3 joinOrder) | u8 pitStops | u8 tyreWear (tenths: 5 = 0.5) | u8 weather (0 dry, 1 damp, 2 wet, 3 changeable, 4 random) | u8 collisions (0/1) | u8 trackLimits (0 off, 1 on; read: any non-zero is on) | u16 finishSecs` (13 bytes after the two ids).
+The `trackLimits` byte was `invalidPenalty` (s added per invalid race lap: 0, 1, 2, 3, 5 or 10) until the race's track
+limits rule replaced it, in the same protocol version: an older client's seconds read as on, and a relay from before
+the change reads the new client's 1 as a 1 s penalty per invalid race lap (and echoes it back as 1, which reads as on).
 `session` body (`SessionInfo`; times are f64 relay seconds, -1 = none): `u8 phase (0 lobby, 1 practice, 2 qualifying, 3 race) | u8 index | u8 stage (0 running, 1 finishing, 2 results) | u8 flags (1 collisions, 2 oneShot) | f64 start | f64 end | f64 lightsAt | f64 goAt | f64 finishAt | u32 seed | u8 n (<= 32) | n x u8 grid`.
 `weather` body (`WeatherInfo`): `f64 origin (relay time of session time 0) | u8 kind (0 dry, 1 damp, 2 wet, 3 changeable: what the keyframes were made as) | u8 n (1-64) | n x { u16 t (s from origin, strictly increasing) | u8 rain (/255) | u8 wet (/255) }`.
-`standings` body: `u8 final (0/1) | u8 n (<= 32) | n x { u8 player | str name | str car | u8 status (0 racing, 1 finished, 2 dnf, 3 outOfTime) | u8 grid slot (255 none) | u16 laps | u32 time (us from lights out to the last crossing, penalties excluded; none before a lap) | u32 penalty (us) | u32 best (us; none) | u8 pits | u8 invalid }`, in classification order.
+`standings` body: `u8 final (0/1) | u8 n (<= 32) | n x { u8 player | str name | str car | u8 status (0 racing, 1 finished, 2 dnf, 3 outOfTime) | u8 grid slot (255 none) | u16 laps | u32 time (us from lights out to the last crossing, penalties excluded; none before a lap) | u32 penalty (us: a missed stop) | u32 best (us; none) | u8 pits | u8 invalid }`, in classification order.
 
 | Type | Name | Direction | Body after the type byte |
 |---|---|---|---|
@@ -341,7 +344,7 @@ dynamic import, so a single-player page never downloads `src/net`.
 | `players` | everyone else: `RemotePlayer` (info, spec, the proxy `body` and its `sample` at the last tick, `collidable`) |
 | `noCollide`, `epoch`, `stats` | ours; `stats` counts contact ticks, events sent, applied, ignored, dropped, laps sent |
 | `sampleAt(id, now, out)` | for drawing; the game draws other cars at `now - DT`, where the player's own car is drawn (interpolated a tick behind) |
-| `takeNotices()` | joins, leaves, car changes, best laps, non-fatal errors, as text for the HUD's feed; kind `race` (a stop made, a drive-through, rain) for the feed too, `flag` (lights out with the stops required, final lap with "pit this lap" while a required stop is owed, the flag (not to the winner after its finish, nor a spectator), a penalty, a session starting) for the big message, with `sub` under it |
+| `takeNotices()` | joins, leaves, car changes, best laps, non-fatal errors, as text for the HUD's feed; kind `race` (a stop made, a drive-through, rain) for the feed too, `flag` (lights out with the stops required, final lap with "pit this lap" while a required stop is owed, the flag (not to the winner after its finish, nor a spectator), a track limits strike and the limiter penalty, a session starting) for the big message, with `sub` under it |
 | `tick(input, autopilot, tickAt, parked)` | `parked`: the player is in the menu during a race (`weekend.keepsRunning`): the game keeps ticking, the car brakes to a stop, a ghost |
 | `requestRestart()` | the restart key and the menu's Restart: what the weekend allows (below) |
 | `weekend` | the race weekend as our car lives it (below) |
@@ -509,6 +512,21 @@ the track at the nearest point (in the pit lane, the lane's middle; else at most
 lap going on, and held there for `RECOVERY_SECS` (5 s) as a ghost: with the standing start after it, a recovery
 costs well over 5 s, so it is a last resort, and it never gains ground. Nothing on the grid before the lights.
 
+**Track limits in a race** (the room setting `trackLimits`; `strikes.ts` `Strikes`, `weekend.strikes`). In a race we
+are racing in (past the lights, not finished, not a spectator), each excursion beyond the track limits is a strike:
+all four wheels out, as `Timing` deletes a lap, however it came about (pushed off by another car too; going the wrong
+way is none). The car must be back within the limits (a wheel inside them) for `REJOIN_SECS` (0.5 s) before going
+off again counts again. Every `STRIKES_PER_PENALTY`th strike (3: `src/net/race.ts`) earns the penalty limiter and
+starts the count again: `LIMITER_PENALTY_SECS` (3 s) during which `Weekend.input` cuts the throttle whenever the car is
+faster than the pit lane's limit (`PIT.limitKmh`, 80 km/h); it never brakes for the driver. The 3 s start once the car
+is back within the limits (not served in the gravel) and run only while it is driven (not held, recovering, serviced
+or parked). Notices (`flag`): TRACK LIMITS 1/3 and 2/3, TRACK LIMITS 3/3 with the penalty, LIMITER PENALTY when it
+starts; the pit panel shows the strikes (TRACK LIMITS 1/3), the penalty waiting (REJOIN THE TRACK) and its seconds
+left. `weekend.addStrike(reason)` adds a strike for any rule (the notice reads `reason`, upper case, and the count):
+false, not counted, outside a race we are racing in or with the setting off. The rule is the client's alone: the relay
+only carries the setting. A race lap off the track is still reported invalid (it is not a best lap) but costs no time.
+Practice and qualifying keep the time trial's rule (the lap deleted), with no strikes.
+
 **Pausing in a race.** A race does not stop for one player: while the menu is open (or before the first Drive) in a
 race we are in, the game keeps simulating our car (`weekend.keepsRunning`) with the input parked (it brakes to a stop
 where it is), a ghost (reason `paused`); the race clock and the others go on, and the menu's title says so
@@ -543,6 +561,7 @@ pits / spectator / paused (parked, or the menu) / finished / ghost (recovering, 
 | `pitRequest`, `togglePitRequest()`, `setPitRequest(on)`, `pitGuide`, `pitAdvice`, `tyresWrong()`, `pitHelp` / `pitHelpFor` | the pit request and its guidance (above) |
 | `mandatoryStops` | the race's `pitStops` |
 | `held`, `recovering`, `parked`, `finished`, `spectator`, `raceLaps` | |
+| `strikes` (`count`, `pending`, `left`, `serving`, `limiting`), `addStrike(reason)` | the race's track limits rule (above) |
 | `order`, `gapAhead`, `gapBehind`, `aheadId`, `behindId` | the live running order (`RaceEntry`: id, name, car, pos, laps, dist, gap, lapsDown, status, compound, pits, inPits, penalty) |
 | `keepsRunning`, `inRace`, `reason`, `lapState` | |
 | `rain`, `wetness` | the relay's weather now |
@@ -570,7 +589,7 @@ the rest with `normaliseSettings` and broadcasts them; `defaultSettings(circuit)
 | `tyreWear` | 0.5-20 in steps: 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 6, 7, 8, 9, 10, 12, 15, 20 (1; nearest) | for the game's tyre model (as the F1 wears: each car's own is scaled to match, **Race weekends in the game**); the relay only passes it on |
 | `weather` | `dry` / `damp` / `wet` / `changeable` / `random` (`dry`) | **Weather** |
 | `collisions` | on / off (on) | in the race; practice and timed qualifying always collide, one-shot qualifying never |
-| `invalidPenalty` | 0, 1, 2, 3, 5, 10 s (0; nearest) | per invalid race lap |
+| `trackLimits` | on / off (off) | the race's track limits rule, the game's (**Track limits in a race**); invalid laps cost no time either way |
 | `finishSecs` | 30-600 (120) | the others' time to finish after the winner |
 
 The host is the room's creator. When the host leaves, the role is held `hostGrace` (10 s) for it to come back with
@@ -624,9 +643,9 @@ phases they are only passed on.
 Classification (`server/weekend.ts` `classify`, broadcast as `standings` after every race lap, pit stop, retirement
 and stage change; clients compute the live running order between laps from the cars' positions and these lap
 counts): cars still classified (racing, finished, outOfTime) by laps completed, then by the time of their last
-crossing plus penalties, then grid slot; cars that left (`dnf`) after them. Penalty: invalid laps x
-`invalidPenalty`, plus `missedStopPenalty` (60 s) once the race is over for a car that made fewer than `pitStops`
-stops. `time` is the last crossing less `goAt`, without the penalty.
+crossing plus penalties, then grid slot; cars that left (`dnf`) after them. Penalty: `missedStopPenalty` (60 s) once
+the race is over for a car that made fewer than `pitStops` stops (invalid laps are counted, `invalid`, but cost no
+time). `time` is the last crossing less `goAt`, without the penalty.
 
 Joining mid-weekend: in the lobby, practice and qualifying a joiner is a driver (in the race grid if it starts
 while they are in). During a race a joiner is a spectator-driver: on track, not on the grid (`isSpectator`),
@@ -974,8 +993,8 @@ capacity above counts only the object's requests).
 
 `npm test` runs them (project `unit`, about 20 s together):
 
-- `test/net-protocol.test.ts`: round trips, quantisation, clamping, time and sequence wrap, version peek, malformed
-  input, fuzzing; the id lists against `CARS` / `TRACKS`; nothing in `src/` imports `ws`, `node:*` or `server/`.
+- `test/net-protocol.test.ts`: round trips, quantisation, clamping, time and sequence wrap, version peek, the track
+  limits byte (an older client's seconds read as on), malformed input, fuzzing; the id lists against `CARS` / `TRACKS`; nothing in `src/` imports `ws`, `node:*` or `server/`.
 - `test/net-clock.test.ts`: clock sync over the emulated link.
 - `test/net-remote.test.ts`: the accuracy table above, staleness, dropping, interpolation, blending, snapping.
 - `test/net-relay.test.ts`: relay and three (up to eight) NetClients over the emulated network: join and roster,
@@ -987,7 +1006,7 @@ capacity above counts only the object's requests).
   a token (same id, host kept, an old connection replaced), settings permissions, clamping, a one-car room, a
   circuit change; `normaliseSettings` and every grid order; a whole weekend with three clients (practice, timed
   qualifying with overtime, a race gridded from it, the lights, a lap before lights out refused, pit stops,
-  penalties for an invalid lap and a missed stop reordering the finish, a DNF, results, the lobby keeping them);
+  a missed-stop penalty reordering the finish (an invalid lap costing nothing), a DNF, results, the lobby keeping them);
   one-shot qualifying; a spectator joining mid-race and a racer rejoining it; skip and abort; bad and out-of-order
   lap and pit reports; deadlines met at their own times with the schedule asked for, a race nobody is left in;
   weather keyframes from the session seed and their extension in a long session.
@@ -1025,5 +1044,9 @@ capacity above counts only the object's requests).
   once), a car due out waiting while one on its lap comes past the start spot, one lap sent, back to the pits, the
   relay's end allowing for the last release, the grid by it; ghosts, the wet weather in the physics and wets fitted
   for it, a spectator joining mid-race.
+- `test/track-limits.test.ts`: the race's track limits rule in a game Session: no strike in practice, one strike per
+  excursion however long (and a wheel back in for a moment is not back), the third's penalty waiting off the track,
+  then 3 s of driving with the throttle cut only above 80 km/h and the driver's brake untouched, the count again from
+  zero, `addStrike` for another rule; the setting off (no strikes); `Strikes` on its own.
 - `test/raceGeometry.test.ts`: the grid (32 slots) and the pit lane at every circuit, the lane's ground and track
   limits only while enabled, the start gantry's pit-side post beyond the lane.

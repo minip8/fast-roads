@@ -36,7 +36,6 @@ export interface Entry {
 
 export interface ClassifyRules {
   goAt: number;                   // lights out (relay time)
-  invalidPenalty: number;         // s per invalid lap
   pitStops: number;               // mandatory stops
   missedStopPenalty: number;      // s, once the race is over, for a car that made fewer
   final: boolean;
@@ -46,7 +45,8 @@ export interface ClassifyRules {
 // of the last crossing plus penalties, then grid slot; those who left (dnf) after them, by laps then crossing.
 export function classify(entries: Iterable<Entry>, r: ClassifyRules): Standing[] {
   const rows = [...entries].map((e) => {
-    let penalty = e.invalid * r.invalidPenalty;
+    // (invalid laps cost no time: the race's track limits rule is the client's, strikes and the pit limiter)
+    let penalty = 0;
     if (r.final && e.status !== 'dnf' && e.pits < r.pitStops) penalty += r.missedStopPenalty;
     const time = e.lastCrossing == null ? null : e.lastCrossing - r.goAt;
     const s: Standing = { player: e.player, name: e.name, car: e.car, status: e.status, grid: e.grid, laps: e.laps, time, penalty,

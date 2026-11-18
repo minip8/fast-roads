@@ -3,6 +3,7 @@ import { DT } from './config';
 import { CAR_REASON, COMPOUND, oneShotRelease, type NetClient, type NetEvent, type Phase, type RaceStage, type SessionInfo, type Stage, type StandingStatus } from './net';
 import { buildPitLane, enablePitLane, gridSlots, laneDist, laneIndex, laneLimit, laneZone, PIT, type GridSlot, type PitLane } from './raceGeometry';
 import type { Session } from './sim';
+import { Strikes } from './strikes';
 import { clearStore } from './timing';
 import { pointAt, projectOnTrack, type TrackPos } from './track';
 import type { TrackDef } from './tracks';
@@ -29,6 +30,8 @@ const CLEAR_BEHIND = 500, CLEAR_AHEAD = 200, ONE_SHOT_WAIT = 15;
 export const BOX_DECEL = 3;
 const WORN = 0.75;                    // tread worn (0..1) from which the HUD suggests a stop
 const PIT_HELP_SECS = 12;             // s the one-line explanation of pit stops stays up
+// s a car must be back within the track limits (a wheel inside them) before going off again is another strike
+const REJOIN_SECS = 0.5;
 
 const ordinal = (n: number) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`;
 
@@ -113,13 +116,17 @@ export class Weekend {
   readonly oneShotDone = new Set<number>();   // one-shot: entrants whose lap is in (the relay accepted it)
   private goSim: number | null = null;   // sim time of lights out
   private orderWait = 0;
-  private lastPenalty = 0;
   private wasRaining = false; private wasWet = false;
   private runners = new Map<number, Runner>();
   private readonly proj: TrackPos = { i: -1, s: 0, lat: 0 };
+  // The race's track limits rule (strikes.ts): strikes, and the penalty limiter they bring
+  readonly strikes: Strikes;
+  private offTrack = false;           // beyond the track limits (all four wheels out), until back within them REJOIN_SECS
+  private backFor = 0;                // s back within the limits since the last excursion
 
   constructor(readonly net: NetClient, readonly session: Session, readonly def: TrackDef, private readonly notify: Notify) {
     this.lane = buildPitLane(session.track, def);
+    this.strikes = new Strikes(notify, PIT.limitKmh / 3.6);
     enablePitLane(session.track, this.lane);
     this.nextCompound = session.car.compound.id;
     session.setStoreTag('.mp');
@@ -295,6 +302,7 @@ export class Weekend {
     // stopping: the brake while it rolls, then nothing (a brake held at a standstill is the automatic box's reverse)
     const stop = { throttle: 0, brake: Math.abs(v) > 0.3 ? 1 : 0, steer: 0, analog: inp.analog, steerAngle: null, autoGears: inp.autoGears };
     if (this.held || this.pit.service > 0 || this.recovering > 0 || this.parked) return stop;
+    inp = this.strikes.input(inp, v);   // (a track limits penalty: no throttle above the pit limit)
     if (this.pit.inLane) {
       let vmax = laneLimit(this.lane, this.pit.dist);
       // the pit request: the limiter brings the car to a stop in the box (BOX_DECEL down to its middle)
@@ -333,6 +341,7 @@ export class Weekend {
     } else if (inLane && !p.stopped && Math.abs(p.dist - this.lane.box) <= PIT.boxLen / 2 && Math.abs(car.speedF) < 0.5 && !this.held && this.serviceAllowed) {
       p.serviceTotal = p.service = car.spec.race.pitSecs;
     }
+    this.trackLimits(car.wheels.every((w) => w.out));
     if (this.pitHelpFor > 0) this.pitHelpFor = Math.max(0, this.pitHelpFor - DT);
     if ((this.orderWait -= DT) <= 0) { this.orderWait = ORDER_EVERY; this.updateOrder(tickAt); }
   }
@@ -355,6 +364,23 @@ export class Weekend {
     // (a race: the lap that ends it for us, whether the winner's or one after the flag; the standings confirm it)
     if (this.phase === 'race' && !this.spectator && !this.finished && (this.raceLaps + 1 >= this.net.settings.raceLaps || s.stage === 'finishing')) this.lastLapIn = true;
     return !this.finished;
+  }
+
+  // ------------------------------------------------------------------------ track limits in a race
+  // A strike against us (reason: what for, as the notice says it, e.g. 'Track limits'): only in a race we are racing
+  // in with the room's track limits rule on. Returns whether it counted.
+  addStrike(reason: string): boolean {
+    if (!this.net.settings.trackLimits || !this.racing || this.held) return false;
+    this.strikes.add(reason);
+    return true;
+  }
+  // Each tick: a strike for each excursion beyond the track limits (as Timing's: all four wheels out, however it came
+  // about), and the penalty limiter's clock, which starts once the car is back and runs while the car is driven.
+  private trackLimits(out: boolean) {
+    this.backFor = out ? 0 : this.backFor + DT;
+    if (out && !this.offTrack) { this.offTrack = true; this.addStrike('Track limits'); }
+    else if (this.offTrack && this.backFor >= REJOIN_SECS) this.offTrack = false;
+    this.strikes.tick(DT, !this.offTrack, !this.held && this.recovering === 0 && this.pit.service === 0 && !this.parked);
   }
 
   // ------------------------------------------------------------------------ the pit request and its guidance
@@ -430,7 +456,8 @@ export class Weekend {
   private enter(s: SessionInfo, T: number, first: boolean, now: number) {
     const ses = this.session, tr = ses.track;
     this.phase = s.phase; this.index = s.index; this.stage = s.stage;
-    this.finished = false; this.oneShotGo = false; this.goSim = null; this.recovering = 0; this.raceLaps = 0; this.lastPenalty = 0;
+    this.finished = false; this.oneShotGo = false; this.goSim = null; this.recovering = 0; this.raceLaps = 0;
+    this.strikes.reset(); this.offTrack = false; this.backFor = 0;
     Object.assign(this.pit, { service: 0, stops: 0, stopped: false, limiter: false, inLane: false, passedBox: false });
     this.pitRequest = false; this.compoundChosen = false; this.lastLapIn = false;
     if (s.phase === 'lobby') this.pitExplained = false;   // (once a weekend)
@@ -510,10 +537,6 @@ export class Weekend {
       this.finished = true;
       const pos = this.net.standings.indexOf(me) + 1;
       if (me.status === 'finished') this.notify('flag', `FINISHED P${pos}`, `${fmtTime(me.time ?? 0)}${me.penalty ? ` + ${me.penalty} s` : ''}`);
-    }
-    if (me.penalty > this.lastPenalty) {
-      if (me.status === 'racing') this.notify('flag', `+${(me.penalty - this.lastPenalty).toFixed(0)} s PENALTY`, 'Invalid lap');
-      this.lastPenalty = me.penalty;
     }
   }
 

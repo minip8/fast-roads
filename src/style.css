@@ -528,6 +528,7 @@ kbd { font: inherit; font-weight: 700; color: var(--text); background: rgba(255,
 #racePit .prow.lane b { color: var(--yellow); } #racePit .prow.lane.lim b { color: var(--accent); }
 #racePit .prow.warn b, #racePit .prow.box b { color: var(--yellow); }
 #racePit .prow.done b { color: var(--green); }
+#racePit .prow.warn.on b, #racePit .prow.warn.on span { color: var(--accent); }
 #racePit .pbar { height: 5px; border-radius: 3px; background: rgba(255,255,255,.12); overflow: hidden; margin: 2px 0 4px; }
 #racePit .pbar i { display: block; height: 100%; background: var(--yellow); }
 .cchip { display: inline-block; width: 16px; height: 16px; border-radius: 50%; vertical-align: -3px; text-align: center; font: 800 10px/16px system-ui, sans-serif;

@@ -1,6 +1,6 @@
 import { CARS, type CarId } from './cars';
 import {
-  type BoardEntry, CAR_REASON, emptySample, ERROR, GRID_ORDERS, INVALID_PENALTIES, NET_CARS, type NetClient, type NetEvent, normaliseSettings,
+  type BoardEntry, CAR_REASON, emptySample, ERROR, GRID_ORDERS, LIMITER_PENALTY_SECS, NET_CARS, type NetClient, type NetEvent, normaliseSettings,
   type Phase, QUALIFYING, type RemoteSample, type RoomSettings, type SessionInfo, SETTING_RANGES, type Standing, STATE_FLAG, TYRE_WEAR,
   WEATHER_KINDS,
 } from './net';
@@ -116,8 +116,9 @@ export const ROOM_FIELDS: readonly RoomField[] = [
   { key: 'collisions', label: 'Collisions in the race', group: 'rules', kind: 'choice',
     hint: 'Off: cars pass through each other. Practice and timed qualifying always collide.',
     options: [[true, 'On'], [false, 'Off']] },
-  { key: 'invalidPenalty', label: 'Track limits penalty', group: 'rules', kind: 'choice', hint: 'Added to your race time for each lap cut off the track.',
-    options: INVALID_PENALTIES.map((v) => [v, v ? `${v} s` : 'None'] as const) },
+  { key: 'trackLimits', label: 'Track limits in the race', group: 'rules', kind: 'choice',
+    hint: `On: every third time off the track in the race, ${LIMITER_PENALTY_SECS} s on the pit limiter. A cut lap is never a best lap.`,
+    options: [[true, 'On'], [false, 'Off']] },
   { key: 'finishSecs', label: 'Time to finish', group: 'rules', hint: 'How long the others have after the winner crosses the line.',
     ...stepper(FINISH_SECS, SETTING_RANGES.finishSecs, fmtSecs) },
 ];
@@ -153,16 +154,16 @@ export interface Preset {
   life: number;
 }
 const BASE = { practice: 0, practiceMinutes: 10, qualifying: 'none', qualifyingMinutes: 10, grid: 'qualifying', pitStops: 0, weather: 'dry',
-  collisions: true, invalidPenalty: 0, finishSecs: 120 } as const;
+  collisions: true, trackLimits: false, finishSecs: 120 } as const;
 export const PRESETS: readonly Preset[] = [
   { id: 'quick', name: 'Quick race', blurb: 'Straight onto a random grid: a short race, no stops.', tyre: 'soft', life: 1.4,
     settings: { ...BASE, raceLaps: 5, grid: 'random', finishSecs: 60 } },
   { id: 'sprint', name: 'Sprint', blurb: 'One flying lap each sets the grid, then a flat-out race.', tyre: 'soft', life: 1.4,
-    settings: { ...BASE, qualifying: 'oneShot', raceLaps: 8, invalidPenalty: 2, finishSecs: 90 } },
+    settings: { ...BASE, qualifying: 'oneShot', raceLaps: 8, trackLimits: true, finishSecs: 90 } },
   { id: 'gp', name: 'Grand Prix', blurb: 'The full weekend: practice, qualifying, and a race with a pit stop.', tyre: 'soft', life: 0.65,
-    settings: { ...BASE, practice: 1, qualifying: 'timed', raceLaps: 15, pitStops: 1, invalidPenalty: 5 } },
+    settings: { ...BASE, practice: 1, qualifying: 'timed', raceLaps: 15, pitStops: 1, trackLimits: true } },
   { id: 'endurance', name: 'Endurance', blurb: 'A long race on tyres that wear: two stops to plan.', tyre: 'soft', life: 0.45,
-    settings: { ...BASE, practice: 1, practiceMinutes: 15, qualifying: 'timed', qualifyingMinutes: 15, raceLaps: 25, pitStops: 2, invalidPenalty: 5, finishSecs: 300 } },
+    settings: { ...BASE, practice: 1, practiceMinutes: 15, qualifying: 'timed', qualifyingMinutes: 15, raceLaps: 25, pitStops: 2, trackLimits: true, finishSecs: 300 } },
   { id: 'wet', name: 'Wet race', blurb: 'Rain from the start: practice, qualifying and a race on wets.', tyre: 'wet', life: 1.4,
     settings: { ...BASE, practice: 1, qualifying: 'timed', raceLaps: 10, weather: 'wet', finishSecs: 180 } },
 ];
@@ -207,7 +208,7 @@ export function weekendSummary(s: RoomSettings, extras = true): string {
   parts.push(n(s.raceLaps, 'lap'), stopsText(s.pitStops), tyreLifeShort(s).toLowerCase(), WEATHER_TEXT[s.weather].toLowerCase());
   if (extras) {
     if (!s.collisions) parts.push('no collisions');
-    if (s.invalidPenalty) parts.push(`${s.invalidPenalty} s a lap off track`);
+    if (s.trackLimits) parts.push('track limits strikes');
     parts.push(s.car ? `${carName(s.car)} only` : 'any car');
   }
   return parts.join(' · ');
@@ -234,7 +235,7 @@ export function weekendFacts(s: RoomSettings): [string, string][] {
     ['Race', `${n(s.raceLaps, 'lap')}, ${GRID_SHORT[s.grid]}`],
     ['Tyres', `${s.pitStops ? `${n(s.pitStops, 'mandatory pit stop')}. ` : 'No mandatory stops. '}${tyreLifeLong(s)}`],
     ['Weather', WEATHER_LONG[s.weather]],
-    ['Rules', [s.collisions ? 'Collisions on' : 'No collisions in the race', s.invalidPenalty ? `${s.invalidPenalty} s for each lap off the track` : 'no track limits penalty',
+    ['Rules', [s.collisions ? 'Collisions on' : 'No collisions in the race', s.trackLimits ? `every third time off the track: ${LIMITER_PENALTY_SECS} s on the pit limiter` : 'no track limits penalty',
       `${fmtSecs(s.finishSecs)} to finish after the winner`].join(' · ')],
   ];
 }
