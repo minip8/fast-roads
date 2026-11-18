@@ -42,8 +42,14 @@ export function poleSide(tr: Track): 1 | -1 {
 // PIT.maxLimit m), with an entry and an exit ramp of PIT.ramp m either end, and the box in the middle. The ground
 // is asphalt from the track's edge to the lane's outer edge all along, and none of it is outside the track limits
 // (enablePitLane): driving in is a drift across painted lines, not a lap deleted.
+// The rules on it (weekend.ts): the limit (limitKmh) from the first limit line to the second, where the limiter cuts
+// the throttle above it and nothing else (the game never brakes for the driver); over it by more than speedTolKmh
+// is speeding. The box is boxLen long: a car at rest with its centre in it is serviced. The guidance's BRAKE cue is
+// timed for braking at cueShare of the car's low-speed braking (CarInfo.autoLong) after cueSecs of reaction: firm,
+// with some in hand.
 export const PIT = {
-  width: 4, trackGap: 2, wallGap: 0.6, ramp: 60, maxLimit: 320, limitKmh: 80, boxLen: 12, brakeMs2: 9,
+  width: 4, trackGap: 2, wallGap: 0.6, ramp: 60, maxLimit: 320, limitKmh: 80, speedTolKmh: 5, boxLen: 10,
+  cueShare: 0.7, cueSecs: 0.3,
 } as const;
 
 export interface PitLane {
@@ -110,12 +116,16 @@ export function laneZone(lane: PitLane, tr: Track, p: TrackPos): 'lane' | 'near'
   return x >= lane.inner[k] - 0.6 ? 'near' : 'track';
 }
 
-// The fastest a car in the lane may go at d m from its start: the limit through the limited stretch, and on the entry
-// ramp what braking at PIT.brakeMs2 down to it at the limit line allows; free on the exit ramp.
+// The speed limit at d m along the lane: the limit between the limit lines, none on the entry and exit roads.
 export function laneLimit(lane: PitLane, d: number): number {
-  if (d < 0 || d > lane.limOut) return Infinity;
-  if (d >= lane.limIn) return lane.limitMs;
-  return Math.sqrt(lane.limitMs ** 2 + 2 * PIT.brakeMs2 * (lane.limIn - d));
+  return d >= lane.limIn && d <= lane.limOut ? lane.limitMs : Infinity;
+}
+
+// Whether a car at v m/s, `dist` m before the point where it must be down to `target` m/s, should be braking now
+// (the guidance's cue): braking at `decel` m/s² from PIT.cueSecs later would just make it.
+export function brakeCue(v: number, dist: number, target: number, decel: number): boolean {
+  if (v <= target + 0.5) return false;
+  return dist <= (v * v - target * target) / (2 * decel) + v * PIT.cueSecs;
 }
 
 // The track's own mask for the lane (Track.pitLane): what surfaceAt and trackLimitOut read. Set only in a room, so a

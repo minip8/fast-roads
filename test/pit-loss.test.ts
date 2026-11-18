@@ -9,7 +9,7 @@ import { DT } from '../src/config';
 import { Multiplayer } from '../src/multiplayer';
 import { NetClient } from '../src/net';
 import { LoopbackNet } from '../src/net/loopback';
-import { laneDist, PIT } from '../src/raceGeometry';
+import { laneDist } from '../src/raceGeometry';
 import { TRACKS, type TrackId } from '../src/tracks';
 import type { DriveInput, Vehicle } from '../src/vehicle';
 import { Relay } from '../server/relay';
@@ -53,7 +53,7 @@ describe.skipIf(!process.env.PITLOSS)('pit stop time loss', () => {
         lat = mid * Math.min(1, f * 1.5);
         if (!w.pit.stopped) vmax = Math.min(lane.limitMs, Math.sqrt(2 * 5 * Math.max(0, lane.box - d)) + 0.3);
       }
-      if (before != null) vmax = Math.sqrt(lane.limitMs ** 2 + 2 * PIT.brakeMs2 * 0.8 * (lane.limIn - before));
+      if (before != null) vmax = Math.sqrt(lane.limitMs ** 2 + 2 * 9 * 0.8 * (lane.limIn - before));
       const inp = autopilot(c, tr, lat), v = c.speedF;
       if (v > vmax + 0.3) return { ...inp, throttle: 0, brake: v > 0.3 ? 1 : 0 };
       if (v > vmax - 1) return { ...inp, throttle: 0, brake: 0 };

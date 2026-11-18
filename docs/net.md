@@ -465,33 +465,48 @@ reach 256 m back: on asphalt at every circuit (`test/raceGeometry.test.ts`).
 inner edge 2 m beyond the track's edge, or nearer (into the track) so that its outer edge stays 0.6 m off the
 barrier: on the run-off at the 19 permanent circuits (7 m of it), 1.1 m into the road at the five street circuits
 (3.5 m of pavement). Along the lap it is centred on the pit building: a speed-limited stretch as long as the building
-(at most 320 m: 120 m at Monaco), an entry and an exit ramp of 60 m, the box (12 m) in the middle. `enablePitLane` (a
+(at most 320 m: 120 m at Monaco), an entry and an exit ramp of 60 m, the box (10 m) in the middle. `enablePitLane` (a
 room only) makes the ground asphalt and inside the track limits from the track's edge to the lane's outer edge all
 along it, so the time trial's track and the pinned laps are untouched. A car is in the lane once its centre is in the
 lane's outer half (beyond its middle less 1.2 m) and until it is back on the track (hysteresis); in it the car is a
-ghost (reason `pits`), and an automatic limiter holds it to 80 km/h through the limited stretch and, on the entry
-ramp, to what braking at 9 m/s² down to the limit line allows (above it: no throttle, the brake). Stopping in the
-box (centre within 6 m of it, under 0.5 m/s) starts the service: `CarInfo.race.pitSecs` (F1 2.5 s, GT3 8 s, drift
-car 6 s), then a fresh set of `weekend.nextCompound` out of the blankets and `sendPit` (the relay counts it in a race
-after lights out); not once our race is over (finished, or our last lap in: the relay would refuse the stop).
-Leaving the lane after going past the box (`pit.passedBox`) without a stop, in a race we are still racing in, is a
-drive-through (a notice, nothing reported); leaving it otherwise is not (a brush with the lane's zone before the
-box, the car moved out of it by a new session, our finish). Every session starts with the car out of the lane
-(`pit.inLane` false): a car still in the lane when a session ended used to be told "Drive-through: no stop made" on
-its next tick, wherever it was put (the reported notice; one-shot qualifying's cars wait in the lane, so every car
-would have had it at the race's start). A restart (a recovery) is refused while the car is being serviced.
+ghost (reason `pits`).
+
+The game never brakes for the driver in or near the lane. Between the two limit lines (`limIn`, `limOut`: the
+limited stretch) the pit limiter (`laneLimit`) cuts the throttle above `PIT.limitKmh` (80 km/h), eased off over the
+last 1.5 m/s below it so the car settles just under the limit, and does nothing else; the entry and exit roads have
+no limit. Over the limit by more than `PIT.speedTolKmh` (5 km/h) in the limited stretch is speeding (`pit.speeding`):
+a strike at once and another every `SPEEDING_EVERY` (1 s) while it lasts (`addStrike('Pit lane speeding', 'pitSpeed')`,
+which counts in a race we are racing in whatever the room's `trackLimits` setting; outside a race a PIT LANE
+SPEEDING notice once a visit instead), and no service on that visit (`pit.sped`). The strikes' penalty limiter is
+served on the track, never in the lane (its clock waits while the car is in the lane). Stopping in the box (at rest,
+under 0.5 m/s, the car's centre within `PIT.boxLen` / 2 = 5 m of the box's middle) starts the service, unless the car
+sped on the way or has already gone past the box (`pit.passedBox`: its centre beyond the box; a car that comes into
+the lane after the box has passed it already): `CarInfo.race.pitSecs` (F1 2.5 s, GT3 8 s, drift car 6 s), then a
+fresh set of `weekend.nextCompound` out of the blankets and `sendPit` (the relay counts it in a race after lights
+out); not once our race is over (finished, or our last lap in: the relay would refuse the stop). Overshooting the box
+costs the stop and nothing else: the car drives on (no reversing). Leaving the lane after going past the box without
+a stop, in a race we are still racing in, is a drive-through (a notice, nothing reported); leaving it otherwise is
+not (a brush with the lane's zone before the box, the car moved out of it by a new session, our finish). Every
+session starts with the car out of the lane (`pit.inLane` false): a car still in the lane when a session ended used
+to be told "Drive-through: no stop made" on its next tick, wherever it was put (the reported notice; one-shot
+qualifying's cars wait in the lane, so every car would have had it at the race's start). A restart (a recovery) is
+refused while the car is being serviced.
 
 **The pit request** (`weekend.pitRequest`; the `pit` action, L or the d-pad down; `togglePitRequest`): "box this
-lap". Driving into the lane turns it on (the action again in the lane turns it off: a drive-through); it goes off
-once the car leaves the lane after a stop or past the box, and at each session. On, it fits tyres for the weather
-to `nextCompound` if the fitted ones are wrong for it (`tyresWrong`: slicks above wetness 0.3, intermediates below
-0.1 or above 0.8, wets below 0.5) and the player has not chosen the next set this session, and in the lane the
-limiter also stops the car in the box: its speed falls as braking at `BOX_DECEL` (3 m/s²) to a stop at the box's
-middle allows, so a car on full throttle comes to rest there (measured: 0.1 m from the middle, GT3 from the limit
-line). Without it, a brake key pressed fully from 80 km/h stops a GT3 in the 12 m box only from about 10 to 22 m
-before its middle (`test/pit-request.test.ts`). `weekend.pitGuide` is the HUD's step: `entry` (m to the lane's
-start, its side), `lane` (m to the box, the limiter), `box` (under 40 m), `service` (s left), `go`, or `through`
-(in the lane without the request). `weekend.pitAdvice` (a race we are racing in, no request): why to stop now, a
+lap". Driving into the lane before the box turns it on (the action again in the lane turns it off: a drive-through);
+it goes off once the car leaves the lane after a stop or past the box, and at each session. On, it fits tyres for
+the weather to `nextCompound` if the fitted ones are wrong for it (`tyresWrong`: slicks above wetness 0.3,
+intermediates below 0.1 or above 0.8, wets below 0.5) and the player has not chosen the next set this session, and
+the HUD guides the stop; it never drives or brakes the car. `weekend.pitGuide` is the HUD's step: `entry` (m
+to the lane's start, its side), `limit` (in the lane, or on its way in, before the limit line: m to it), `lane` (m to
+the box, the limiter), `box` (under 50 m), `service` (s left), `go`, `missed` (no service this visit: `past` the box,
+or `speeding`), or `through` (in the lane without the request). `entry`, `limit` and `box` carry `brake`: brake now,
+to be down to the limit at the limit line (`entry` counts the distance to it through the lane's start) or to stop at
+the box's middle, braking at `PIT.cueShare` (0.7) of the car's low-speed braking (`CarInfo.autoLong` g: 8.2 m/s² in
+the F1 and the GT3, 5.2 in the drift car) after `PIT.cueSecs` (0.3 s) of reaction (`brakeCue`). Measured
+(`test/pit-request.test.ts`, the GT3 at Melbourne from the limit line at the limit): a steady 5 m/s² stop for the
+box's middle stops 0.2 m from it; a brake key pressed fully stops the car in the box from 12 to 20 m before its
+middle. `weekend.pitAdvice` (a race we are racing in, no request): why to stop now, a
 required stop owed with no more laps left to make one in than stops owed + 1, tyres wrong for the track, or a tyre
 75% worn. Where the box is past the start/finish line (`weekend.boxPastLine`: the lane runs across the line, or
 starts after it) the last lap's crossing in the lane is the finish, so no stop can be made on the last lap: the
@@ -500,7 +515,8 @@ final lap's message does not say "pit this lap". The
 first session of a weekend (not one-shot qualifying) and the first request show `weekend.pitHelp` for 12 s, a
 one-line explanation of pit stops. The autopilot never
 enters it (it drives the centreline; in a room it treats the lane as road, so a car put in it, out of the box or
-recovered, drives out). The start gantry's post on the pit side stands beyond the lane (`scenery.ts`). Measured (`PITLOSS=melbourne npx vitest run test/pit-loss.test.ts`: the
+recovered, drives out, held to the limit by the limiter). The start gantry's post on the pit side stands beyond the
+lane (`scenery.ts`). Measured (`PITLOSS=melbourne npx vitest run test/pit-loss.test.ts`: the
 autopilot from the start spot to 300 m past the lane's end, through the lane with a stop, against on the track):
 at Melbourne a stop costs the F1
 19.7 s (38.3 s against 18.5 s; 2.5 s of it in the box), the GT3 23.8 s (8 s in the box), the drift car 21.1 s (6 s).
@@ -522,8 +538,9 @@ faster than the pit lane's limit (`PIT.limitKmh`, 80 km/h); it never brakes for 
 is back within the limits (not served in the gravel) and run only while it is driven (not held, recovering, serviced
 or parked). Notices (`flag`): TRACK LIMITS 1/3 and 2/3, TRACK LIMITS 3/3 with the penalty, LIMITER PENALTY when it
 starts; the pit panel shows the strikes (TRACK LIMITS 1/3), the penalty waiting (REJOIN THE TRACK) and its seconds
-left. `weekend.addStrike(reason)` adds a strike for any rule (the notice reads `reason`, upper case, and the count):
-false, not counted, outside a race we are racing in or with the setting off. The rule is the client's alone: the relay
+left. `weekend.addStrike(reason, rule)` adds a strike for any rule (the notice reads `reason`, upper case, and the
+count): false, not counted, outside a race we are racing in, or for rule `trackLimits` (the default) with the setting
+off; rule `pitSpeed` (the pit lane's speed limit, **The pit lane**) counts whatever the setting. The rule is the client's alone: the relay
 only carries the setting. A race lap off the track is still reported invalid (it is not a best lap) but costs no time.
 Practice and qualifying keep the time trial's rule (the lap deleted), with no strikes.
 
@@ -557,11 +574,11 @@ pits / spectator / paused (parked, or the menu) / finished / ghost (recovering, 
 | `startCompound`, `setStartCompound(id \| null)` | the set every session starts on (null: `autoCompound()`), for the lobby screen |
 | `nextCompound`, `cycleCompound(dir)` | the set the next stop or restart fits (the HUD's NEXT TYRES; action `tyre`, N or d-pad up) |
 | `tyreLife(id, wear?)` | about how many laps a set lasts here at the room's wear (or `wear`: the menu's hint next to the host's choice) |
-| `pit` | `zone`, `inLane`, `limiter`, `dist` (m along the lane), `service` / `serviceTotal` (s), `stops`, `stopped`, `passedBox` (this visit) |
+| `pit` | `zone`, `inLane`, `limiter`, `dist` (m along the lane), `service` / `serviceTotal` (s), `stops`, `stopped`, `passedBox`, `sped` (this visit), `speeding` |
 | `pitRequest`, `togglePitRequest()`, `setPitRequest(on)`, `pitGuide`, `pitAdvice`, `tyresWrong()`, `pitHelp` / `pitHelpFor` | the pit request and its guidance (above) |
 | `mandatoryStops` | the race's `pitStops` |
 | `held`, `recovering`, `parked`, `finished`, `spectator`, `raceLaps` | |
-| `strikes` (`count`, `pending`, `left`, `serving`, `limiting`), `addStrike(reason)` | the race's track limits rule (above) |
+| `strikes` (`count`, `pending`, `left`, `serving`, `limiting`), `addStrike(reason, rule)` | the race's track limits rule (above) |
 | `order`, `gapAhead`, `gapBehind`, `aheadId`, `behindId` | the live running order (`RaceEntry`: id, name, car, pos, laps, dist, gap, lapsDown, status, compound, pits, inPits, penalty) |
 | `keepsRunning`, `inRace`, `reason`, `lapState` | |
 | `rain`, `wetness` | the relay's weather now |
@@ -1036,9 +1053,12 @@ capacity above counts only the object's requests).
   carried in, the finish and the classification with missed-stop penalties (no chequered flag for the winner after
   its FINISHED), the time trial's
   best times untouched, leaving back to the time trial.
-- `test/pit-request.test.ts`: a stop made from the guidance alone (entry, lane, box, service, go; the stop in the
-  standings, no drive-through), the assisted stop against a brake key's window, when a drive-through is told (past
-  the box with the request off) and when not (a brush with the lane, the session ending with the car in it).
+- `test/pit-request.test.ts`: a car put anywhere in the lane, at rest or rolling, request on or off, always drives on
+  (the stuck car this replaced); the limiter never brakes and holds full throttle just under the limit; a stop made
+  from the guidance alone by a driver braking at its BRAKE cues (entry, limit, lane, box, service, go; the stop in the
+  standings, no strike, no drive-through); a steady stop by hand, a brake key's window, an overshoot (no service, the
+  car drives on); speeding (strikes, no service); when a drive-through is told (past the box with the request off)
+  and when not (a brush with the lane, the session ending with the car in it, coming in after the box).
 - `test/oneshot.test.ts`: one-shot qualifying with two, three and eight entrants in game Sessions: each waiting in
   its own pit-lane spot, released in the session's order `ONE_SHOT_GAP` apart (never two cars out of the lane at
   once), a car due out waiting while one on its lap comes past the start spot, one lap sent, back to the pits, the

@@ -565,6 +565,9 @@ kbd { font: inherit; font-weight: 700; color: var(--text); background: rgba(255,
 #pitGuide .gline.go { background: rgba(0, 70, 30, .85); border-color: var(--green); }
 #pitGuide .gline.go b { color: var(--green); }
 #pitGuide .gline.advice { background: rgba(20, 24, 30, .8); border-color: rgba(255,255,255,.35); }
+#pitGuide .gline.brake { background: rgba(110, 10, 10, .88); border-color: var(--red); animation: brakePulse .25s ease-in-out infinite alternate; }
+#pitGuide .gline.brake b, #pitGuide .gbrake { color: #fff; font-weight: 800; }
+@keyframes brakePulse { from { border-color: var(--red); } to { border-color: #fff; } }
 #pitGuide .pbar { flex-basis: 100%; height: 6px; border-radius: 3px; background: rgba(255,255,255,.15); overflow: hidden; }
 #pitGuide .pbar i { display: block; height: 100%; background: var(--yellow); }
 #pitGuide .ghelp { padding: 6px 12px; border-radius: 8px; background: rgba(10, 12, 16, .78); color: #dfe6ee; font-size: 12px; text-align: center; line-height: 1.35; }

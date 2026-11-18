@@ -105,8 +105,9 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   lights out, a pit stop, a recovery, the finish and classification,
   the timing panel's race laps (`lapState`), a race's best times starting empty, no chequered flag for
   the winner after its finish. `test/oneshot.test.ts`: one-shot qualifying with 2, 3 and 8 entrants (released one at
-  a time from the pit lane; the 8-car test idles the cars waiting, `Room.idle`); `test/pit-request.test.ts`: the pit
-  request, its guidance followed by a scripted driver, the assisted stop in the box, the drive-through notice;
+  a time from the pit lane; the 8-car test idles the cars waiting, `Room.idle`); `test/pit-request.test.ts`: a car in
+  the lane always able to drive on, the limiter that never brakes, the pit request and its guidance followed by a
+  scripted driver braking at its cues, stops by hand and overshoots, speeding, the drive-through notice;
   `test/track-limits.test.ts`: the race's track limits strikes and the penalty limiter they bring, none outside a race
   or with the setting off; all four use `test/weekendRoom.ts`. `test/raceGeometry.test.ts` checks the grid, the pit lane and the start gantry's posts
   clear of it at every circuit. `test/pit-loss.test.ts`
@@ -365,9 +366,9 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
     `CarInfo.race.wearScale`, the relay's weather into `Session.setConditions`), store tags (`.mp`, `.race`: never the
     time trial's bests), the input it overrides (held, recovering, parked, the track limits penalty, the pit limiter
     and service), the race's track limits rule (`strikes.ts` `Strikes`, `weekend.strikes`: a strike per excursion,
-    every third 3 s on the pit limiter once back on track; `addStrike(reason)` for any rule), the pit
-    lane (box, service `CarInfo.race.pitSecs`, `sendPit`; the pit request `pitRequest` with its guidance `pitGuide`,
-    the assisted stop in the box and the suggested stop `pitAdvice`), restarts (`requestRestart`; `Session.autoReset`): a flying
+    every third 3 s on the pit limiter once back on track; `addStrike(reason, rule)` for any rule: `pitSpeed`, the pit lane's speed limit, whatever the room's setting), the pit
+    lane (the limiter, which only cuts the throttle, speeding strikes, box, service `CarInfo.race.pitSecs`, `sendPit`;
+    the pit request `pitRequest` with its guidance `pitGuide` and its BRAKE cues, and the suggested stop `pitAdvice`), restarts (`requestRestart`; `Session.autoReset`): a flying
     start on fresh tyres, or in a race a recovery (`RECOVERY_SECS`), which laps are sent, and the live running order.
     Plain state for the HUD and the menu (`startCompound`, `nextCompound`, `pit`, `order`, `tyreLife`...).
     `raceGeometry.ts` (pure): `gridSlots`, `buildPitLane` (a 4 m strip on the pit building's side, on the run-off

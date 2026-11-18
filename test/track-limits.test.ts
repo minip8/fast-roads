@@ -115,7 +115,7 @@ describe('track limits in a race', () => {
     c.s.car.placeAt(spot.s, spot.out, 0);
     room.run(0.3);
     expect(w.strikes.count).toBe(1);
-    expect(w.addStrike('Pit lane speeding')).toBe(true);   // (another rule's strike counts towards the same penalty)
+    expect(w.addStrike('Pit lane speeding', 'pitSpeed')).toBe(true);   // (another rule's strike counts towards the same penalty)
     expect(w.strikes.count).toBe(2);
     expect(flags(c)).toEqual(['TRACK LIMITS 1/3', 'PIT LANE SPEEDING 2/3']);
   }, 120_000);
@@ -134,6 +134,7 @@ describe('track limits in a race', () => {
     expect(w.strikes.count).toBe(0);
     expect(w.strikes.pending || w.strikes.serving).toBe(false);
     expect(w.addStrike('Track limits')).toBe(false);
+    expect(w.addStrike('Pit lane speeding', 'pitSpeed')).toBe(true);   // (the pit lane's speed limit counts whatever the setting)
     expect(flags(c).some((f) => /TRACK LIMITS|LIMITER/.test(f))).toBe(false);
   }, 120_000);
 });

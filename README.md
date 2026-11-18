@@ -334,18 +334,23 @@ tyre wear, weather, collisions, track limits) are set in the lobby; the relay ti
   yellow square). The way in: blue PIT 300 / 200 / 100 boards on that side, white chevrons on a blue band along the
   track's edge, blue hatching over the entry and a large PIT IN board; then white lines, the 80 km/h boards, a yellow
   box under a gantry with a lit BOX sign, and PIT OUT (the start gantry's post on that side stands beyond it). In the
-  lane your car is a ghost and a limiter holds it to 80 km/h (braking for you if you come in too fast).
+  lane your car is a ghost. The game never brakes for you: between the two limit lines the pit limiter cuts the
+  throttle above 80 km/h, and that is all it does. You brake for the limit line and you stop in the box yourself.
   **To pit, press L (or the d-pad down): "box this lap".** The HUD then guides you: the distance to the pit entry and
-  its side, the limiter, "stop in the box", the tyres going on, GO. With the request on, the limiter also stops the
-  car in the box (keep the throttle down: it brakes to a halt at the box's middle), since a 12 m box at 80 km/h is
-  easy to overshoot on a brake key (braking fully between about 10 and 22 m before it is all that stops a GT3 in it).
-  Driving into the lane turns the request on; press L again in the lane to drive through. The car is serviced
-  once stopped in the box: a fresh set of the tyres shown as NEXT TYRES (N, or the d-pad up, cycles them; on the
+  its side, the limit line coming and a red BRAKE cue when it is time to brake for it (timed for firm braking in your
+  car), the limiter, the metres to the box and BRAKE again for it, the tyres going on, GO. The car is serviced once
+  at rest with its centre in the 10 m box (braking fully on a key from 80 km/h works from about 12 to 20 m before the
+  box's middle in the GT3): a fresh set of the tyres shown as NEXT TYRES (N, or the d-pad up, cycles them; on the
   request, tyres for the weather if the fitted ones are wrong and you have not chosen): 2.5 s in the F1, 8 s in the
-  GT3, 6 s in the drift car. At Melbourne a stop costs about 20-24 s in all. In a race the HUD suggests a stop (BOX
-  THIS LAP?) when a required stop is owed and the laps are running out, when the tyres are nearly worn out (75%), or
-  when they are wrong for the track. The first session of a weekend explains pit stops in one line. Going past the
-  box without stopping, in a race you are still in, is a drive-through: not a stop.
+  GT3, 6 s in the drift car. Stop short and drive on into it; overshoot it and there is no service this time (NO
+  STOP: drive on and box again next lap). Driving into the lane before the box turns the request on; press L again
+  in the lane to drive through. **Speeding** (over 85 km/h between the limit lines) is a strike in a race (PIT LANE
+  SPEEDING 1/3, another every second you stay over; three are the 3 s limiter penalty, as for track limits, whatever
+  the room's Track limits option) and costs the stop on that visit in any session. At Melbourne a stop costs about
+  20-24 s in all. In a race the HUD suggests a stop (BOX THIS LAP?) when a required stop is owed and the laps are
+  running out, when the tyres are nearly worn out (75%), or when they are wrong for the track. The first session of
+  a weekend explains pit stops in one line. Going past the box without stopping, in a race you are still in, is a
+  drive-through: not a stop.
 - **Track limits in a race** (the room's Track limits option; the Sprint, Grand Prix and Endurance formats have it
   on): every time all four wheels go off the track is a strike (TRACK LIMITS 1/3, 2/3; being pushed off counts too,
   and you must be back on the track for half a second before the next one counts). The third puts you on the pit

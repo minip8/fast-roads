@@ -68,15 +68,16 @@ describe('a race weekend in the game', () => {
     room.run(0.5);
     expect(alice.mp.net.standings.map((s) => [s.name, s.laps])).toEqual([['Cy', 1], ['Alice', 1], ['Bob', 1]]);
     expect(alice.mp.weekend.order.map((e) => e.name)).toEqual(['Cy', 'Alice', 'Bob']);
-    // Alice pits for hards: into the lane at 30 m/s (the limiter takes her down to 80 km/h), stops in the box
+    // Alice pits for hards: into the lane at 30 m/s, brakes to 80 km/h by the limit line and to a stop in the box
     const w = alice.mp.weekend, lane = w.lane, tr = alice.s.track;
     expect(Math.max(...alice.s.car.tyreWear)).toBeGreaterThan(0);
     w.nextCompound = 'hard';
     alice.s.car.placeAt(lane.sStart + 5, lane.side * (lane.inner[3] + lane.outer[3]) / 2, 30);
-    alice.driver = (car) => {   // follow the lane's middle, flat out, then brake in the box
+    alice.driver = (car) => {   // follow the lane's middle, braking for the limit line, then for the box's middle
       const d = w.pit.dist, k = Math.min(lane.n - 1, Math.max(0, Math.round(d / (tr.L / tr.N))));
       const want = lane.side * (lane.inner[k] + lane.outer[k]) / 2, err = want - car.proj.lat;
-      const target = Math.sqrt(Math.max(0, 2 * 4 * (lane.box - d))), v = car.speedF;   // a stop at the box's middle
+      const v = car.speedF, box = Math.sqrt(Math.max(0, 2 * 4 * (lane.box - d)));
+      const target = Math.min(box, d < lane.limIn ? Math.sqrt((lane.limitMs - 1) ** 2 + 2 * 6 * Math.max(0, lane.limIn - 3 - d)) : lane.limitMs - 1);
       return { throttle: v < target - 1 ? 0.6 : 0, brake: v > target + 0.5 && v > 0.3 ? 1 : 0, steer: 0, analog: true, steerAngle: Math.max(-0.2, Math.min(0.2, err * 0.05)), autoGears: true };
     };
     room.until(() => w.pit.service > 0, 20, 'the box');
@@ -93,7 +94,7 @@ describe('a race weekend in the game', () => {
     expect(bobsView.sample.compound).toBe(COMPOUND.hard);
     alice.driver = null;
     // the lane's limiter held her to the limit through the limited stretch (checked on a run through it)
-    alice.s.car.placeAt(lane.sStart + lane.limIn + 2, lane.side * (lane.inner[40] + lane.outer[40]) / 2, 40);
+    alice.s.car.placeAt(lane.sStart + lane.limIn + 2, lane.side * (lane.inner[40] + lane.outer[40]) / 2, lane.limitMs - 3);
     let over = 0;
     alice.driver = full;
     room.run(2, () => { if (w.pit.inLane && w.pit.dist > lane.limIn + 40 && w.pit.dist < lane.limOut) over = Math.max(over, alice.s.car.speedF * 3.6); });

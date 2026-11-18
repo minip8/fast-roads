@@ -150,16 +150,29 @@ export class RaceHud {
     const w = mp.weekend, g = w.pitGuide, key = this.pitKey ? `<kbd>${esc(this.pitKey)}</kbd>` : '';
     const side = (sd: 1 | -1) => (sd > 0 ? '<i class="garrow">◀</i> LEFT' : 'RIGHT <i class="garrow">▶</i>');
     const m = (d: number) => (d >= 1000 ? `${(d / 1000).toFixed(1)} km` : `${Math.max(0, Math.round(d / 10) * 10)} m`);
+    const kmh = Math.round(w.lane.limitMs * 3.6);
     let line = '', cls = '';
     if (g) {
       switch (g.step) {
         case 'entry':
-          cls = g.dist < 400 ? 'now' : '';
+          cls = g.brake ? 'brake' : g.dist < 400 ? 'now' : '';
           line = g.dist < 1500 ? `<b>PIT ENTRY ${g.dist < 15 ? 'NOW' : m(g.dist)}</b><span>${side(g.side)}</span>` : `<b>BOX THIS LAP</b><span>PIT ENTRY IN ${m(g.dist)}</span>`;
-          if (key) line += `<small>${key} cancel</small>`;
+          if (g.brake) line += `<span class="gbrake">BRAKE · ${kmh} KM/H AT THE LINE</span>`;
+          else if (key) line += `<small>${key} cancel</small>`;
           break;
-        case 'lane': cls = 'lane'; line = `<b>${g.limiter ? 'LIMITER ON' : 'PIT LANE'} · ${Math.round(w.lane.limitMs * 3.6)} KM/H</b><span>BOX ${m(g.box)}</span>`; break;
-        case 'box': cls = 'box'; line = `<b>STOP IN THE BOX</b><span>${g.box > 0.5 ? m(g.box) : 'HERE'}</span><small>the limiter brings you to a stop</small>`; break;
+        case 'limit':
+          cls = g.brake ? 'brake' : 'lane';
+          line = `<b>${g.brake ? 'BRAKE' : 'PIT LIMIT'} · ${kmh} KM/H</b><span>LIMIT LINE ${m(g.dist)}</span>`;
+          break;
+        case 'lane': cls = 'lane'; line = `<b>${g.limiter ? 'LIMITER ON' : 'PIT LANE'} · ${kmh} KM/H</b><span>BOX ${m(g.box)}</span>`; break;
+        case 'box':
+          cls = g.brake ? 'brake' : 'box';
+          line = `<b>${g.brake ? 'BRAKE: ' : ''}STOP IN THE BOX</b><span class="num">${g.box > 0.5 ? `${Math.round(g.box)} m` : 'HERE'}</span>`;
+          break;
+        case 'missed':
+          cls = 'lane';
+          line = `<b>NO STOP</b><span>${g.why === 'speeding' ? `OVER ${kmh} KM/H` : 'PAST THE BOX'}</span><small>drive out: box again next lap</small>`;
+          break;
         case 'service': {
           cls = 'box';
           const f = 1 - g.left / Math.max(0.01, g.total);
@@ -167,7 +180,7 @@ export class RaceHud {
           break;
         }
         case 'go': cls = 'go'; line = '<b>GO</b><span>PIT EXIT <i class="garrow">▶</i></span>'; break;
-        case 'through': cls = 'lane'; line = `<b>PIT LANE · ${Math.round(w.lane.limitMs * 3.6)} KM/H</b><span>DRIVE-THROUGH</span>${key ? `<small>${key} stop in the box</small>` : ''}`; break;
+        case 'through': cls = 'lane'; line = `<b>PIT LANE · ${kmh} KM/H</b><span>DRIVE-THROUGH</span>${key ? `<small>${key} stop in the box</small>` : ''}`; break;
       }
     } else {
       const a = w.pitAdvice;

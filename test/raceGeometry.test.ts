@@ -95,7 +95,7 @@ describe('the pit lane', () => {
     enablePitLane(tr, null);
     expect(surfaceAt(tr, i, mid, tr.S[i], res)).toBe(before);
     expect(laneLimit(lane, lane.box)).toBeCloseTo(80 / 3.6, 6);
-    expect(laneLimit(lane, 0)).toBeGreaterThan(80 / 3.6 + 10);
+    expect(laneLimit(lane, 0)).toBe(Infinity);   // (no limit on the entry road: the driver brakes for the limit line)
     expect(laneLimit(lane, lane.limOut + 1)).toBe(Infinity);
   });
 });

@@ -1,7 +1,7 @@
 import type { CompoundId } from './conditions';
 import { DT } from './config';
 import { CAR_REASON, COMPOUND, oneShotRelease, type NetClient, type NetEvent, type Phase, type RaceStage, type SessionInfo, type Stage, type StandingStatus } from './net';
-import { buildPitLane, enablePitLane, gridSlots, laneDist, laneIndex, laneLimit, laneZone, PIT, type GridSlot, type PitLane } from './raceGeometry';
+import { brakeCue, buildPitLane, enablePitLane, gridSlots, laneDist, laneIndex, laneLimit, laneZone, PIT, type GridSlot, type PitLane } from './raceGeometry';
 import type { Session } from './sim';
 import { Strikes } from './strikes';
 import { clearStore } from './timing';
@@ -25,9 +25,9 @@ const GAP_BUCKET = 10;                // m: the running order's timing loops
 // passed it (from CLEAR_BEHIND m before it to CLEAR_AHEAD m after it), so it never joins in front of a car on its lap
 // nor right behind one; at most ONE_SHOT_WAIT s, in case that car has stopped there.
 const CLEAR_BEHIND = 500, CLEAR_AHEAD = 200, ONE_SHOT_WAIT = 15;
-// The pit request's assisted stop: in the lane the limiter's speed falls as braking at BOX_DECEL m/s² down to a stop at
-// the box's middle allows (docs/net.md, **The pit request**).
-export const BOX_DECEL = 3;
+// Speeding in the pit lane (over the limit by more than PIT.speedTolKmh between the limit lines): a strike at once and
+// another every SPEEDING_EVERY s while it lasts, so driving through fast never pays (docs/net.md, **The pit lane**).
+export const SPEEDING_EVERY = 1;
 const WORN = 0.75;                    // tread worn (0..1) from which the HUD suggests a stop
 const PIT_HELP_SECS = 12;             // s the one-line explanation of pit stops stays up
 // s a car must be back within the track limits (a wheel inside them) before going off again is another strike
@@ -65,16 +65,21 @@ export interface PitState {
   serviceTotal: number;
   stops: number;                      // stops made this session
   stopped: boolean;                   // this visit: serviced (else a drive-through so far)
-  passedBox: boolean;                 // this visit: the car has gone past the box
+  passedBox: boolean;                 // this visit: the car has gone past the box (or came in after it)
+  sped: boolean;                      // this visit: over the limit (no service this time)
+  speeding: boolean;                  // over the limit now
 }
 
 // What the HUD shows to guide a pit stop (Weekend.pitGuide): the step and what it needs.
+// `brake`: brake now (firmly) to be down to the limit at the limit line, or to stop in the box.
 export type PitGuide =
-  | { step: 'entry'; dist: number; side: 1 | -1 }        // box this lap: the pit entry dist m ahead, on that side
-  | { step: 'lane'; box: number; limiter: boolean }      // in the lane, the box `box` m ahead (the limiter on)
-  | { step: 'box'; box: number }                         // stop in the box (m to its middle; negative: past it)
+  | { step: 'entry'; dist: number; side: 1 | -1; brake: boolean }   // box this lap: the pit entry dist m ahead, on that side
+  | { step: 'limit'; dist: number; brake: boolean }      // in the lane, the limit line dist m ahead
+  | { step: 'lane'; box: number; limiter: boolean }      // past the limit line, the box `box` m ahead (the limiter on)
+  | { step: 'box'; box: number; brake: boolean }         // stop in the box (m to its middle; negative: past it)
   | { step: 'service'; left: number; total: number }     // the service under way (s left)
   | { step: 'go' }                                       // serviced: drive out
+  | { step: 'missed'; why: 'past' | 'speeding' }         // no service this visit: past the box, or over the limit
   | { step: 'through' };                                 // in the lane without a request: driving through
 
 type Notify = (kind: 'flag' | 'race' | 'error', text: string, sub?: string) => void;
@@ -92,9 +97,10 @@ export class Weekend {
   // tyres: the set to start each session on (null: by the weather), and the set the next stop or restart fits
   startCompound: CompoundId | null = null;
   nextCompound: CompoundId;
-  readonly pit: PitState = { zone: 'track', inLane: false, limiter: false, dist: 0, service: 0, serviceTotal: 0, stops: 0, stopped: false, passedBox: false };
-  // The pit request ("box this lap", the `pit` key): guidance to the box, and the limiter stops the car in it. Entering
-  // the lane turns it on; the key turns it off again (a drive-through). Off once the stop is made and the car is out.
+  readonly pit: PitState = { zone: 'track', inLane: false, limiter: false, dist: 0, service: 0, serviceTotal: 0, stops: 0, stopped: false, passedBox: false, sped: false, speeding: false };
+  private speedingFor = 0;            // s since the last speeding strike
+  // The pit request ("box this lap", the `pit` key): guidance to the box. Entering the lane before the box turns it on;
+  // the key turns it off again (a drive-through). Off once the stop is made, or the box passed, and the car is out.
   pitRequest = false;
   pitHelp: string | null = null;      // a one-line explanation of pit stops, the first time in a weekend
   pitHelpFor = 0;                     // s it stays up
@@ -303,14 +309,11 @@ export class Weekend {
     const stop = { throttle: 0, brake: Math.abs(v) > 0.3 ? 1 : 0, steer: 0, analog: inp.analog, steerAngle: null, autoGears: inp.autoGears };
     if (this.held || this.pit.service > 0 || this.recovering > 0 || this.parked) return stop;
     inp = this.strikes.input(inp, v);   // (a track limits penalty: no throttle above the pit limit)
-    if (this.pit.inLane) {
-      let vmax = laneLimit(this.lane, this.pit.dist);
-      // the pit request: the limiter brings the car to a stop in the box (BOX_DECEL down to its middle)
-      if (this.pitRequest && !this.pit.stopped && this.serviceAllowed) vmax = Math.min(vmax, Math.sqrt(2 * BOX_DECEL * Math.max(0, this.lane.box - this.pit.dist)));
-      this.pit.limiter = vmax < Infinity && v > vmax - 2;
-      if (v > vmax + 0.3) return { ...inp, throttle: 0, brake: Math.max(inp.brake, Math.min(1, Math.max(0.15, (v - vmax) / 3))) };
-      if (vmax < Infinity) return { ...inp, throttle: Math.min(inp.throttle, Math.max(0, (vmax - v) / 1.5)) };
-    } else this.pit.limiter = false;
+    // the pit limiter, between the limit lines: no throttle above the limit (eased off over the last 1.5 m/s below it,
+    // so the car settles just under it). It never brakes: the driver brakes for the limit line and stops in the box.
+    const vmax = this.pit.inLane ? laneLimit(this.lane, this.pit.dist) : Infinity;
+    this.pit.limiter = vmax < Infinity && v > vmax - 2;
+    if (vmax < Infinity) return { ...inp, throttle: Math.min(inp.throttle, Math.max(0, (vmax - v) / 1.5)) };
     return inp;
   }
 
@@ -322,12 +325,22 @@ export class Weekend {
     p.zone = laneZone(this.lane, tr, car.proj);
     const inLane = p.zone === 'lane' || (p.inLane && p.zone === 'near');
     p.dist = laneDist(this.lane, tr, car.proj.s);
+    const pastBox = p.dist > this.lane.box + PIT.boxLen / 2 && p.dist < this.lane.len;
     if (inLane && !p.inLane) {
-      // into the lane: a stop is wanted (the request, turned on by driving in; the key turns it off: a drive-through)
-      p.stopped = false; p.passedBox = false;
-      if (!this.held && !this.pitRequest) this.setPitRequest(true);
+      // into the lane: a stop is wanted (the request, turned on by driving in before the box; the key turns it off: a
+      // drive-through). In after the box: nothing to stop for, so no request.
+      p.stopped = false; p.passedBox = pastBox; p.sped = false; p.speeding = false;
+      if (!this.held && !this.pitRequest && !pastBox) this.setPitRequest(true);
     }
-    if (inLane && p.dist > this.lane.box + PIT.boxLen / 2 && p.dist < this.lane.len) p.passedBox = true;
+    if (inLane && pastBox) p.passedBox = true;
+    // speeding: over the limit (and the tolerance) between the limit lines (a held or recovering car aside)
+    const over = inLane && laneLimit(this.lane, p.dist) < Infinity && car.speedF > this.lane.limitMs + PIT.speedTolKmh / 3.6
+      && !this.held && this.recovering === 0;
+    if (over) {
+      this.speedingFor = p.speeding ? this.speedingFor + DT : 0;
+      if (!p.speeding || this.speedingFor >= SPEEDING_EVERY) { this.speedingFor = 0; this.speedingStrike(); }
+    }
+    p.speeding = over;
     // out of the lane: a drive-through only if the car went past the box without stopping in a race it is still in
     // (a brush with the lane's edge, a session change or the car's finish in the lane is none)
     if (!inLane && p.inLane) {
@@ -338,7 +351,9 @@ export class Weekend {
     if (p.service > 0) {
       p.service = Math.max(0, p.service - DT);
       if (p.service === 0) this.serviced(tickAt);
-    } else if (inLane && !p.stopped && Math.abs(p.dist - this.lane.box) <= PIT.boxLen / 2 && Math.abs(car.speedF) < 0.5 && !this.held && this.serviceAllowed) {
+    } else if (inLane && !p.stopped && !p.sped && !p.passedBox && Math.abs(p.dist - this.lane.box) <= PIT.boxLen / 2 && Math.abs(car.speedF) < 0.5
+      && !this.held && this.serviceAllowed) {
+      // at rest in the box (stopped there by the driver) without having sped on the way in: the service
       p.serviceTotal = p.service = car.spec.race.pitSecs;
     }
     this.trackLimits(car.wheels.every((w) => w.out));
@@ -368,19 +383,28 @@ export class Weekend {
 
   // ------------------------------------------------------------------------ track limits in a race
   // A strike against us (reason: what for, as the notice says it, e.g. 'Track limits'): only in a race we are racing
-  // in with the room's track limits rule on. Returns whether it counted.
-  addStrike(reason: string): boolean {
-    if (!this.net.settings.trackLimits || !this.racing || this.held) return false;
+  // in, and for the track limits rule (rule 'trackLimits') only with the room's setting on; the pit lane's speed limit
+  // ('pitSpeed') always counts. Returns whether it counted.
+  addStrike(reason: string, rule: 'trackLimits' | 'pitSpeed' = 'trackLimits'): boolean {
+    if ((rule === 'trackLimits' && !this.net.settings.trackLimits) || !this.racing || this.held) return false;
     this.strikes.add(reason);
     return true;
+  }
+  // Speeding in the pit lane: a strike (in a race), and no service this visit (told once a visit outside a race).
+  private speedingStrike() {
+    const first = !this.pit.sped;
+    this.pit.sped = true;
+    if (!this.addStrike('Pit lane speeding', 'pitSpeed') && first) this.notify('flag', 'PIT LANE SPEEDING', `Over ${PIT.limitKmh} km/h: no service this time`);
   }
   // Each tick: a strike for each excursion beyond the track limits (as Timing's: all four wheels out, however it came
   // about), and the penalty limiter's clock, which starts once the car is back and runs while the car is driven.
   private trackLimits(out: boolean) {
     this.backFor = out ? 0 : this.backFor + DT;
-    if (out && !this.offTrack) { this.offTrack = true; this.addStrike('Track limits'); }
+    if (out && !this.offTrack) { this.offTrack = true; this.addStrike('Track limits', 'trackLimits'); }
     else if (this.offTrack && this.backFor >= REJOIN_SECS) this.offTrack = false;
-    this.strikes.tick(DT, !this.offTrack, !this.held && this.recovering === 0 && this.pit.service === 0 && !this.parked);
+    // (a penalty is served on the track, not in the pit lane, where the limiter holds the car anyway)
+    const lane = this.pit.inLane;
+    this.strikes.tick(DT, !this.offTrack && !lane, !lane && !this.held && this.recovering === 0 && this.pit.service === 0 && !this.parked);
   }
 
   // ------------------------------------------------------------------------ the pit request and its guidance
@@ -407,8 +431,8 @@ export class Weekend {
     this.pitExplained = true;
     this.pitHelpFor = PIT_HELP_SECS;
     const side = this.lane.side > 0 ? 'left' : 'right';
-    this.pitHelp = `Pit stops: press the pit key to box this lap, follow the arrows into the pit lane on the ${side} before the line, `
-      + `and the limiter stops you in your yellow box; new tyres go on, then drive out.`;
+    this.pitHelp = `Pit stops: press the pit key to box this lap, follow the arrows into the pit lane on the ${side}, brake to `
+      + `${PIT.limitKmh} km/h by the limit line (the limiter holds you there) and stop in your yellow box; new tyres go on, then drive out.`;
   }
   // The tyres fitted are wrong for the conditions: slicks on a wet track (or rain tyres on a dry one), intermediates in
   // standing water, wets on a merely damp track.
@@ -433,21 +457,27 @@ export class Weekend {
   }
   // The guidance for the HUD (null: nothing to show).
   get pitGuide(): PitGuide | null {
-    const p = this.pit, tr = this.session.track;
+    const p = this.pit, tr = this.session.track, L = this.lane, v = this.session.car.speedF, decel = this.cueDecel;
     if (this.held) return null;   // (one-shot qualifying's cars waiting in the lane, or done)
     if (p.service > 0) return { step: 'service', left: p.service, total: p.serviceTotal };
+    const limit = () => ({ step: 'limit' as const, dist: L.limIn - p.dist, brake: brakeCue(v, L.limIn - p.dist, L.limitMs, decel) });
     if (p.inLane) {
       if (p.stopped) return { step: 'go' };
+      if (p.dist < L.limIn) return limit();
       if (!this.pitRequest || !this.serviceAllowed) return { step: 'through' };
-      const box = this.lane.box - p.dist;
-      return box < 40 ? { step: 'box', box } : { step: 'lane', box, limiter: p.limiter };
+      if (p.sped) return { step: 'missed', why: 'speeding' };
+      if (p.passedBox) return { step: 'missed', why: 'past' };
+      const box = L.box - p.dist, brake = brakeCue(v, box, 0, decel);
+      return box < 50 || brake ? { step: 'box', box, brake } : { step: 'lane', box, limiter: p.limiter };
     }
     if (!this.pitRequest || this.held || this.recovering > 0) return null;
-    if (p.zone !== 'track' && p.dist < this.lane.len) return { step: 'lane', box: this.lane.box - p.dist, limiter: false };   // (on the way in)
+    if (p.zone !== 'track' && p.dist < L.limIn) return limit();   // (on the way in)
     // (alongside the entry ramp but not in the lane yet: the entry is here; past the ramp: missed, the next lap's)
-    const d = p.dist < this.lane.limIn ? 0 : ((this.lane.sStart - this.session.car.proj.s) % tr.L + tr.L) % tr.L;
-    return { step: 'entry', dist: d, side: this.lane.side };
+    const d = p.dist < L.limIn ? 0 : ((L.sStart - this.session.car.proj.s) % tr.L + tr.L) % tr.L;
+    return { step: 'entry', dist: d, side: L.side, brake: brakeCue(v, d + L.limIn, L.limitMs, decel) };
   }
+  // The braking the BRAKE cue is timed for: PIT.cueShare of the car's low-speed braking.
+  private get cueDecel() { return PIT.cueShare * this.session.car.spec.autoLong * 9.81; }
 
   // ------------------------------------------------------------------------
   private startCompoundNow(): CompoundId { return this.startCompound ?? this.autoCompound(); }
@@ -458,7 +488,7 @@ export class Weekend {
     this.phase = s.phase; this.index = s.index; this.stage = s.stage;
     this.finished = false; this.oneShotGo = false; this.goSim = null; this.recovering = 0; this.raceLaps = 0;
     this.strikes.reset(); this.offTrack = false; this.backFor = 0;
-    Object.assign(this.pit, { service: 0, stops: 0, stopped: false, limiter: false, inLane: false, passedBox: false });
+    Object.assign(this.pit, { service: 0, stops: 0, stopped: false, limiter: false, inLane: false, passedBox: false, sped: false, speeding: false });
     this.pitRequest = false; this.compoundChosen = false; this.lastLapIn = false;
     if (s.phase === 'lobby') this.pitExplained = false;   // (once a weekend)
     this.runners.clear(); this.order = []; this.gapAhead = this.gapBehind = null;
@@ -546,7 +576,7 @@ export class Weekend {
     if (car.compounds.some((c) => c.id === id)) car.fitTyres(id, heat);
     this.session.restart();
     this.held = false; this.recovering = 0;
-    Object.assign(this.pit, { service: 0, stopped: false, inLane: false, passedBox: false });
+    Object.assign(this.pit, { service: 0, stopped: false, inLane: false, passedBox: false, sped: false, speeding: false });
     this.pitRequest = false;
   }
 
