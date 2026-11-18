@@ -166,8 +166,8 @@ function buildTrees(tr: Track, def: TrackDef, own: Own): THREE.InstancedMesh[] {
   const meshes: THREE.InstancedMesh[] = [], mats = new Map<TreeKind, [THREE.Material, THREE.Material]>();
   for (const list of groups.values()) {
     const kind = list[0].kind, t = types[kind];
-    if (!mats.has(kind)) mats.set(kind, [own(floodlit(new THREE.MeshStandardMaterial({ color: t.trunkColor, roughness: 1 }))),
-      own(floodlit(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, flatShading: true, side: t.double ? THREE.DoubleSide : THREE.FrontSide })))]);
+    if (!mats.has(kind)) mats.set(kind, [own(floodlit(new THREE.MeshLambertMaterial({ color: t.trunkColor }))),
+      own(floodlit(new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true, side: t.double ? THREE.DoubleSide : THREE.FrontSide })))]);
     const [trunkMat, crownMat] = mats.get(kind)!;
     const trunks = new THREE.InstancedMesh(t.trunk, trunkMat, list.length), crowns = new THREE.InstancedMesh(t.crown, crownMat, list.length);
     list.forEach((p, k) => {
@@ -189,7 +189,7 @@ function buildTrees(tr: Track, def: TrackDef, own: Own): THREE.InstancedMesh[] {
 // ---------------------------------------------------------------------------- buildings
 // Façades: one window texture (24 m x 24 m a tile: eight storeys of twelve windows) for every building, tinted by vertex
 // colour, with its lit windows as the emissive map (on at dusk and night: Glow).
-interface Facade { wall: THREE.MeshStandardMaterial; sign: THREE.MeshBasicMaterial }
+interface Facade { wall: THREE.MeshLambertMaterial; sign: THREE.MeshBasicMaterial }
 function facadeMaterials(own: Own, glow: Glow): Facade {
   const rng = mulberry32(99);
   // a tile is 24 m x 24 m: eight storeys of twelve windows (each building starts at its own window and storey of it,
@@ -215,7 +215,7 @@ function facadeMaterials(own: Own, glow: Glow): Facade {
       g.fillRect(x, y, 29, 40);
     }
   }));
-  const wall = own(floodlit(new THREE.MeshStandardMaterial({ map: day, vertexColors: true, roughness: 0.75, metalness: 0.05, emissive: 0xffffff, emissiveMap: lit, emissiveIntensity: 0 })));
+  const wall = own(floodlit(new THREE.MeshLambertMaterial({ map: day, vertexColors: true, emissive: 0xffffff, emissiveMap: lit, emissiveIntensity: 0 })));
   glow.add(wall, 1.1);
   // a sign: neon tubes (an outline, a bar and a ring, tinted by the sign's colour) on a dark panel
   const neon = own(canvasTex(256, 64, (g, w, h) => {
@@ -377,7 +377,7 @@ function buildHills(tr: Track, def: TrackDef, own: Own): THREE.Object3D {
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   g.setIndex(idx); g.computeVertexNormals();
-  const m = new THREE.Mesh(own(g), own(floodlit(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide }))));
+  const m = new THREE.Mesh(own(g), own(floodlit(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }))));
   m.name = 'hills';
   return m;
 }
@@ -396,7 +396,7 @@ function buildFences(tr: Track, def: TrackDef, own: Own): THREE.Object3D[] {
     g.fillStyle = '#5b6068'; g.fillRect(0, 0, 128, 6);     // the post (along the canvas' y: the track)
     g.fillRect(122, 0, 6, 128);                             // the top rail (u = 1)
   }));
-  const mat = own(new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.6, metalness: 0.5 }));
+  const mat = own(new THREE.MeshLambertMaterial({ map: tex, alphaTest: 0.5, side: THREE.DoubleSide }));
   const ds = tr.L / tr.N, nearLine = Math.round(400 / ds), out: THREE.Object3D[] = [];
   for (const side of [1, -1]) {
     const bar = side > 0 ? tr.barL : tr.barR, valid = side > 0 ? tr.barLValid : tr.barRValid, gravel = side > 0 ? tr.gravelL : tr.gravelR;

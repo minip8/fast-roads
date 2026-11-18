@@ -172,8 +172,9 @@ export function disposeEnvLamps(g: THREE.Group) {
 }
 
 // ----------------------------------------------------------------------------
-// Lamps, lit windows and signs: materials whose glow follows Look.lamps (0 by day). A standard material's emissive
-// intensity goes from `off` to `on`; a basic or points material's colour is scaled (and hidden at 0).
+// Lamps, lit windows and signs: materials whose glow follows Look.lamps (0 by day). A standard
+// (or Lambert) material's emissive intensity goes from `off` to `on`; a basic or points material's colour is scaled
+// (and hidden at 0).
 export class Glow {
   private readonly list: { m: THREE.Material; on: number; off: number; base: THREE.Color | null }[] = [];
   add<M extends THREE.Material>(m: M, on: number, off = 0): M {
@@ -184,7 +185,7 @@ export class Glow {
   set(lamps: number) {
     for (const g of this.list) {
       const k = g.off + (g.on - g.off) * lamps;
-      if (g.m instanceof THREE.MeshStandardMaterial) g.m.emissiveIntensity = k;
+      if (g.m instanceof THREE.MeshStandardMaterial || g.m instanceof THREE.MeshLambertMaterial) g.m.emissiveIntensity = k;
       else if (g.base) (g.m as unknown as { color: THREE.Color }).color.copy(g.base).multiplyScalar(k);
       if (g.m instanceof THREE.PointsMaterial) g.m.visible = k > 0;
     }
