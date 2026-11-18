@@ -607,6 +607,11 @@ and Jeddah, converted by `scripts/tracks/convert.mjs` (each CSV's header names i
 > CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 > IN THE SOFTWARE.
 
+Pit lane data (`tracks/pits/`, made by `scripts/tracks/pits.mjs`; not used by the game yet): the real pit lanes'
+centrelines from [OpenStreetMap](https://www.openstreetmap.org/copyright), © OpenStreetMap contributors, available
+under the Open Database License (ODbL 1.0), fitted to the circuits above. Each file names the OSM ways it comes from;
+`tracks/pits/index.json` marks any lane drawn by hand where OpenStreetMap has none (`"quality": "approx"`).
+
 Circuit names are used to say which real circuit a layout follows; the game is not affiliated with Formula 1 or the
 circuits.
 The physics engine and the F1 2026 and GT3 car data:

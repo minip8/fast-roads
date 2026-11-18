@@ -1,0 +1,2586 @@
+{
+ "about": "Real pit lanes, one CSV per circuit in this folder (x_m,y_m,s_m,lat_m[,w_m]; see scripts/tracks/pits.mjs). s: m along our centreline from the line; sFromLine: the same, negative before the line; row: nearest 0-based data row of tracks/<id>.csv (comment lines not counted); sideSign: +1 left, -1 right, as TrackDef.pitSide; lat: + = left of our centreline. Source: OpenStreetMap, © OpenStreetMap contributors, ODbL 1.0, except quality \"approx\" (made by hand).",
+ "circuits": {
+  "melbourne": {
+   "name": "Albert Park",
+   "quality": "osm",
+   "side": "right",
+   "sideSign": -1,
+   "rows": 140,
+   "length_m": 696,
+   "entry": {
+    "s": 4752.6,
+    "sFromLine": -546.1,
+    "row": 951,
+    "lat": -0.1,
+    "edge": 5.8,
+    "onTrack": true
+   },
+   "exit": {
+    "s": 163.4,
+    "sFromLine": 163.4,
+    "row": 33,
+    "lat": -0.2,
+    "edge": 6.8,
+    "onTrack": true
+   },
+   "leavesTrack": {
+    "laneRow": 7,
+    "s": 4787.6,
+    "sFromLine": -511.2,
+    "row": 958,
+    "lat": -6,
+    "edge": 5.6
+   },
+   "rejoinsTrack": {
+    "laneRow": 131,
+    "s": 124.1,
+    "sFromLine": 124.1,
+    "row": 25,
+    "lat": -7.6,
+    "edge": 6.7
+   },
+   "lapSpan_m": 709.6,
+   "maxOffset_m": 13.6,
+   "maxOffsetAt": {
+    "laneRow": 118,
+    "s": 59.3,
+    "sFromLine": 59.3
+   },
+   "working": {
+    "from": 5092.6,
+    "to": 34.2,
+    "source": "OSM pit buildings",
+    "fromLine": -206.1,
+    "toLine": 34.2
+   },
+   "crossesTrack": [],
+   "farFromTrack": [],
+   "otherPartOfLap": [],
+   "today": {
+    "pit": [
+     -220,
+     80
+    ],
+    "pitSide": 1,
+    "sameSide": false,
+    "workingOverlap_m": 240.3
+   },
+   "checks": {
+    "endsOnTrack": true,
+    "rowsInsideTrackEdgeBetween": 0,
+    "rowsOnOtherSide": 0,
+    "rowsGoingBackwards": 0
+   },
+   "widthFromOsm": false,
+   "tunnelsOrBridges": [],
+   "registration": {
+    "fittedTo": "relation 280443 (Albert Park Circuit)",
+    "median_m": 1,
+    "p95_m": 12.5,
+    "max_m": 34,
+    "mappedShare": 0.94,
+    "mappedMedian_m": 0.9,
+    "mappedP95_m": 4.8,
+    "rotation_deg": 1.25,
+    "bacingerMedian_m": 0.9
+   },
+   "osm": {
+    "ways": [
+     28119448
+    ],
+    "gapsBridged": 0,
+    "how": "relation 280443 role pit_lane",
+    "data": "2026-11-17T23:58:20Z"
+   },
+   "notes": [
+    "OSM lane trimmed to where it meets the track (2 rows off the start, 1 off the end)"
+   ]
+  },
+  "shanghai": {
+   "name": "Shanghai International Circuit",
+   "quality": "osm",
+   "side": "right",
+   "sideSign": -1,
+   "rows": 167,
+   "length_m": 829.6,
+   "entry": {
+    "s": 5169.3,
+    "sFromLine": -275.9,
+    "row": 1035,
+    "lat": -0.1,
+    "edge": 5.2,
+    "onTrack": true
+   },
+   "exit": {
+    "s": 496.7,
+    "sFromLine": 496.7,
+    "row": 99,
+    "lat": 0,
+    "edge": 6.3,
+    "onTrack": true
+   },
+   "leavesTrack": {
+    "laneRow": 4,
+    "s": 5182.1,
+    "sFromLine": -263.2,
+    "row": 1037,
+    "lat": -10.3,
+    "edge": 5.4
+   },
+   "rejoinsTrack": {
+    "laneRow": 150,
+    "s": 417.2,
+    "sFromLine": 417.2,
+    "row": 83,
+    "lat": -8,
+    "edge": 6.6
+   },
+   "lapSpan_m": 772.6,
+   "maxOffset_m": 73.7,
+   "maxOffsetAt": {
+    "laneRow": 19,
+    "s": 5216.3,
+    "sFromLine": -229
+   },
+   "working": {
+    "from": 2.9,
+    "to": 392.7,
+    "source": "inferred (longest stretch at a steady distance from the track)",
+    "fromLine": 2.9,
+    "toLine": 392.7
+   },
+   "crossesTrack": [],
+   "farFromTrack": [
+    {
+     "laneRows": [
+      8,
+      55
+     ],
+     "s": [
+      5187.5,
+      5389.7
+     ],
+     "sFromLine": [
+      -257.7,
+      -55.5
+     ],
+     "maxBeyondEdge_m": 67.8
+    }
+   ],
+   "otherPartOfLap": [],
+   "today": {
+    "pit": [
+     -200,
+     250
+    ],
+    "pitSide": -1,
+    "sameSide": true,
+    "workingOverlap_m": 247.1
+   },
+   "checks": {
+    "endsOnTrack": true,
+    "rowsInsideTrackEdgeBetween": 0,
+    "rowsOnOtherSide": 0,
+    "rowsGoingBackwards": 0
+   },
+   "widthFromOsm": false,
+   "tunnelsOrBridges": [],
+   "registration": {
+    "fittedTo": "highway=raceway ways",
+    "median_m": 0.9,
+    "p95_m": 2.8,
+    "max_m": 6,
+    "mappedShare": 1,
+    "mappedMedian_m": 0.9,
+    "mappedP95_m": 2.8,
+    "rotation_deg": -0.98,
+    "bacingerMedian_m": 1.2
+   },
+   "osm": {
+    "ways": [
+     107371138,
+     107371147
+    ],
+    "gapsBridged": 0,
+    "how": "relation 2094941 role pit_lane",
+    "data": "2026-11-17T23:59:19Z"
+   },
+   "notes": [
+    "OSM lane trimmed to where it meets the track (1 rows off the start, 1 off the end)"
+   ]
+  },
+  "suzuka": {
+   "name": "Suzuka",
+   "quality": "osm",
+   "side": "right",
+   "sideSign": -1,
+   "rows": 170,
+   "length_m": 842.7,
+   "entry": {
+    "s": 5522.3,
+    "sFromLine": -280.6,
+    "row": 1105,
+    "lat": -0.7,
+    "edge": 4.6,
+    "onTrack": true
+   },
+   "exit": {
+    "s": 572.7,
+    "sFromLine": 572.7,
+    "row": 115,
+    "lat": 0,
+    "edge": 6.1,
+    "onTrack": true
+   },
+   "leavesTrack": {
+    "laneRow": 8,
+    "s": 5563.7,
+    "sFromLine": -239.2,
+    "row": 1113,
+    "lat": -6.4,
+    "edge": 5.8
+   },
+   "rejoinsTrack": {
+    "laneRow": 147,
+    "s": 463.3,
+    "sFromLine": 463.3,
+    "row": 93,
+    "lat": -7.2,
+    "edge": 6.7
+   },
+   "lapSpan_m": 853.3,
+   "maxOffset_m": 14.3,
+   "maxOffsetAt": {
+    "laneRow": 97,
+    "s": 214.1,
+    "sFromLine": 214.1
+   },
+   "working": {
+    "from": 5631,
+    "to": 398.6,
+    "source": "inferred (longest stretch at a steady distance from the track)",
+    "fromLine": -171.9,
+    "toLine": 398.6
+   },
+   "crossesTrack": [],
+   "farFromTrack": [],
+   "otherPartOfLap": [],
+   "today": {
+    "pit": [
+     -50,
+     300
+    ],
+    "pitSide": -1,
+    "sameSide": true,
+    "workingOverlap_m": 350
+   },
+   "checks": {
+    "endsOnTrack": true,
+    "rowsInsideTrackEdgeBetween": 0,
+    "rowsOnOtherSide": 0,
+    "rowsGoingBackwards": 0
+   },
+   "widthFromOsm": true,
+   "tunnelsOrBridges": [],
+   "registration": {
+    "fittedTo": "highway=raceway ways",
+    "median_m": 0.4,
+    "p95_m": 1.3,
+    "max_m": 2.2,
+    "mappedShare": 1,
+    "mappedMedian_m": 0.4,
+    "mappedP95_m": 1.3,
+    "rotation_deg": 0.88,
+    "bacingerMedian_m": 1
+   },
+   "osm": {
+    "ways": [
+     120917578
+    ],
+    "gapsBridged": 0,
+    "how": "relation 284570 role pit_lane",
+    "data": "2026-11-18T00:00:19Z"
+   },
+   "notes": [
+    "OSM lane trimmed to where it meets the track (0 rows off the start, 9 off the end)"
+   ]
+  },
+  "miami": {
+   "name": "Miami International Autodrome",
+   "quality": "osm",
+   "side": "right",
+   "sideSign": -1,
+   "rows": 148,
+   "length_m": 735.5,
+   "entry": {
+    "s": 4959.4,
+    "sFromLine": -458.7,
+    "row": 994,
+    "lat": -1.1,
+    "edge": 6.5,
+    "onTrack": true
+   },
+   "exit": {
+    "s": 342.4,
+    "sFromLine": 342.4,
+    "row": 69,
+    "lat": 0.6,
+    "edge": 6.5,
+    "onTrack": true
+   },
+   "leavesTrack": {
+    "laneRow": 4,
+    "s": 4978.2,
+    "sFromLine": -439.9,
+    "row": 998,
+    "lat": -7,
+    "edge": 6.5
+   },
+   "rejoinsTrack": {
+    "laneRow": 142,
+    "s": 319.5,
+    "sFromLine": 319.5,
+    "row": 64,
+    "lat": -8.2,
+    "edge": 6.5
+   },
+   "lapSpan_m": 801.1,
+   "maxOffset_m": 35.4,
+   "maxOffsetAt": {
+    "laneRow": 34,
+    "s": 5140,
+    "sFromLine": -278.1
+   },
+   "working": {
+    "from": 5190.4,
+    "to": 186,
+    "source": "inferred (longest stretch at a steady distance from the track)",
+    "fromLine": -227.7,
+    "toLine": 186
+   },
+   "crossesTrack": [],
+   "farFromTrack": [
+    {
+     "laneRows": [
+      22,
+      39
+     ],
+     "s": [
+      5070.6,
+      5167.3
+     ],
+     "sFromLine": [
+      -347.5,
+      -250.8
+     ],
+     "maxBeyondEdge_m": 28.9
+    },
+    {
+     "laneRows": [
+      133,
+      135
+     ],
+     "s": [
+      219.5,
+      290.7
+     ],
+     "sFromLine": [
+      219.5,
+      290.7
+     ],
+     "maxBeyondEdge_m": 24.5
+    }
+   ],
+   "otherPartOfLap": [],
+   "today": {
+    "pit": [
+     -170,
+     190
+    ],
+    "pitSide": 1,
+    "sameSide": false,
+    "workingOverlap_m": 356
+   },
+   "checks": {
+    "endsOnTrack": true,
+    "rowsInsideTrackEdgeBetween": 0,
+    "rowsOnOtherSide": 0,
+    "rowsGoingBackwards": 0
+   },
+   "widthFromOsm": false,
+   "tunnelsOrBridges": [],
+   "registration": {
+    "fittedTo": "highway=raceway ways",
+    "median_m": 1,
+    "p95_m": 2.9,
+    "max_m": 4,
+    "mappedShare": 1,
+    "mappedMedian_m": 1,
+    "mappedP95_m": 2.9,
+    "rotation_deg": -0.01,
+    "bacingerMedian_m": 0.6
+   },
+   "osm": {
+    "ways": [
+     1017340352
+    ],
+    "gapsBridged": 0,
+    "how": "tagged as a pit lane",
+    "data": "2026-11-18T00:02:20Z"
+   },
+   "notes": [
+    "OSM lane trimmed to where it meets the track (0 rows off the start, 1 off the end)"
+   ]
+  },
+  "montreal": {
+   "name": "Circuit Gilles Villeneuve",
+   "quality": "osm",
+   "side": "left",
+   "sideSign": 1,
+   "rows": 166,
+   "length_m": 825.9,
+   "entry": {
+    "s": 3893.9,
+    "sFromLine": -463.6,
+    "row": 779,
+    "lat": 1.2,
+    "edge": 4.6,
+    "onTrack": true
+   },
+   "exit": {
+    "s": 397.5,
+    "sFromLine": 397.5,
+    "row": 80,
+    "lat": 0.7,
+    "edge": 5.2,
+    "onTrack": true
+   },
+   "leavesTrack": {
+    "laneRow": 4,
+    "s": 3909.3,
+    "sFromLine": -448.2,
+    "row": 782,
+    "lat": 8,
+    "edge": 4.9
+   },
+   "rejoinsTrack": {
+    "laneRow": 148,
+    "s": 321.2,
+    "sFromLine": 321.2,
+    "row": 64,
+    "lat": 9.2,
+    "edge": 6.9
+   },
+   "lapSpan_m": 861.1,
+   "maxOffset_m": 48.4,
+   "maxOffsetAt": {
+    "laneRow": 137,
+    "s": 295,
+    "sFromLine": 295
+   },
+   "working": {
+    "from": 4061.6,
+    "to": 58.2,
+    "source": "inferred (longest stretch at a steady distance from the track)",
+    "fromLine": -295.9,
+    "toLine": 58.2
+   },
+   "crossesTrack": [],
+   "farFromTrack": [
+    {
+     "laneRows": [
+      9,
+      24
+     ],
+     "s": [
+      3916.5,
+      4030.3
+     ],
+     "sFromLine": [
+      -441,
+      -327.2
+     ],
+     "maxBeyondEdge_m": 31.1
+    },
+    {
+     "laneRows": [
+      123,
+      142
+     ],
+     "s": [
+      158.4,
+      304.9
+     ],
+     "sFromLine": [
+      158.4,
+      304.9
+     ],
+     "maxBeyondEdge_m": 42.4
+    }
+   ],
+   "otherPartOfLap": [],
+   "today": {
+    "pit": [
+     -350,
+     20
+    ],
+    "pitSide": -1,
+    "sameSide": false,
+    "workingOverlap_m": 315.9
+   },
+   "checks": {
+    "endsOnTrack": true,
+    "rowsInsideTrackEdgeBetween": 0,
+    "rowsOnOtherSide": 0,
+    "rowsGoingBackwards": 0
+   },
+   "widthFromOsm": false,
+   "tunnelsOrBridges": [],
+   "registration": {
+    "fittedTo": "relation 284595 (Circuit Gilles Villeneuve)",
+    "median_m": 0.5,
+    "p95_m": 1.1,
+    "max_m": 2,
+    "mappedShare": 1,
+    "mappedMedian_m": 0.5,
+    "mappedP95_m": 1.1,
+    "rotation_deg": 1.05,
+    "bacingerMedian_m": 0.7
+   },
+   "osm": {
+    "ways": [
+     413000959
+    ],
+    "gapsBridged": 0,
+    "how": "relation 284595 role pit_lane",
+    "data": "2026-11-18T00:02:20Z"
+   },
+   "notes": []
+  },
+  "monaco": {
+   "name": "Monaco",
+   "quality": "osm",
+   "side": "right",
+   "sideSign": -1,
+   "rows": 72,
+   "length_m": 356.6,
+   "entry": {
+    "s": 2982.3,
+    "sFromLine": -326.3,
+    "row": 601,
+    "lat": 0.3,
+    "edge": 4.6,
+    "onTrack": true
+   },
+   "exit": {
+    "s": 52.1,
+    "sFromLine": 52.1,
+    "row": 10,
+    "lat": -0.8,
+    "edge": 4.6,
+    "onTrack": true
+   },
+   "leavesTrack": {
+    "laneRow": 2,
+    "s": 2990.3,
+    "sFromLine": -318.3,
+    "row": 603,
+    "lat": -5.1,
+    "edge": 4.6
+   },
+   "rejoinsTrack": {
+    "laneRow": 69,
+    "s": 43.2,
+    "sFromLine": 43.2,
+    "row": 9,
+    "lat": -5.5,
+    "edge": 4.6
+   },
+   "lapSpan_m": 378.4,
+   "maxOffset_m": 35.1,
+   "maxOffsetAt": {
+    "laneRow": 9,
+    "s": 3049,
+    "sFromLine": -259.6
+   },
+   "working": {
+    "from": 3169.5,
+    "to": 3268.2,
+    "source": "inferred (longest stretch at a steady distance from the track)",
+    "fromLine": -139.1,
+    "toLine": -40.4
+   },
+   "crossesTrack": [],
+   "farFromTrack": [
+    {
+     "laneRows": [
+      6,
+      55
+     ],
+     "s": [
+      2992.8,
+      3283.7
+     ],
+     "sFromLine": [
+      -315.8,
+      -24.9
+     ],
+     "maxBeyondEdge_m": 30.5
+    }
+   ],
+   "otherPartOfLap": [],
+   "today": {
+    "pit": [
+     -100,
+     20
+    ],
+    "pitSide": -1,
+    "sameSide": true,
+    "workingOverlap_m": 59.6
+   },
+   "checks": {
+    "endsOnTrack": true,
+    "rowsInsideTrackEdgeBetween": 0,
+    "rowsOnOtherSide": 0,
+    "rowsGoingBackwards": 0
+   },
+   "widthFromOsm": false,
+   "tunnelsOrBridges": [],
+   "registration": {
+    "fittedTo": "relation 148194 (Circuit de Monaco)",
+    "median_m": 0.5,
+    "p95_m": 4.7,
+    "max_m": 9.1,
+    "mappedShare": 1,
+    "mappedMedian_m": 0.5,
+    "mappedP95_m": 4.7,
+    "rotation_deg": -0.03,
+    "bacingerMedian_m": 0.4
+   },
+   "osm": {
+    "ways": [
+     850261588
+    ],
+    "gapsBridged": 0,
+    "how": "relation 148194 role pit_lane",
+    "data": "2026-11-18T00:03:17Z"
+   },
+   "notes": []
+  },
+  "barcelona": {
+   "name": "Barcelona-Catalunya",
+   "quality": "osm",
+   "side": "right",
+   "sideSign": -1,
+   "rows": 208,
+   "length_m": 1036.6,
+   "entry": {
+    "s": 4100.3,
+    "sFromLine": -563.9,
+    "row": 821,
+    "lat": 0.3,
+    "edge": 5.7,
+    "onTrack": true
+   },
+   "exit": {
+    "s": 495.1,
+    "sFromLine": 495.1,
+    "row": 99,
+    "lat": 0,
+    "edge": 5.7,
+    "onTrack": true
+   },
+   "leavesTrack": {
+    "laneRow": 8,
+    "s": 4139.9,
+    "sFromLine": -524.4,
+    "row": 829,
+    "lat": -6.6,
+    "edge": 5.6
+   },
+   "rejoinsTrack": {
+    "laneRow": 189,
+    "s": 405.2,
+    "sFromLine": 405.2,
+    "row": 81,
+    "lat": -6.2,
+    "edge": 5.6
+   },
+   "lapSpan_m": 1059.1,
+   "maxOffset_m": 17.4,
+   "maxOffsetAt": {
+    "laneRow": 33,
+    "s": 4285.1,
+    "sFromLine": -379.2
+   },
+   "working": {
+    "from": 4544.1,
+    "to": 255.1,
+    "source": "OSM pit buildings",
+    "fromLine": -120.2,
+    "toLine": 255.1
+   },
+   "crossesTrack": [],
+   "farFromTrack": [],
+   "otherPartOfLap": [],
+   "today": {
+    "pit": [
+     -300,
+     300
+    ],
+    "pitSide": -1,
+    "sameSide": true,
+    "workingOverlap_m": 375.3
+   },
+   "checks": {
+    "endsOnTrack": true,
+    "rowsInsideTrackEdgeBetween": 0,
+    "rowsOnOtherSide": 0,
+    "rowsGoingBackwards": 0
+   },
+   "widthFromOsm": false,
+   "tunnelsOrBridges": [],
+   "registration": {
+    "fittedTo": "highway=raceway ways",
+    "median_m": 0.5,
+    "p95_m": 1.4,
+    "max_m": 1.8,
+    "mappedShare": 1,
+    "mappedMedian_m": 0.5,
+    "mappedP95_m": 1.4,
+    "rotation_deg": 0.01,
+    "bacingerMedian_m": 0.4
+   },
+   "osm": {
+    "ways": [
+     178416733,
+     178416729,
+     33742214
+    ],
+    "gapsBridged": 0,
+    "how": "relation 284540 role pit_lane",
+    "data": "2026-11-18T00:04:19Z"
+   },
+   "notes": []
+  },
+  "spielberg": {
+   "name": "Red Bull Ring",
+   "quality": "osm",
+   "side": "right",
+   "sideSign": -1,
+   "rows": 201,
+   "length_m": 1000.7,
+   "entry": {
+    "s": 3838,
+    "sFromLine": -477.4,
+    "row": 768,
+    "lat": -1.8,
+    "edge": 5.7,
+    "onTrack": true
+   },
+   "exit": {
+    "s": 593.6,
+    "sFromLine": 593.6,
+    "row": 119,
+    "lat": 0,
+    "edge": 5.2,
+    "onTrack": true
+   },
+   "leavesTrack": {
+    "laneRow": 3,
+    "s": 3852.3,
+    "sFromLine": -463.1,
+    "row": 771,
+    "lat": -5.9,
+    "edge": 5.5
+   },
+   "rejoinsTrack": {
+    "laneRow": 186,
+    "s": 523.8,
+    "sFromLine": 523.8,
+    "row": 105,
+    "lat": -5.9,
+    "edge": 5.6
+   },
+   "lapSpan_m": 1071.1,
+   "maxOffset_m": 40.8,
+   "maxOffsetAt": {
+    "laneRow": 26,
+    "s": 3961.6,
+    "sFromLine": -353.8
+   },
+   "working": {
+    "from": 4275.3,
+    "to": 265.1,
+    "source": "OSM pit buildings",
+    "fromLine": -40.1,
+    "toLine": 265.1
+   },
+   "crossesTrack": [],
+   "farFromTrack": [
+    {
+     "laneRows": [
+      17,
+      34
+     ],
+     "s": [
+      3919.9,
+      4056
+     ],
+     "sFromLine": [
+      -395.5,
+      -259.4
+     ],
+     "maxBeyondEdge_m": 35.5
+    }
+   ],
+   "otherPartOfLap": [],
+   "today": {
+    "pit": [
+     -180,
+     300
+    ],
+    "pitSide": -1,
+    "sameSide": true,
+    "workingOverlap_m": 305.2
+   },
+   "checks": {
+    "endsOnTrack": true,
+    "rowsInsideTrackEdgeBetween": 0,
+    "rowsOnOtherSide": 0,
+    "rowsGoingBackwards": 0
+   },
+   "widthFromOsm": false,
+   "tunnelsOrBridges": [],
+   "registration": {
+    "fittedTo": "relation 5309181 (Red Bull Ring)",
+    "median_m": 0.9,
+    "p95_m": 2.8,
+    "max_m": 4.3,
+    "mappedShare": 1,
+    "mappedMedian_m": 0.9,
+    "mappedP95_m": 2.8,
+    "rotation_deg": -0.16,
+    "bacingerMedian_m": 1.2
+   },
+   "osm": {
+    "ways": [
+     289111668
+    ],
+    "gapsBridged": 0,
+    "how": "tagged as a pit lane",
+    "data": "2026-11-18T00:05:17Z"
+   },
+   "notes": []
+  },
+  "silverstone": {
+   "name": "Silverstone",
+   "quality": "osm",
+   "side": "right",
+   "sideSign": -1,
+   "rows": 225,
+   "length_m": 1119.4,
+   "entry": {
+    "s": 5276.5,
+    "sFromLine": -610.3,
+    "row": 1056,
+    "lat": -0.2,
+    "edge": 6.7,
+    "onTrack": true
+   },
+   "exit": {
+    "s": 687.9,
+    "sFromLine": 687.9,
+    "row": 138,
+    "lat": 0.1,
+    "edge": 7,
+    "onTrack": true
+   },
+   "leavesTrack": {
+    "laneRow": 11,
+    "s": 5330.6,
+    "sFromLine": -556.2,
+    "row": 1067,
+    "lat": -8,
+    "edge": 7.1
+   },
+   "rejoinsTrack": {
+    "laneRow": 203,
+    "s": 587.1,
+    "sFromLine": 587.1,
+    "row": 117,
+    "lat": -7.7,
+    "edge": 6.9
+   },
+   "lapSpan_m": 1298.2,
+   "maxOffset_m": 112.9,
+   "maxOffsetAt": {
+    "laneRow": 66,
+    "s": 5698.7,
+    "sFromLine": -188.1
+   },
+   "working": {
+    "from": 5880.9,
+    "to": 358.6,
+    "source": "inferred (longest stretch at a steady distance from the track)",
+    "fromLine": -5.9,
+    "toLine": 358.6
+   },
+   "crossesTrack": [],
+   "farFromTrack": [
+    {
+     "laneRows": [
+      32,
+      99
+     ],
+     "s": [
+      5434.3,
+      44
+     ],
+     "sFromLine": [
+      -452.5,
+      44
+     ],
+     "maxBeyondEdge_m": 106.1
+    },
+    {
+     "laneRows": [
+      168,
+      178
+     ],
+     "s": [
+      397.6,
+      463.6
+     ],
+     "sFromLine": [
+      397.6,
+      463.6
+     ],
+     "maxBeyondEdge_m": 23
+    }
+   ],
+   "otherPartOfLap": [],
+   "today": {
+    "pit": [
+     -60,
+     240
+    ],
+    "pitSide": -1,
+    "sameSide": true,
+    "workingOverlap_m": 245.9
+   },
+   "checks": {
+    "endsOnTrack": true,
+    "rowsInsideTrackEdgeBetween": 0,
+    "rowsOnOtherSide": 0,
+    "rowsGoingBackwards": 0
+   },
+   "widthFromOsm": false,
+   "tunnelsOrBridges": [],
+   "registration": {
+    "fittedTo": "relation 51160 (Silverstone Grand Prix)",
+    "median_m": 0.7,
+    "p95_m": 2.3,
+    "max_m": 7,
+    "mappedShare": 1,
+    "mappedMedian_m": 0.7,
+    "mappedP95_m": 2.3,
+    "rotation_deg": 1.54,
+    "bacingerMedian_m": 0.8
+   },
+   "osm": {
+    "ways": [
+     227902927
+    ],
+    "gapsBridged": 0,
+    "how": "relation 51160 role pit_lane",
+    "data": "2026-11-18T00:05:17Z"
+   },
+   "notes": [
+    "OSM lane trimmed to where it meets the track (2 rows off the start, 0 off the end)"
+   ]
+  },
+  "spa": {
+   "name": "Spa-Francorchamps",
+   "quality": "osm",
+   "side": "right",
+   "sideSign": -1,
+   "rows": 145,
+   "length_m": 720,
+   "entry": {
+    "s": 6774.8,
+    "sFromLine": -225.3,
+    "row": 1356,
+    "lat": -0.8,
+    "edge": 5.4,
+    "onTrack": true
+   },
+   "exit": {
+    "s": 551,
+    "sFromLine": 551,
+    "row": 110,
+    "lat": -3.2,
+    "edge": 6.2,
+    "onTrack": true
+   },
+   "leavesTrack": {
+    "laneRow": 6,
+    "s": 6800.1,
+    "sFromLine": -199.9,
+    "row": 1361,
+    "lat": -8.7,
+    "edge": 5.7
+   },
+   "rejoinsTrack": {
+    "laneRow": 133,
+    "s": 496,
+    "sFromLine": 496,
+    "row": 99,
+    "lat": -8.3,
+    "edge": 8
+   },
+   "lapSpan_m": 776.2,
+   "maxOffset_m": 27.4,
+   "maxOffsetAt": {
+    "laneRow": 122,
+    "s": 339.2,
+    "sFromLine": 339.2
+   },
+   "working": {
+    "from": 6973.2,
+    "to": 318.5,
+    "source": "inferred (longest stretch at a steady distance from the track)",
+    "fromLine": -26.9,
+    "toLine": 318.5
+   },
+   "crossesTrack": [],
+   "farFromTrack": [
+    {
+     "laneRows": [
+      23,
+      37
+     ],
+     "s": [
+      6849.1,
+      6919.4
+     ],
+     "sFromLine": [
+      -151,
+      -80.7
+     ],
+     "maxBeyondEdge_m": 20.7
+    },
+    {
+     "laneRows": [
+      122,
+      122
+     ],
+     "s": [
+      339.2,
+      339.2
+     ],
+     "sFromLine": [
+      339.2,
+      339.2
+     ],
+     "maxBeyondEdge_m": 20.5
+    }
+   ],
+   "otherPartOfLap": [],
+   "today": {
+    "pit": [
+     -140,
+     300
+    ],
+    "pitSide": -1,
+    "sameSide": true,
+    "workingOverlap_m": 326.9
+   },
+   "checks": {
+    "endsOnTrack": true,
+    "rowsInsideTrackEdgeBetween": 0,
+    "rowsOnOtherSide": 0,
+    "rowsGoingBackwards": 0
+   },
+   "widthFromOsm": false,
+   "tunnelsOrBridges": [],
+   "registration": {
+    "fittedTo": "relation 284560 (Circuit de Spa Francorchamps)",
+    "median_m": 0.5,
+    "p95_m": 1.9,
+    "max_m": 6,
+    "mappedShare": 1,
+    "mappedMedian_m": 0.5,
+    "mappedP95_m": 1.9,
+    "rotation_deg": 2.28,
+    "bacingerMedian_m": 0.7
+   },
+   "osm": {
+    "ways": [
+     323851541
+    ],
+    "gapsBridged": 0,
+    "how": "relation 284560 role pit_lane",
+    "data": "2026-11-18T00:06:21Z"
+   },
+   "notes": []
+  },
+  "hungaroring": {
+   "name": "Hungaroring",
+   "quality": "osm",
+   "side": "right",
+   "sideSign": -1,
+   "rows": 214,
+   "length_m": 1064.2,
+   "entry": {
+    "s": 3864.6,
+    "sFromLine": -512.3,
+    "row": 773,
+    "lat": 0.1,
+    "edge": 4.2,
+    "onTrack": true
+   },
+   "exit": {
+    "s": 596.6,
+    "sFromLine": 596.6,
+    "row": 119,
+    "lat": -0.2,
+    "edge": 5.5,
+    "onTrack": true
+   },
+   "leavesTrack": {
+    "laneRow": 17,
+    "s": 3949.3,
+    "sFromLine": -427.5,
+    "row": 790,
+    "lat": -5.3,
+    "edge": 4.8
+   },
+   "rejoinsTrack": {
+    "laneRow": 176,
+    "s": 412,
+    "sFromLine": 412,
+    "row": 82,
+    "lat": -6.4,
+    "edge": 6
+   },
+   "lapSpan_m": 1108.9,
+   "maxOffset_m": 22.9,
+   "maxOffsetAt": {
+    "laneRow": 67,
+    "s": 4245.1,
+    "sFromLine": -131.7
+   },
+   "working": {
+    "from": 4349.7,
+    "to": 352.5,
+    "source": "inferred (longest stretch at a steady distance from the track)",
+    "fromLine": -27.2,
+    "toLine": 352.5
+   },
+   "crossesTrack": [],
+   "farFromTrack": [],
+   "otherPartOfLap": [],
+   "today": {
+    "pit": [
+     -150,
+     350
+    ],
+    "pitSide": -1,
+    "sameSide": true,
+    "workingOverlap_m": 377.2
+   },
+   "checks": {
+    "endsOnTrack": true,
+    "rowsInsideTrackEdgeBetween": 0,
+    "rowsOnOtherSide": 0,
+    "rowsGoingBackwards": 0
+   },
+   "widthFromOsm": false,
+   "tunnelsOrBridges": [],
+   "registration": {
+    "fittedTo": "relation 284557 (Hungaroring)",
+    "median_m": 0.5,
+    "p95_m": 1.4,
+    "max_m": 2.7,
+    "mappedShare": 1,
+    "mappedMedian_m": 0.5,
+    "mappedP95_m": 1.4,
+    "rotation_deg": -1.25,
+    "bacingerMedian_m": 0.8
+   },
+   "osm": {
+    "ways": [
+     231417580
+    ],
+    "gapsBridged": 0,
+    "how": "relation 284557 role pit_lane",
+    "data": "2026-11-18T00:08:21Z"
+   },
+   "notes": [
+    "OSM lane trimmed to where it meets the track (0 rows off the start, 1 off the end)"
+   ]
+  },
+  "zandvoort": {
+   "name": "Zandvoort",
+   "quality": "osm",
+   "side": "right",
+   "sideSign": -1,
+   "rows": 153,
+   "length_m": 758.4,
+   "entry": {
+    "s": 4089.9,
+    "sFromLine": -173.6,
+    "row": 819,
+    "lat": -1.7,
+    "edge": 5.3,
+    "onTrack": true
+   },
+   "exit": {
+    "s": 614.7,
+    "sFromLine": 614.7,
+    "row": 123,
+    "lat": -0.2,
+    "edge": 5.3,
+    "onTrack": true
+   },
+   "leavesTrack": {
+    "laneRow": 9,
+    "s": 4134.7,
+    "sFromLine": -128.8,
+    "row": 828,
+    "lat": -5.6,
+    "edge": 5.3
+   },
+   "rejoinsTrack": {
+    "laneRow": 139,
+    "s": 550.1,
+    "sFromLine": 550.1,
+    "row": 110,
+    "lat": -5.7,
+    "edge": 5.3
+   },
+   "lapSpan_m": 788.2,
+   "maxOffset_m": 17,
+   "maxOffsetAt": {
+    "laneRow": 30,
+    "s": 4238.8,
+    "sFromLine": -24.7
+   },
+   "working": {
+    "from": 69.7,
+    "to": 254.4,
+    "source": "OSM pit buildings",
+    "fromLine": 69.7,
+    "toLine": 254.4
+   },
+   "crossesTrack": [],
+   "farFromTrack": [],
+   "otherPartOfLap": [],
+   "today": {
+    "pit": [
+     -250,
+     250
+    ],
+    "pitSide": 1,
+    "sameSide": false,
+    "workingOverlap_m": 180.3
+   },
+   "checks": {
+    "endsOnTrack": true,
+    "rowsInsideTrackEdgeBetween": 0,
+    "rowsOnOtherSide": 0,
+    "rowsGoingBackwards": 0
+   },
+   "widthFromOsm": false,
+   "tunnelsOrBridges": [],
+   "registration": {
+    "fittedTo": "highway=raceway ways",
+    "median_m": 0.6,
+    "p95_m": 1.6,
+    "max_m": 2.5,
+    "mappedShare": 1,
+    "mappedMedian_m": 0.6,
+    "mappedP95_m": 1.6,
+    "rotation_deg": -0.01,
+    "bacingerMedian_m": 0.5
+   },
+   "osm": {
+    "ways": [
+     38144527
+    ],
+    "gapsBridged": 0,
+    "how": "tagged as a pit lane",
+    "data": "2026-11-18T00:09:20Z"
+   },
+   "notes": []
+  },
+  "monza": {
+   "name": "Monza",
+   "quality": "osm",
+   "side": "right",
+   "sideSign": -1,
+   "rows": 149,
+   "length_m": 741.5,
+   "entry": {
+    "s": 5541.7,
+    "sFromLine": -248.5,
+    "row": 1109,
+    "lat": -0.6,
+    "edge": 5.4,
+    "onTrack": true
+   },
+   "exit": {
+    "s": 492.9,
+    "sFromLine": 492.9,
+    "row": 99,
+    "lat": -0.1,
+    "edge": 5.4,
+    "onTrack": true
+   },
+   "leavesTrack": {
+    "laneRow": 10,
+    "s": 5591.5,
+    "sFromLine": -198.7,
+    "row": 1119,
+    "lat": -5.9,
+    "edge": 5.6
+   },
+   "rejoinsTrack": {
+    "laneRow": 137,
+    "s": 438.1,
+    "sFromLine": 438.1,
+    "row": 88,
+    "lat": -6.2,
+    "edge": 5.6
+   },
+   "lapSpan_m": 741.4,
+   "maxOffset_m": 18.2,
+   "maxOffsetAt": {
+    "laneRow": 40,
+    "s": 5742.3,
+    "sFromLine": -47.9
+   },
+   "working": {
+    "from": 8,
+    "to": 238.5,
+    "source": "OSM pit buildings",
+    "fromLine": 8,
+    "toLine": 238.5
+   },
+   "crossesTrack": [],
+   "farFromTrack": [],
+   "otherPartOfLap": [],
+   "today": {
+    "pit": [
+     -150,
+     250
+    ],
+    "pitSide": -1,
+    "sameSide": true,
+    "workingOverlap_m": 230.5
+   },
+   "checks": {
+    "endsOnTrack": true,
+    "rowsInsideTrackEdgeBetween": 0,
+    "rowsOnOtherSide": 0,
+    "rowsGoingBackwards": 0
+   },
+   "widthFromOsm": false,
+   "tunnelsOrBridges": [],
+   "registration": {
+    "fittedTo": "highway=raceway ways",
+    "median_m": 0.5,
+    "p95_m": 0.8,
+    "max_m": 3.5,
+    "mappedShare": 1,
+    "mappedMedian_m": 0.5,
+    "mappedP95_m": 0.8,
+    "rotation_deg": 0.21,
+    "bacingerMedian_m": 0.5
+   },
+   "osm": {
+    "ways": [
+     38168747
+    ],
+    "gapsBridged": 0,
+    "how": "relation 284565 role pit_lane",
+    "data": "2026-11-18T00:10:22Z"
+   },
+   "notes": []
+  },
+  "madrid": {
+   "name": "Madring",
+   "quality": "osm",
+   "side": "right",
+   "sideSign": -1,
+   "rows": 182,
+   "length_m": 904.1,
+   "entry": {
+    "s": 4904.6,
+    "sFromLine": -525,
+    "row": 984,
+    "lat": 0,
+    "edge": 6.5,
+    "onTrack": true
+   },
+   "exit": {
+    "s": 469.9,
+    "sFromLine": 469.9,
+    "row": 94,
+    "lat": -4.5,
+    "edge": 6.5,
+    "onTrack": true
+   },
+   "leavesTrack": {
+    "laneRow": 8,
+    "s": 4944,
+    "sFromLine": -485.6,
+    "row": 992,
+    "lat": -7.2,
+    "edge": 6.5
+   },
+   "rejoinsTrack": {
+    "laneRow": 179,
+    "s": 460.2,
+    "sFromLine": 460.2,
+    "row": 92,
+    "lat": -7.4,
+    "edge": 6.5
+   },
+   "lapSpan_m": 994.9,
+   "maxOffset_m": 64.5,
+   "maxOffsetAt": {
+    "laneRow": 155,
+    "s": 302.1,
+    "sFromLine": 302.1
+   },
+   "working": {
+    "from": 5016.2,
+    "to": 176,
+    "source": "inferred (longest stretch at a steady distance from the track)",
+    "fromLine": -413.3,
+    "toLine": 176
+   },
+   "crossesTrack": [],
+   "farFromTrack": [
+    {
+     "laneRows": [
+      146,
+      170
+     ],
+     "s": [
+      204.3,
+      419.5
+     ],
+     "sFromLine": [
+      204.3,
+      419.5
+     ],
+     "maxBeyondEdge_m": 58
+    }
+   ],
+   "otherPartOfLap": [],
+   "today": {
+    "pit": [
+     -300,
+     140
+    ],
+    "pitSide": -1,
+    "sameSide": true,
+    "workingOverlap_m": 440
+   },
+   "checks": {
+    "endsOnTrack": true,
+    "rowsInsideTrackEdgeBetween": 0,
+    "rowsOnOtherSide": 0,
+    "rowsGoingBackwards": 0
+   },
+   "widthFromOsm": false,
+   "tunnelsOrBridges": [],
+   "registration": {
+    "fittedTo": "highway=raceway ways",
+    "median_m": 6.1,
+    "p95_m": 100,
+    "max_m": 100,
+    "mappedShare": 0.54,
+    "mappedMedian_m": 1.3,
+    "mappedP95_m": 7.1,
+    "rotation_deg": 0.12,
+    "bacingerMedian_m": 0.6
+   },
+   "osm": {
+    "ways": [
+     1552567031
+    ],
+    "gapsBridged": 0,
+    "how": "tagged as a pit lane",
+    "data": "2026-11-18T00:10:22Z"
+   },
+   "notes": []
+  },
+  "baku": {
+   "name": "Baku City Circuit",
+   "quality": "osm",
+   "side": "left",
+   "sideSign": 1,
+   "rows": 149,
+   "length_m": 738,
+   "entry": {
+    "s": 5525.8,
+    "sFromLine": -459.2,
+    "row": 1108,
+    "lat": 0.1,
+    "edge": 5.5,
+    "onTrack": true
+   },
+   "exit": {
+    "s": 292.7,
+    "sFromLine": 292.7,
+    "row": 59,
+    "lat": 2.2,
+    "edge": 5.5,
+    "onTrack": true
+   },
+   "leavesTrack": {
+    "laneRow": 30,
+    "s": 5675.3,
+    "sFromLine": -309.7,
+    "row": 1138,
+    "lat": 5.9,
+    "edge": 5.5
+   },
+   "rejoinsTrack": {
+    "laneRow": 145,
+    "s": 278.2,
+    "sFromLine": 278.2,
+    "row": 56,
+    "lat": 5.9,
+    "edge": 5.5
+   },
+   "lapSpan_m": 751.9,
+   "maxOffset_m": 11.9,
+   "maxOffsetAt": {
+    "laneRow": 120,
+    "s": 138.2,
+    "sFromLine": 138.2
+   },
+   "working": {
+    "from": 5843.6,
+    "to": 158.9,
+    "source": "inferred (longest stretch at a steady distance from the track)",
+    "fromLine": -141.4,
+    "toLine": 158.9
+   },
+   "crossesTrack": [],
+   "farFromTrack": [],
+   "otherPartOfLap": [],
+   "today": {
+    "pit": [
+     -400,
+     120
+    ],
+    "pitSide": 1,
+    "sameSide": true,
+    "workingOverlap_m": 261.4
+   },
+   "checks": {
+    "endsOnTrack": true,
+    "rowsInsideTrackEdgeBetween": 15,
+    "rowsOnOtherSide": 0,
+    "rowsGoingBackwards": 0
+   },
+   "widthFromOsm": false,
+   "tunnelsOrBridges": [],
+   "registration": {
+    "fittedTo": "relation 11266687 (Baku City Circuit)",
+    "median_m": 1.1,
+    "p95_m": 5.3,
+    "max_m": 11.2,
+    "mappedShare": 1,
+    "mappedMedian_m": 1.1,
+    "mappedP95_m": 5.2,
+    "rotation_deg": 0,
+    "bacingerMedian_m": 0.5
+   },
+   "osm": {
+    "ways": [
+     1513267145
+    ],
+    "gapsBridged": 0,
+    "how": "relation 11266687 role pit_lane",
+    "data": "2026-11-18T00:11:22Z"
+   },
+   "notes": []
+  },
+  "singapore": {
+   "name": "Marina Bay",
+   "quality": "osm",
+   "side": "left",
+   "sideSign": 1,
+   "rows": 160,
+   "length_m": 796.7,
+   "entry": {
+    "s": 4320.5,
+    "sFromLine": -601.9,
+    "row": 867,
+    "lat": -0.1,
+    "edge": 5.5,
+    "onTrack": true
+   },
+   "exit": {
+    "s": 229.2,
+    "sFromLine": 229.2,
+    "row": 46,
+    "lat": 4.4,
+    "edge": 5.5,
+    "onTrack": true
+   },
+   "leavesTrack": {
+    "laneRow": 13,
+    "s": 4385.4,
+    "sFromLine": -537,
+    "row": 880,
+    "lat": 5.9,
+    "edge": 5.5
+   },
+   "rejoinsTrack": {
+    "laneRow": 158,
+    "s": 226.3,
+    "sFromLine": 226.3,
+    "row": 45,
+    "lat": 8.1,
+    "edge": 5.5
+   },
+   "lapSpan_m": 831.1,
+   "maxOffset_m": 22.7,
+   "maxOffsetAt": {
+    "laneRow": 143,
+    "s": 132.8,
+    "sFromLine": 132.8
+   },
+   "working": {
+    "from": 4565,
+    "to": 4896,
+    "source": "OSM pit buildings",
+    "fromLine": -357.4,
+    "toLine": -26.4
+   },
+   "crossesTrack": [],
+   "farFromTrack": [],
+   "otherPartOfLap": [],
+   "today": {
+    "pit": [
+     -300,
+     80
+    ],
+    "pitSide": 1,
+    "sameSide": true,
+    "workingOverlap_m": 273.6
+   },
+   "checks": {
+    "endsOnTrack": true,
+    "rowsInsideTrackEdgeBetween": 0,
+    "rowsOnOtherSide": 0,
+    "rowsGoingBackwards": 0
+   },
+   "widthFromOsm": false,
+   "tunnelsOrBridges": [],
+   "registration": {
+    "fittedTo": "relation 421263 (Marina Bay Street Circuit)",
+    "median_m": 1.7,
+    "p95_m": 18.9,
+    "max_m": 19.4,
+    "mappedShare": 0.92,
+    "mappedMedian_m": 1.4,
+    "mappedP95_m": 7.5,
+    "rotation_deg": 0.09,
+    "bacingerMedian_m": 0.5
+   },
+   "osm": {
+    "ways": [
+     100484287
+    ],
+    "gapsBridged": 0,
+    "how": "relation 421263 role pit_lane",
+    "data": "2026-11-18T00:12:23Z"
+   },
+   "notes": [
+    "OSM lane trimmed to where it meets the track (5 rows off the start, 0 off the end)"
+   ]
+  },
+  "austin": {
+   "name": "Circuit of the Americas",
+   "quality": "osm",
+   "side": "left",
+   "sideSign": 1,
+   "rows": 191,
+   "length_m": 949.1,
+   "entry": {
+    "s": 5130.1,
+    "sFromLine": -377.5,
+    "row": 1026,
+    "lat": 0.8,
+    "edge": 6.7,
+    "onTrack": true
+   },
+   "exit": {
+    "s": 637.2,
+    "sFromLine": 637.2,
+    "row": 127,
+    "lat": -0.4,
+    "edge": 14,
+    "onTrack": true
+   },
+   "leavesTrack": {
+    "laneRow": 21,
+    "s": 5234.8,
+    "sFromLine": -272.8,
+    "row": 1047,
+    "lat": 7.2,
+    "edge": 6.7
+   },
+   "rejoinsTrack": {
+    "laneRow": 159,
+    "s": 481.6,
+    "sFromLine": 481.6,
+    "row": 96,
+    "lat": 9.7,
+    "edge": 9.4
+   },
+   "lapSpan_m": 1014.6,
+   "maxOffset_m": 31.5,
+   "maxOffsetAt": {
+    "laneRow": 39,
+    "s": 5395.4,
+    "sFromLine": -112.1
+   },
+   "working": {
+    "from": 2.1,
+    "to": 366.8,
+    "source": "OSM pit buildings",
+    "fromLine": 2.1,
+    "toLine": 366.8
+   },
+   "crossesTrack": [],
+   "farFromTrack": [
+    {
+     "laneRows": [
+      38,
+      40
+     ],
+     "s": [
+      5312.9,
+      5398.7
+     ],
+     "sFromLine": [
+      -194.6,
+      -108.8
+     ],
+     "maxBeyondEdge_m": 24.6
+    }
+   ],
+   "otherPartOfLap": [],
+   "today": {
+    "pit": [
+     -100,
+     400
+    ],
+    "pitSide": 1,
+    "sameSide": true,
+    "workingOverlap_m": 364.7
+   },
+   "checks": {
+    "endsOnTrack": true,
+    "rowsInsideTrackEdgeBetween": 0,
+    "rowsOnOtherSide": 0,
+    "rowsGoingBackwards": 0
+   },
+   "widthFromOsm": false,
+   "tunnelsOrBridges": [],
+   "registration": {
+    "fittedTo": "highway=raceway ways",
+    "median_m": 0.8,
+    "p95_m": 2,
+    "max_m": 3.6,
+    "mappedShare": 1,
+    "mappedMedian_m": 0.8,
+    "mappedP95_m": 2,
+    "rotation_deg": 0.69,
+    "bacingerMedian_m": 0.7
+   },
+   "osm": {
+    "ways": [
+     514836373
+    ],
+    "gapsBridged": 0,
+    "how": "relation 6537729 role pit_lane",
+    "data": "2026-11-18T00:13:23Z"
+   },
+   "notes": []
+  },
+  "mexico": {
+   "name": "Autódromo Hermanos Rodríguez",
+   "quality": "osm",
+   "side": "right",
+   "sideSign": -1,
+   "rows": 155,
+   "length_m": 770.4,
+   "entry": {
+    "s": 3848.3,
+    "sFromLine": -448.9,
+    "row": 770,
+    "lat": -0.2,
+    "edge": 6.9,
+    "onTrack": true
+   },
+   "exit": {
+    "s": 330.2,
+    "sFromLine": 330.2,
+    "row": 66,
+    "lat": -0.5,
+    "edge": 7,
+    "onTrack": true
+   },
+   "leavesTrack": {
+    "laneRow": 12,
+    "s": 3909.4,
+    "sFromLine": -387.8,
+    "row": 782,
+    "lat": -6.2,
+    "edge": 5.8
+   },
+   "rejoinsTrack": {
+    "laneRow": 132,
+    "s": 220.7,
+    "sFromLine": 220.7,
+    "row": 44,
+    "lat": -7.4,
+    "edge": 7
+   },
+   "lapSpan_m": 779.1,
+   "maxOffset_m": 18.7,
+   "maxOffsetAt": {
+    "laneRow": 32,
+    "s": 4018.2,
+    "sFromLine": -279
+   },
+   "working": {
+    "from": 4012.7,
+    "to": 151,
+    "source": "inferred (longest stretch at a steady distance from the track)",
+    "fromLine": -284.5,
+    "toLine": 151
+   },
+   "crossesTrack": [],
+   "farFromTrack": [],
+   "otherPartOfLap": [],
+   "today": {
+    "pit": [
+     -250,
+     500
+    ],
+    "pitSide": -1,
+    "sameSide": true,
+    "workingOverlap_m": 401
+   },
+   "checks": {
+    "endsOnTrack": true,
+    "rowsInsideTrackEdgeBetween": 0,
+    "rowsOnOtherSide": 0,
+    "rowsGoingBackwards": 0
+   },
+   "widthFromOsm": false,
+   "tunnelsOrBridges": [],
+   "registration": {
+    "fittedTo": "highway=raceway ways",
+    "median_m": 1.3,
+    "p95_m": 6.3,
+    "max_m": 6.8,
+    "mappedShare": 1,
+    "mappedMedian_m": 1.3,
+    "mappedP95_m": 6.3,
+    "rotation_deg": -0.18,
+    "bacingerMedian_m": 1.6
+   },
+   "osm": {
+    "ways": [
+     638504647,
+     772763791
+    ],
+    "gapsBridged": 0,
+    "how": "relation 16251935 role pit_lane",
+    "data": "2026-11-18T00:13:23Z"
+   },
+   "notes": [
+    "OSM lane trimmed to where it meets the track (3 rows off the start, 2 off the end)"
+   ]
+  },
+  "saopaulo": {
+   "name": "Interlagos",
+   "quality": "osm",
+   "side": "left",
+   "sideSign": 1,
+   "rows": 274,
+   "length_m": 1363.6,
+   "entry": {
+    "s": 3894.9,
+    "sFromLine": -409.8,
+    "row": 780,
+    "lat": 1.9,
+    "edge": 6.8,
+    "onTrack": true
+   },
+   "exit": {
+    "s": 1013.9,
+    "sFromLine": 1013.9,
+    "row": 203,
+    "lat": -0.1,
+    "edge": 4.6,
+    "onTrack": true
+   },
+   "leavesTrack": {
+    "laneRow": 8,
+    "s": 3934.1,
+    "sFromLine": -370.5,
+    "row": 788,
+    "lat": 7.5,
+    "edge": 6.9
+   },
+   "rejoinsTrack": {
+    "laneRow": 240,
+    "s": 849.3,
+    "sFromLine": 849.3,
+    "row": 170,
+    "lat": 6.7,
+    "edge": 6.1
+   },
+   "lapSpan_m": 1423.7,
+   "maxOffset_m": 44,
+   "maxOffsetAt": {
+    "laneRow": 170,
+    "s": 465.2,
+    "sFromLine": 465.2
+   },
+   "working": {
+    "from": 4171.2,
+    "to": 306.4,
+    "source": "inferred (longest stretch at a steady distance from the track)",
+    "fromLine": -133.4,
+    "toLine": 306.4
+   },
+   "crossesTrack": [],
+   "farFromTrack": [
+    {
+     "laneRows": [
+      31,
+      45
+     ],
+     "s": [
+      4053.5,
+      4127.9
+     ],
+     "sFromLine": [
+      -251.1,
+      -176.7
+     ],
+     "maxBeyondEdge_m": 23.5
+    },
+    {
+     "laneRows": [
+      146,
+      152
+     ],
+     "s": [
+      337.3,
+      411.1
+     ],
+     "sFromLine": [
+      337.3,
+      411.1
+     ],
+     "maxBeyondEdge_m": 27.3
+    },
+    {
+     "laneRows": [
+      161,
+      205
+     ],
+     "s": [
+      444.4,
+      661.9
+     ],
+     "sFromLine": [
+      444.4,
+      661.9
+     ],
+     "maxBeyondEdge_m": 37.5
+    }
+   ],
+   "otherPartOfLap": [],
+   "today": {
+    "pit": [
+     -200,
+     250
+    ],
+    "pitSide": 1,
+    "sameSide": true,
+    "workingOverlap_m": 383.4
+   },
+   "checks": {
+    "endsOnTrack": true,
+    "rowsInsideTrackEdgeBetween": 0,
+    "rowsOnOtherSide": 0,
+    "rowsGoingBackwards": 0
+   },
+   "widthFromOsm": false,
+   "tunnelsOrBridges": [],
+   "registration": {
+    "fittedTo": "highway=raceway ways",
+    "median_m": 1.3,
+    "p95_m": 4.1,
+    "max_m": 5.3,
+    "mappedShare": 1,
+    "mappedMedian_m": 1.3,
+    "mappedP95_m": 4.1,
+    "rotation_deg": 0.6,
+    "bacingerMedian_m": 1.8
+   },
+   "osm": {
+    "ways": [
+     33779109
+    ],
+    "gapsBridged": 0,
+    "how": "relation 6781071 role pit_lane",
+    "data": "2026-11-18T00:14:24Z"
+   },
+   "notes": [
+    "OSM lane trimmed to where it meets the track (0 rows off the start, 2 off the end)"
+   ]
+  },
+  "lasvegas": {
+   "name": "Las Vegas Strip Circuit",
+   "quality": "osm",
+   "side": "left",
+   "sideSign": 1,
+   "rows": 96,
+   "length_m": 472.4,
+   "entry": {
+    "s": 5906.9,
+    "sFromLine": -312.1,
+    "row": 1183,
+    "lat": 1.3,
+    "edge": 7,
+    "onTrack": true
+   },
+   "exit": {
+    "s": 188,
+    "sFromLine": 188,
+    "row": 38,
+    "lat": -0.1,
+    "edge": 7,
+    "onTrack": true
+   },
+   "leavesTrack": {
+    "laneRow": 3,
+    "s": 5920.5,
+    "sFromLine": -298.4,
+    "row": 1185,
+    "lat": 7.3,
+    "edge": 7
+   },
+   "rejoinsTrack": {
+    "laneRow": 92,
+    "s": 175.2,
+    "sFromLine": 175.2,
+    "row": 35,
+    "lat": 8.3,
+    "edge": 7
+   },
+   "lapSpan_m": 500,
+   "maxOffset_m": 29.6,
+   "maxOffsetAt": {
+    "laneRow": 15,
+    "s": 5986.6,
+    "sFromLine": -232.3
+   },
+   "working": {
+    "from": 6024.2,
+    "to": 99.5,
+    "source": "inferred (longest stretch at a steady distance from the track)",
+    "fromLine": -194.8,
+    "toLine": 99.5
+   },
+   "crossesTrack": [],
+   "farFromTrack": [
+    {
+     "laneRows": [
+      14,
+      17
+     ],
+     "s": [
+      5980,
+      5998.4
+     ],
+     "sFromLine": [
+      -239,
+      -220.6
+     ],
+     "maxBeyondEdge_m": 22.6
+    }
+   ],
+   "otherPartOfLap": [],
+   "today": {
+    "pit": [
+     -200,
+     70
+    ],
+    "pitSide": 1,
+    "sameSide": true,
+    "workingOverlap_m": 264.8
+   },
+   "checks": {
+    "endsOnTrack": true,
+    "rowsInsideTrackEdgeBetween": 0,
+    "rowsOnOtherSide": 0,
+    "rowsGoingBackwards": 0
+   },
+   "widthFromOsm": false,
+   "tunnelsOrBridges": [],
+   "registration": {
+    "fittedTo": "relation 16696508 (Las Vegas Strip Circuit)",
+    "median_m": 1.1,
+    "p95_m": 16.5,
+    "max_m": 21.3,
+    "mappedShare": 0.85,
+    "mappedMedian_m": 0.8,
+    "mappedP95_m": 8.2,
+    "rotation_deg": 0.07,
+    "bacingerMedian_m": 0.7
+   },
+   "osm": {
+    "ways": [
+     1223479152
+    ],
+    "gapsBridged": 0,
+    "how": "relation 16696508 role pit_lane",
+    "data": "2026-11-18T00:15:24Z"
+   },
+   "notes": [
+    "OSM lane trimmed to where it meets the track (4 rows off the start, 0 off the end)"
+   ]
+  },
+  "lusail": {
+   "name": "Lusail International Circuit",
+   "quality": "osm",
+   "side": "right",
+   "sideSign": -1,
+   "rows": 247,
+   "length_m": 1231.9,
+   "entry": {
+    "s": 4518.6,
+    "sFromLine": -892.2,
+    "row": 905,
+    "lat": -1.7,
+    "edge": 6,
+    "onTrack": true
+   },
+   "exit": {
+    "s": 362.7,
+    "sFromLine": 362.7,
+    "row": 73,
+    "lat": 1.1,
+    "edge": 6,
+    "onTrack": true
+   },
+   "leavesTrack": {
+    "laneRow": 2,
+    "s": 4523.9,
+    "sFromLine": -886.8,
+    "row": 907,
+    "lat": -10.1,
+    "edge": 6
+   },
+   "rejoinsTrack": {
+    "laneRow": 222,
+    "s": 243.9,
+    "sFromLine": 243.9,
+    "row": 49,
+    "lat": -7,
+    "edge": 6
+   },
+   "lapSpan_m": 1254.9,
+   "maxOffset_m": 19.1,
+   "maxOffsetAt": {
+    "laneRow": 79,
+    "s": 4938.8,
+    "sFromLine": -472
+   },
+   "working": {
+    "from": 4918.7,
+    "to": 194.3,
+    "source": "inferred (longest stretch at a steady distance from the track)",
+    "fromLine": -492,
+    "toLine": 194.3
+   },
+   "crossesTrack": [],
+   "farFromTrack": [],
+   "otherPartOfLap": [],
+   "today": {
+    "pit": [
+     -400,
+     380
+    ],
+    "pitSide": -1,
+    "sameSide": true,
+    "workingOverlap_m": 594.3
+   },
+   "checks": {
+    "endsOnTrack": true,
+    "rowsInsideTrackEdgeBetween": 0,
+    "rowsOnOtherSide": 0,
+    "rowsGoingBackwards": 0
+   },
+   "widthFromOsm": false,
+   "tunnelsOrBridges": [],
+   "registration": {
+    "fittedTo": "relation 21297662 (Lusail Grand Prix Circuit)",
+    "median_m": 0.9,
+    "p95_m": 3.8,
+    "max_m": 4.9,
+    "mappedShare": 1,
+    "mappedMedian_m": 0.9,
+    "mappedP95_m": 3.8,
+    "rotation_deg": 0,
+    "bacingerMedian_m": 0.7
+   },
+   "osm": {
+    "ways": [
+     1037707300,
+     196193732
+    ],
+    "gapsBridged": 0,
+    "how": "listed in pits.mjs",
+    "data": "2026-11-18T00:16:27Z"
+   },
+   "notes": [
+    "OSM has two entries into the pit lane (MotoGP and F1): the F1 one (way 1037707300) is used"
+   ]
+  },
+  "yasmarina": {
+   "name": "Yas Marina",
+   "quality": "osm",
+   "side": "right",
+   "sideSign": -1,
+   "rows": 227,
+   "length_m": 1128,
+   "entry": {
+    "s": 4873.7,
+    "sFromLine": -406.1,
+    "row": 977,
+    "lat": -0.1,
+    "edge": 6.5,
+    "onTrack": true
+   },
+   "exit": {
+    "s": 727.5,
+    "sFromLine": 727.5,
+    "row": 146,
+    "lat": 1.5,
+    "edge": 6.4,
+    "onTrack": true
+   },
+   "leavesTrack": {
+    "laneRow": 15,
+    "s": 4950.4,
+    "sFromLine": -329.4,
+    "row": 992,
+    "lat": -6.8,
+    "edge": 6.5
+   },
+   "rejoinsTrack": {
+    "laneRow": 216,
+    "s": 679.3,
+    "sFromLine": 679.3,
+    "row": 136,
+    "lat": 6.7,
+    "edge": 6.4
+   },
+   "lapSpan_m": 1133.6,
+   "maxOffset_m": 30.6,
+   "maxOffsetAt": {
+    "laneRow": 186,
+    "s": 525.6,
+    "sFromLine": 525.6
+   },
+   "working": {
+    "from": 5016.8,
+    "to": 235.7,
+    "source": "inferred (longest stretch at a steady distance from the track)",
+    "fromLine": -263,
+    "toLine": 235.7
+   },
+   "crossesTrack": [
+    {
+     "laneRows": [
+      139,
+      142
+     ],
+     "s": 285.1,
+     "sFromLine": 285.1,
+     "from": "right",
+     "to": "left",
+     "how": "tunnel (OSM)"
+    }
+   ],
+   "farFromTrack": [],
+   "otherPartOfLap": [],
+   "today": {
+    "pit": [
+     -230,
+     200
+    ],
+    "pitSide": 1,
+    "sameSide": false,
+    "workingOverlap_m": 430
+   },
+   "checks": {
+    "endsOnTrack": true,
+    "rowsInsideTrackEdgeBetween": 5,
+    "rowsOnOtherSide": 72,
+    "rowsGoingBackwards": 0
+   },
+   "widthFromOsm": false,
+   "tunnelsOrBridges": [
+    {
+     "way": 176695255,
+     "tunnel": "yes",
+     "layer": "-1"
+    }
+   ],
+   "registration": {
+    "fittedTo": "highway=raceway ways",
+    "median_m": 0.7,
+    "p95_m": 1.9,
+    "max_m": 3.7,
+    "mappedShare": 1,
+    "mappedMedian_m": 0.7,
+    "mappedP95_m": 1.9,
+    "rotation_deg": -0.03,
+    "bacingerMedian_m": 0.4
+   },
+   "osm": {
+    "ways": [
+     176695253,
+     176695255,
+     176695254
+    ],
+    "gapsBridged": 0,
+    "how": "tagged as a pit lane",
+    "data": "2026-11-18T00:16:27Z"
+   },
+   "notes": [
+    "another OSM pit lane nearby not used: ways 188471238 (839 m, not past the line)"
+   ]
+  },
+  "bahrain": {
+   "name": "Bahrain International Circuit",
+   "quality": "osm",
+   "side": "right",
+   "sideSign": -1,
+   "rows": 156,
+   "length_m": 772.9,
+   "entry": {
+    "s": 5209.4,
+    "sFromLine": -196.3,
+    "row": 1043,
+    "lat": -1.8,
+    "edge": 5.7,
+    "onTrack": true
+   },
+   "exit": {
+    "s": 573.3,
+    "sFromLine": 573.3,
+    "row": 115,
+    "lat": -0.2,
+    "edge": 6.9,
+    "onTrack": true
+   },
+   "leavesTrack": {
+    "laneRow": 2,
+    "s": 5217.3,
+    "sFromLine": -188.5,
+    "row": 1044,
+    "lat": -7.8,
+    "edge": 5.7
+   },
+   "rejoinsTrack": {
+    "laneRow": 143,
+    "s": 513.9,
+    "sFromLine": 513.9,
+    "row": 103,
+    "lat": -7.2,
+    "edge": 6.8
+   },
+   "lapSpan_m": 769.6,
+   "maxOffset_m": 15.8,
+   "maxOffsetAt": {
+    "laneRow": 31,
+    "s": 5361.5,
+    "sFromLine": -44.3
+   },
+   "working": {
+    "from": 5321.6,
+    "to": 439.5,
+    "source": "inferred (longest stretch at a steady distance from the track)",
+    "fromLine": -84.1,
+    "toLine": 439.5
+   },
+   "crossesTrack": [],
+   "farFromTrack": [],
+   "otherPartOfLap": [],
+   "today": {
+    "pit": [
+     -300,
+     400
+    ],
+    "pitSide": -1,
+    "sameSide": true,
+    "workingOverlap_m": 484.1
+   },
+   "checks": {
+    "endsOnTrack": true,
+    "rowsInsideTrackEdgeBetween": 0,
+    "rowsOnOtherSide": 0,
+    "rowsGoingBackwards": 0
+   },
+   "widthFromOsm": false,
+   "tunnelsOrBridges": [],
+   "registration": {
+    "fittedTo": "highway=raceway ways",
+    "median_m": 1.2,
+    "p95_m": 3.3,
+    "max_m": 5.6,
+    "mappedShare": 1,
+    "mappedMedian_m": 1.2,
+    "mappedP95_m": 3.3,
+    "rotation_deg": -0.19,
+    "bacingerMedian_m": 1.4
+   },
+   "osm": {
+    "ways": [
+     187123422
+    ],
+    "gapsBridged": 0,
+    "how": "tagged as a pit lane",
+    "data": "2026-11-18T00:17:32Z"
+   },
+   "notes": []
+  },
+  "jeddah": {
+   "name": "Jeddah Corniche Circuit",
+   "quality": "osm",
+   "side": "left",
+   "sideSign": 1,
+   "rows": 172,
+   "length_m": 856.3,
+   "entry": {
+    "s": 5818.8,
+    "sFromLine": -358.1,
+    "row": 1165,
+    "lat": 0.9,
+    "edge": 6,
+    "onTrack": true
+   },
+   "exit": {
+    "s": 519.9,
+    "sFromLine": 519.9,
+    "row": 104,
+    "lat": -0.2,
+    "edge": 6,
+    "onTrack": true
+   },
+   "leavesTrack": {
+    "laneRow": 10,
+    "s": 5868.7,
+    "sFromLine": -308.3,
+    "row": 1175,
+    "lat": 6.7,
+    "edge": 6
+   },
+   "rejoinsTrack": {
+    "laneRow": 163,
+    "s": 485.9,
+    "sFromLine": 485.9,
+    "row": 97,
+    "lat": 6.6,
+    "edge": 6
+   },
+   "lapSpan_m": 878,
+   "maxOffset_m": 24.8,
+   "maxOffsetAt": {
+    "laneRow": 156,
+    "s": 421.9,
+    "sFromLine": 421.9
+   },
+   "working": {
+    "from": 6077.3,
+    "to": 397.2,
+    "source": "inferred (longest stretch at a steady distance from the track)",
+    "fromLine": -99.6,
+    "toLine": 397.2
+   },
+   "crossesTrack": [],
+   "farFromTrack": [],
+   "otherPartOfLap": [],
+   "today": {
+    "pit": [
+     -350,
+     300
+    ],
+    "pitSide": 1,
+    "sameSide": true,
+    "workingOverlap_m": 399.6
+   },
+   "checks": {
+    "endsOnTrack": true,
+    "rowsInsideTrackEdgeBetween": 0,
+    "rowsOnOtherSide": 0,
+    "rowsGoingBackwards": 0
+   },
+   "widthFromOsm": true,
+   "tunnelsOrBridges": [
+    {
+     "way": 1257884704,
+     "tunnel": "yes",
+     "layer": "-1"
+    }
+   ],
+   "registration": {
+    "fittedTo": "highway=raceway ways",
+    "median_m": 1,
+    "p95_m": 3,
+    "max_m": 3.7,
+    "mappedShare": 1,
+    "mappedMedian_m": 1,
+    "mappedP95_m": 3,
+    "rotation_deg": 0.01,
+    "bacingerMedian_m": 0.5
+   },
+   "osm": {
+    "ways": [
+     1121870473,
+     1257884704,
+     1257884703
+    ],
+    "gapsBridged": 0,
+    "how": "tagged as a pit lane",
+    "data": "2026-11-18T00:18:35Z"
+   },
+   "notes": [
+    "OSM lane trimmed to where it meets the track (0 rows off the start, 1 off the end)"
+   ]
+  }
+ }
+}
