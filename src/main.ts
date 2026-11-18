@@ -432,7 +432,7 @@ export async function main() {
 
   const frame = (now: number) => {
     requestAnimationFrame(frame);
-    const fdt = Math.min((now - last) / 1000, 0.1); last = now;
+    const fdt = clamp((now - last) / 1000, 0, 0.1); last = now;   // (never negative: a timestamp that steps back would send the camera's easing off to infinity)
     // live: the player is driving. A race we are in goes on while the menu is open (the car parked: Weekend).
     const nowS = now / 1000, live = started && !paused, running = live || !!netRt?.mp.weekend.keepsRunning;
     if (netRt) {
