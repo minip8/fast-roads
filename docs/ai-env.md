@@ -422,8 +422,9 @@ improving line of `eval.jsonl`). Layout, little-endian:
 | 8 + J | zeros | to a multiple of 4 |
 | `(8 + J + 3) & ~3` | float32[] | the arrays, back to back; each at `arrays[name].offset` floats from here |
 
-The JSON: `format` (`"fast-roads-policy-web"`), `version` 1, `obs_dim`, `act_dim`, `obs_clip`, `obsVersion`, `ops`
-and `output` (as in the `.npz`: `ai/rl/policy_np.py`), `arrays` (`{name: {offset, shape}}`: `obs_mean`,
+The JSON: `format` (`"fast-roads-policy-web"`), `version` 1, `obs_dim`, `act_dim`, `obs_clip`, `obsVersion`, `ops`,
+`output` and the optional `act_scale` (as in the `.npz`: `ai/rl/policy_np.py`; the action is
+`clamp(act_scale x tanh(mean), -1, 1)`, the scale 1 each if absent), `arrays` (`{name: {offset, shape}}`: `obs_mean`,
 `obs_scale`, then the weights; linear weights `[in, out]`), `env` (the full effective environment config:
 `actionHz`, `actionMode`, `deltaScale`, `steerRate`, `pedalRate`, `tc`, `obs` are what the game drives with),
 `trained` (`cars`, `tracks`), `provenance` (free-form: run, policy file and its sha256, actor, env steps, the

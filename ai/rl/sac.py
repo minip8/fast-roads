@@ -20,14 +20,14 @@ import numpy as np
 import torch
 
 from config import SACConfig, load_config
-from networks import OBS_CLIP, Actor, QuantileEnsemble, normalize
+from networks import OBS_CLIP, Actor, QuantileEnsemble, normalize, squashed_log_prob
 from policy_np import FORMAT, NumpyPolicy
 from replay import ReplayBuffer
 
 CRITIC_METRICS = ('critic_loss', 'q_mean', 'target_q_mean', 'critic_grad_norm')
 os.environ.setdefault('TRITON_DEFAULT_FP_FUSION', '1')  # Triton 3.9's default (torch.compile), minus its warning
 WARMUP = 3  # eager updates before a CUDA graph capture
-ACTOR_METRICS = ('actor_loss', 'alpha_loss', 'entropy', 'alpha', 'actor_grad_norm')
+ACTOR_METRICS = ('actor_loss', 'alpha_loss', 'entropy', 'alpha', 'actor_grad_norm', 'action_rate')
 
 
 def quantile_huber_loss(pred: torch.Tensor, target: torch.Tensor, kappa: float = 1.0) -> torch.Tensor:
@@ -68,10 +68,16 @@ class SAC:
             torch.backends.cudnn.allow_tf32 = cfg.tf32
         if cfg.top_drop_per_net >= cfg.num_quantiles:
             raise ValueError('top_drop_per_net must be below num_quantiles')
-        self.actor = Actor(obs_dim, act_dim, cfg.actor).to(dev)
+        self.actor = Actor(obs_dim, act_dim, cfg.actor, cfg.action_scale).to(dev)
         self.critic = QuantileEnsemble(obs_dim, act_dim, cfg.num_critics, cfg.num_quantiles, cfg.critic).to(dev)
         self.target = copy.deepcopy(self.critic).requires_grad_(False)
         self.log_alpha = torch.tensor(math.log(cfg.init_alpha), device=dev, requires_grad=True)
+        self._rate_w = self._prev_idx = None
+        if any(cfg.rate_reg):
+            if len(cfg.rate_reg) != act_dim or len(cfg.prev_action_index) != act_dim:
+                raise ValueError('rate_reg and prev_action_index need one entry per action')
+            self._rate_w = torch.tensor(cfg.rate_reg, device=dev)
+            self._prev_idx = torch.tensor(cfg.prev_action_index, device=dev)
         self.use_graph = cfg.cuda_graph and cuda
         opt_kw = dict(fused=True, capturable=self.use_graph) if cuda else {}
         Opt = torch.optim.AdamW if cfg.weight_decay > 0 else torch.optim.Adam
@@ -127,13 +133,21 @@ class SAC:
     def actor_loss(self, obs):
         o = self.norm(obs)
         with self._amp():
-            a, logp = self.actor.sample(o)
+            mean, log_std = self.actor.dist(o)
+            u = mean + torch.exp(log_std) * torch.randn_like(mean)
+            a, logp = self.actor.squash(u), squashed_log_prob(u, mean, log_std)
             qa = self.critic(o, a, detach=True).mean(-1)               # [C, B]
         q = qa.mean(0) if self.cfg.actor_q == 'mean' else qa.min(0).values
         alpha = self.log_alpha.detach().exp()
         actor_loss = (alpha * logp - q).mean()
+        if self._rate_w is not None:   # how far the mean action is from the previous one, per action [A]
+            rate = (self.actor.squash(mean) - obs[:, self._prev_idx].float()).abs().mean(0)
+            actor_loss = actor_loss + (rate * self._rate_w).sum()
+            rate = rate.detach().mean()
+        else:
+            rate = torch.zeros((), device=obs.device)
         alpha_loss = -(self.log_alpha * (logp.detach() + self.target_entropy)).mean()
-        return actor_loss, alpha_loss, -logp.detach().mean(), alpha
+        return actor_loss, alpha_loss, -logp.detach().mean(), alpha, rate
 
     # ---- one update ---------------------------------------------------------------------------------------------
 
@@ -152,14 +166,14 @@ class SAC:
         self.critic_opt.step()
         self._critic_sum += torch.stack([loss.detach(), q_mean, t_mean, gn])
         if with_actor:
-            a_loss, al_loss, ent, alpha = self._actor_loss(obs)
+            a_loss, al_loss, ent, alpha, rate = self._actor_loss(obs)
             self.actor_opt.zero_grad(set_to_none=True)
             self.alpha_opt.zero_grad(set_to_none=True)
             (a_loss + al_loss).backward()  # alpha is detached in a_loss, so log-alpha's grad is al_loss's alone
             agn = _grad_norm(self._actor_params, cfg.grad_clip)
             self.actor_opt.step()
             self.alpha_opt.step()
-            self._actor_sum += torch.stack([a_loss.detach(), al_loss.detach(), ent, alpha, agn])
+            self._actor_sum += torch.stack([a_loss.detach(), al_loss.detach(), ent, alpha, agn, rate])
         torch._foreach_lerp_(self._target_params, self._critic_params, cfg.tau)
 
     def _capture(self) -> int:
@@ -271,8 +285,8 @@ class SAC:
         """The deterministic actor as a `.npz` (layout in policy_np.py)."""
         arrays, ops = actor_arrays(self.actor)
         meta = {'format': FORMAT, 'version': 1, 'obs_dim': self.obs_dim, 'act_dim': self.act_dim,
-                'obs_clip': OBS_CLIP, 'ops': ops,
-                'output': f'first {self.act_dim} outputs: Gaussian mean; action = tanh(mean)'}
+                'obs_clip': OBS_CLIP, 'ops': ops, 'act_scale': self.actor.act_scale.tolist(),
+                'output': f'first {self.act_dim} outputs: Gaussian mean; action = clamp(act_scale x tanh(mean), -1, 1)'}
         arrays['obs_mean'] = self.obs_mean.cpu().numpy().astype(np.float32)
         arrays['obs_scale'] = self.obs_inv_std.cpu().numpy().astype(np.float32)
         np.savez(path, meta=np.array(json.dumps(meta)), **arrays)
@@ -329,7 +343,7 @@ class CpuPolicy:
     """A CPU copy of the actor and the normaliser (collector and evaluator threads), refreshed with `load`."""
 
     def __init__(self, cfg: SACConfig, obs_dim: int, act_dim: int):
-        self.actor = Actor(obs_dim, act_dim, cfg.actor)
+        self.actor = Actor(obs_dim, act_dim, cfg.actor, cfg.action_scale)
         self.actor.requires_grad_(False)
         self.mean = torch.zeros(obs_dim)
         self.inv_std = torch.ones(obs_dim)

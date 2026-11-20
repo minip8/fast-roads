@@ -15,8 +15,9 @@ File layout (`np.load(path)`; every array float32 except `meta`):
 - {"op": "relu"}                                    x = max(x, 0)
 - {"op": "push"}                                    push a copy of x
 - {"op": "add"}                                     x = x + pop()
-The final x has 2A values: the first A are the Gaussian mean, the action is tanh(mean) (the deterministic policy;
-the other A are the log-std's pre-activation, unused here).
+The final x has 2A values: the first A are the Gaussian mean, the action is clamp(act_scale x tanh(mean), -1, 1) (the
+deterministic policy; `act_scale` [A] in meta, 1 each if absent; the other A are the log-std's pre-activation, unused
+here).
 """
 from __future__ import annotations
 
@@ -60,4 +61,5 @@ class NumpyPolicy:
                 x = x + stack.pop()
             else:
                 raise ValueError(f'unknown op {kind!r}')
-        return np.tanh(x[..., :self.act_dim]).astype(np.float32)
+        scale = np.asarray(self.meta.get('act_scale', [1.0] * self.act_dim), np.float32)
+        return np.clip(np.tanh(x[..., :self.act_dim]).astype(np.float32) * scale, -1, 1)

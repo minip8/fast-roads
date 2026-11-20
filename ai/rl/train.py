@@ -334,6 +334,9 @@ class Trainer:
     def _build(self, cfg: TrainConfig, run_dir: Path, evaluate: Evaluator | None, resume: bool) -> None:
         p = self.pool
         self.obs_dim, self.act_dim = p.obs_dim, getattr(p, 'act_dim', 2)
+        if any(cfg.sac.rate_reg) and not cfg.sac.prev_action_index:   # the env's previous-action observations
+            cfg.sac.prev_action_index = [self.pool.obs_index[k] for k in ('prev_steer', 'prev_pedal')]
+            save_config(cfg, run_dir / 'config.json')
         self.agent = SAC(cfg.sac, self.obs_dim, self.act_dim, cfg.device)
         self.replay = ReplayBuffer(p.num_envs, self.obs_dim, self.act_dim, cfg.replay.capacity, cfg.device,
                                    getattr(torch, cfg.replay.obs_dtype))
@@ -459,6 +462,8 @@ class Trainer:
         if 'critic_loss' in line:
             brief += (f"  closs {line['critic_loss']:.3f}  q {line['q_mean']:.1f}  alpha {line.get('alpha', 0):.4f}"
                       f"  ent {line.get('entropy', 0):.2f}")
+            if any(self.cfg.sac.rate_reg):
+                brief += f"  rate {line.get('action_rate', 0):.4f}"
         if line.get('episodes'):
             brief += f"  eps {line['episodes']} ret {line['ep_return']:.1f}"
             if 'ep_progress' in line:

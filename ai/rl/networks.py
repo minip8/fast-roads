@@ -120,11 +120,16 @@ def squashed_log_prob(u: torch.Tensor, mean: torch.Tensor, log_std: torch.Tensor
 class Actor(nn.Module):
     """Tanh-squashed Gaussian; log-std bounded smoothly to [LOG_STD_MIN, LOG_STD_MAX] by a rescaled tanh."""
 
-    def __init__(self, obs_dim: int, act_dim: int, cfg: NetConfig):
+    def __init__(self, obs_dim: int, act_dim: int, cfg: NetConfig, scale: list[float] | None = None):
         super().__init__()
         self.act_dim = act_dim
         self.trunk = Trunk(obs_dim, cfg)
         self.head = nn.Linear(self.trunk.out_dim, 2 * act_dim)
+        # the action is clamp(scale x tanh(u), -1, 1): with scale > 1 an action's ends (full throttle, full brake)
+        # are a stretch of u, not its limit at infinity, which the entropy term keeps a tanh policy away from
+        self.register_buffer('act_scale', torch.tensor(scale or [1.0] * act_dim, dtype=torch.float32), persistent=False)
+        if len(self.act_scale) != act_dim:
+            raise ValueError('action_scale needs one entry per action')
 
     def dist(self, obs_n: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         out = self.head(self.trunk(obs_n)).float()
@@ -132,19 +137,21 @@ class Actor(nn.Module):
         log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (torch.tanh(raw) + 1.0)
         return mean, log_std
 
+    def squash(self, u: torch.Tensor) -> torch.Tensor:
+        return (torch.tanh(u) * self.act_scale).clamp(-1.0, 1.0)
+
     def sample(self, obs_n: torch.Tensor, eps: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor]:
-        """Reparameterised action and its log-probability; `eps` (standard normal, e.g. coloured noise) or white."""
+        """Reparameterised action and its log-probability (of the tanh-squashed Gaussian: the clamp is ignored);
+        `eps` (standard normal, e.g. coloured noise) or white."""
         mean, log_std = self.dist(obs_n)
         if eps is None:
             eps = torch.randn_like(mean)
         u = mean + torch.exp(log_std) * eps
-        return torch.tanh(u), squashed_log_prob(u, mean, log_std)
+        return self.squash(u), squashed_log_prob(u, mean, log_std)
 
     def deterministic(self, obs_n: torch.Tensor) -> torch.Tensor:
-        return torch.tanh(self.dist(obs_n)[0])
+        return self.squash(self.dist(obs_n)[0])
 
-
-# ---- critic ensemble ------------------------------------------------------------------------------------------------
 
 class BLinear(nn.Module):
     """C independent Linear layers: x [C, B, in] -> [C, B, out]; each initialised like nn.Linear."""

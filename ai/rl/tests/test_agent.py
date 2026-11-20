@@ -241,3 +241,22 @@ def test_load_act_fn_from_checkpoint_and_export(tmp_path):
     want = a.act(obs)
     np.testing.assert_allclose(load_act_fn(tmp_path / 'ck.pt')(obs), want, atol=1e-6)
     np.testing.assert_allclose(load_act_fn(tmp_path / 'p.npz')(obs), want, atol=1e-5)
+
+
+def test_rate_regulariser_pulls_the_mean_to_the_previous_action():
+    """With the critic's say removed (zero Q gradient is not available, so a large weight instead), the actor's mean
+    action moves to the previous action held in the observation."""
+    torch.manual_seed(0)
+    a = agent(rate_reg=[50.0, 50.0], prev_action_index=[3, 4])
+    obs = torch.randn(256, D, device=a.device)
+    obs[:, 3:5] = torch.rand(256, 2, device=a.device) * 1.6 - 0.8
+    before = (a.actor.deterministic(a.norm(obs)) - obs[:, 3:5]).abs().mean().item()
+    for _ in range(300):
+        loss, _, _, _, rate = a.actor_loss(obs)
+        a.actor_opt.zero_grad()
+        loss.backward()
+        a.actor_opt.step()
+    after = (a.actor.deterministic(a.norm(obs)) - obs[:, 3:5]).abs().mean().item()
+    assert after < 0.25 * before and abs(rate.item() - after) < 0.05
+    with pytest.raises(ValueError):
+        agent(rate_reg=[1.0, 1.0])   # no prev_action_index

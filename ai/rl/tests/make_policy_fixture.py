@@ -70,7 +70,9 @@ def build(kind: str, rng: np.random.Generator) -> tuple[dict, dict[str, np.ndarr
     arrays['obs_mean'] = (0.3 * rng.standard_normal(OBS_DIM)).astype(np.float32)
     arrays['obs_scale'] = np.exp(0.5 * rng.standard_normal(OBS_DIM)).astype(np.float32)
     meta = {'format': FORMAT, 'version': 1, 'obs_dim': OBS_DIM, 'act_dim': ACT_DIM, 'obs_clip': CLIP, 'ops': ops,
-            'output': f'first {ACT_DIM} outputs: Gaussian mean; action = tanh(mean)'}
+            'output': f'first {ACT_DIM} outputs: Gaussian mean; action = clamp(act_scale x tanh(mean), -1, 1)'}
+    if kind == 'simba':   # one fixture with an action scale (its pedal reaches the clamp), one without the key
+        meta['act_scale'] = [1.0, 1.6]
     return meta, arrays
 
 
@@ -88,7 +90,7 @@ def main() -> None:
         np.savez(buf, meta=np.array(json.dumps(meta)), **arrays)
         buf.seek(0)
         actions = NumpyPolicy(buf)(obs)
-        assert np.all(np.abs(actions) < 0.999), 'saturated fixture'
+        assert np.mean(np.abs(actions) < 0.999) > 0.6, 'saturated fixture'   # (the scaled pedal clamps in some)
         web = pack(dict(meta, obsVersion=OBS_VERSION, env=ENV, trained={'cars': ['lcf1', 'lcgt3', 'drift'], 'tracks': ['melbourne']},
                         provenance={'fixture': f'make_policy_fixture.py {kind}, random weights'}), arrays)
         (OUT / f'policy-{kind}.bin').write_bytes(web)

@@ -36,12 +36,21 @@ class SACConfig:
     num_critics: int = 2
     num_quantiles: int = 32
     top_drop_per_net: int = 2     # TQC: target quantiles dropped per critic from the top of the pooled set
-    init_alpha: float = 0.1
+    init_alpha: float = 0.1       # with lr_alpha = 0 this is the fixed temperature
+    # per action, the policy's output is clamp(scale x tanh(u), -1, 1) (empty: 1 each). Above 1 the ends of the
+    # range (full throttle, full brake) are reachable at a finite u
+    action_scale: list[float] = field(default_factory=list)
     target_entropy: float = -2.0  # -|A|
     target_entropy_final: float | None = None  # set (with target_entropy_steps) for a linear schedule over env steps
     target_entropy_steps: int = 0
     actor_q: str = 'mean'         # actor objective: 'mean' over critics and quantiles, or 'min' of per-critic means
     policy_delay: int = 1         # actor and alpha step every this many critic steps
+    # Action-rate regulariser on the policy's MEAN action: adds rate_reg[i] x |tanh(mean_i) - previous action_i| to
+    # the actor loss, the previous action read from the observation (prev_action_index; train.py fills it in from
+    # the env's prev_steer / prev_pedal). Where the critic is indifferent the mean then stays where it was instead of
+    # dithering; a reward penalty cannot do this, being drowned by the exploration noise of the sampled actions.
+    rate_reg: list[float] = field(default_factory=list)   # per action; empty: off
+    prev_action_index: list[int] = field(default_factory=list)
     actor: NetConfig = field(default_factory=lambda: NetConfig(hidden=256, blocks=1, mlp_layers=[256, 256]))
     critic: NetConfig = field(default_factory=NetConfig)
     obs_norm: bool = True

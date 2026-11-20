@@ -6,7 +6,7 @@ import { OBS_VERSION, observationSpec } from './observation';
 // A trained policy in the game: the web policy file that ai/rl/export_web.py writes from the trainer's .npz, parsed
 // and run here (pure TypeScript, no Node or DOM). The network is the trainer's deterministic actor, as ai/rl/policy_np.py
 // runs it: the observation normalised, then an op list (linear, layernorm, relu, push, add), the action tanh of the
-// first act_dim outputs. File layout (little-endian):
+// first act_dim outputs, times act_scale where the file has one, clamped to [-1, 1]. File layout (little-endian):
 //
 //     0   4 bytes    "FRPW"
 //     4   u32        J, the JSON's byte length
@@ -34,6 +34,7 @@ export interface PolicyMeta {
   obs_dim: number; act_dim: number; obs_clip: number;
   obsVersion: number;                   // the observation layout it was trained on (OBS_VERSION)
   ops: PolicyOp[];
+  act_scale?: number[];                 // the action is clamp(act_scale x tanh(mean), -1, 1); 1 each if absent
   arrays: Record<string, { offset: number; shape: number[] }>;
   env: PolicyEnv;                       // the effective environment config of the training run
   trained: { cars: string[]; tracks: string[] };
@@ -62,6 +63,7 @@ export class Policy {
   readonly env: PolicyEnv;
   private readonly x0: Float32Array;    // the normalised observation, the network's input
   private readonly out: Float32Array;   // the last op's output
+  private readonly actScale: Float32Array;
   private readonly steps: Step[] = [];
   private readonly mean: Float32Array; private readonly scale: Float32Array; private readonly clip: number;
 
@@ -78,6 +80,9 @@ export class Policy {
     if (m.obs_dim !== D) throw new Error(`policy observes ${m.obs_dim} values; the game's observation for its obs config has ${D}`);
     if (m.act_dim !== 2) throw new Error(`policy has ${m.act_dim} actions, not 2`);
     this.obsDim = D; this.actDim = m.act_dim; this.env = env; this.clip = m.obs_clip;
+    const as = m.act_scale ?? Array.from({ length: m.act_dim }, () => 1);
+    if (!Array.isArray(as) || as.length !== m.act_dim || !as.every((v) => Number.isFinite(v) && v > 0)) throw new Error('policy file: act_scale must have a positive number per action');
+    this.actScale = Float32Array.from(as);
     this.mean = this.array('obs_mean', [D]); this.scale = this.array('obs_scale', [D]);
     this.x0 = new Float32Array(D);
     // compile the ops into steps over preallocated buffers: no garbage per call
@@ -129,7 +134,10 @@ export class Policy {
       x[i] = v > c ? c : v < -c ? -c : v;
     }
     for (const s of this.steps) s();
-    for (let k = 0; k < this.actDim; k++) act[k] = Math.tanh(this.out[k]);
+    for (let k = 0; k < this.actDim; k++) {
+      const a = f(f(Math.tanh(this.out[k])) * this.actScale[k]);
+      act[k] = a > 1 ? 1 : a < -1 ? -1 : a;
+    }
     return act;
   }
 
