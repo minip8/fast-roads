@@ -2,6 +2,7 @@
   "env": {
     "actionHz": 20,
     "episodeSecs": 90,
+    "reward": { "steerSmooth": 2.0, "pedalSmooth": 0.5 },
     "reset": { "tracks": ["melbourne"], "cars": ["lcf1"] }
   },
   "reward": {},
@@ -15,5 +16,5 @@
   },
   "replay": { "capacity": 5000000 },
   "collect": { "num_workers": 6, "envs_per_worker": 16 },
-  "eval": { "every_secs": 180, "combos": [["melbourne", "lcf1"]] }
+  "eval": { "every_secs": 240, "combos": [["melbourne", "lcf1"]], "repeats": 4 }
 }
