@@ -13,10 +13,12 @@ import type { Vehicle } from '../vehicle';
 //   Rapier (our physics): the world's contact pairs between the car's colliders and the walls after the step, with
 //     the velocity the car had as the tick began.
 //   LibreCorsa: the engine's own per-step telemetry (wallContact, wallImpactMs), over every engine step in the tick,
-//     by wrapping its step method (the engine instance is replaced on a spawn: attach after every placement).
+//     by wrapping its step method (the engine instance is replaced on a spawn: attach after every placement). An
+//     engine is wrapped once and reports to the sensor attached to it last (a policy driver made again in the game
+//     picks up the same engine).
 // ============================================================================
 const _v = new THREE.Vector3(), _r = new THREE.Vector3();
-const hooked = new WeakSet<object>();
+const owner = new WeakMap<object, WallSensor>();
 
 export class WallSensor {
   contact = false; hit = 0;
@@ -27,15 +29,15 @@ export class WallSensor {
   attach(car: Vehicle) {
     this.contact = false; this.hit = 0;
     if (!(car instanceof LcCar)) return;
-    const v = car.vehicle;
-    if (hooked.has(v)) return;
-    hooked.add(v);
+    const v = car.vehicle, hooked = owner.has(v);
+    owner.set(v, this);
+    if (hooked) return;
     const step = v.step.bind(v);
     v.step = (dt: number, inputs: VehicleInputs) => {
       step(dt, inputs);
-      const t = v.telemetry;
-      if (t.wallContact) this.lcContact = true;
-      if (t.wallImpactMs > this.lcHit) this.lcHit = t.wallImpactMs;
+      const t = v.telemetry, s = owner.get(v)!;
+      if (t.wallContact) s.lcContact = true;
+      if (t.wallImpactMs > s.lcHit) s.lcHit = t.wallImpactMs;
     };
   }
 

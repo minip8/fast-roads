@@ -7,8 +7,10 @@ against it; nothing else is needed.
 
 - `src/ai/`: the environment, in the game's TypeScript (it changes with the physics, in the same commits).
   `env.ts` (`RaceEnv`: reset/step over the game's `Session`), `vec.ts` (`VecEnv`: N of them as a batch, with
-  automatic resets), `observation.ts` (the observation, a pure function the browser can reuse), `config.ts` (every
-  setting and its default), `walls.ts` (wall contact per engine), `rng.ts`, `protocol.ts` (the wire format).
+  automatic resets), `observation.ts` (the observation, a pure function the browser can reuse), `control.ts` (an
+  action's way to the car and what the observation reads besides it, shared with the game's policy driver),
+  `config.ts` (every setting and its default), `walls.ts` (wall contact per engine), `rng.ts`, `protocol.ts` (the
+  wire format); and for trained policies in the game, `policy.ts` and `policyDriver.ts` (below).
 - `ai/worker.ts`: the worker process (stdin/stdout). `ai/client.mjs` and `ai/client.py`: reference clients.
 
 Every circuit includes its real pit lane, as the game builds it (`src/pitLane.ts`, `src/circuit.ts`), with nothing of
@@ -20,7 +22,8 @@ goes into it is invalid (`lap_valid` 0, the game's PIT LANE rule: `Timing.pitLan
 the centreline's `projectOnTrack` (not lane-aware), so where a lane cuts inside corners (Silverstone, Shanghai,
 Madrid) the jumps its projection makes are capped as any jump is. Random starts are on the track's road, the autopilot
 never turns into the lane, and every pinned number below is as it was before the lane.
-  `ai/bench.mjs`: throughput. None of it is in the game's bundle.
+  `ai/bench.mjs`: throughput. None of it is in the game's bundle: the game imports the policy driver dynamically,
+  only for `?autopilot=rl`.
 
 ## Build and launch
 
@@ -367,3 +370,69 @@ Measured with `node ai/bench.mjs` on an AMD Ryzen 5 5600G (6 cores, 12 threads, 
   circuit's 5,300 static wall colliders and the ground box (a world with the walls and no car costs 0.43 ms a step).
   Making that cheaper means changing how walls are built, which is a physics change, so it was not done.
 - Message overhead is negligible next to stepping (a step's reply is about 0.8 kB per environment).
+
+## Trained policies in the game
+
+A policy trained by `ai/rl/` drives the player's car with `?autopilot=rl` in the URL (as `?autopilot` does the
+built-in one: it also skips the menu). The game drives it exactly as the environment does: the same code takes the
+action to the car (`src/ai/control.ts` `Controller`: targets, slew limits, steering as a share of the lock through
+`DriveInput.steerAngle`, automatic gears) and builds the observation (projection, `observe()`, the commands and the
+last step's wall contact from `WallSensor`), in `RaceEnv` and in `src/ai/policyDriver.ts` `PolicyDriver`.
+
+**Export.** `ai/rl/export_web.py` turns a run's `.npz` into the web policy file:
+
+    cd ai/rl && .venv/bin/python export_web.py --run runs/<name> [--policy best.npz] --out ../../public/ai/<file>.bin [--note ...]
+
+It starts one env worker (`build/env/worker.mjs`, or `--worker`) with the run's env config (its `config.json` `env`,
+with the env's penalties off when the run used the trainer's reward, as `train.py` runs it) to read the effective
+config and `obsVersion` from READY; it records the evaluation that produced the policy (for `best.npz`, the run's last
+improving line of `eval.jsonl`). Layout, little-endian:
+
+| offset | type | content |
+|---|---|---|
+| 0 | 4 bytes | `FRPW` |
+| 4 | u32 | J: the JSON's byte length |
+| 8 | J bytes | UTF-8 JSON (below) |
+| 8 + J | zeros | to a multiple of 4 |
+| `(8 + J + 3) & ~3` | float32[] | the arrays, back to back; each at `arrays[name].offset` floats from here |
+
+The JSON: `format` (`"fast-roads-policy-web"`), `version` 1, `obs_dim`, `act_dim`, `obs_clip`, `obsVersion`, `ops`
+and `output` (as in the `.npz`: `ai/rl/policy_np.py`), `arrays` (`{name: {offset, shape}}`: `obs_mean`,
+`obs_scale`, then the weights; linear weights `[in, out]`), `env` (the full effective environment config:
+`actionHz`, `actionMode`, `deltaScale`, `steerRate`, `pedalRate`, `tc`, `obs` are what the game drives with),
+`trained` (`cars`, `tracks`), `provenance` (free-form: run, policy file and its sha256, actor, env steps, the
+evaluated laps, the worker's build, a note).
+
+**In the game.** `public/ai/policies.json` names the files, per car id: `{ "lcf1": { "default": "lcf1.bin",
+"tracks": { "melbourne": "lcf1-melbourne.bin" } } }`. The circuit's specialist is used, else the car's default, else
+the built-in autopilot drives (with a console warning); another car loads its own. `src/ai/policy.ts` parses the file
+(`parsePolicy`) and refuses one whose `obsVersion` is not the game's `OBS_VERSION`, whose `obs_dim` is not
+`observationSpec(env.obs)`'s length, or that lacks a control field; `Policy.run` computes the action (float32 between
+ops, float64 sums: actions agree with numpy's to about 1e-6; about 0.1 ms for a 256 x 256 MLP, 0.5 ms for a 256-wide
+SimBa actor). The files are fetched on use and are not in the service worker's precache. `window.__game`:
+`setAutopilot('rl')` (resolves true once a policy drives), `policy` (its file and metadata), `simulate(s, 'rl')`.
+
+`PolicyDriver` gives the input for every physics tick: every `120 / actionHz` ticks it observes the car and asks the
+policy; it starts afresh (an episode's first step: commands zeroed) when the car is put at the start spot
+(`Session.resets`), replaced (another car), or a tick went by without it (the built-in autopilot drove a pit stop,
+the player drove). From the same start the game's `Session` and `RaceEnv` give bit-identical observations, actions
+and cars (`test/ai-policy-driver.test.ts`), and the game's start spot and restart are the environment's flying start
+(a fresh engine: full battery, tyres at the heat of a lap). What can still make a policy drive differently than in
+its training:
+
+- **Inference arithmetic.** The trainer evaluates with torch, `policy_np.py` with numpy, the game in TypeScript: the
+  actions differ by about 1e-6, and over a lap that moves the line. One policy (`mel_f1_a` at 1.2 M env steps): 101.779
+  s (torch), 102.035 s (numpy), 101.744 s (the game, Node). A policy that only just keeps inside the track limits can
+  have its lap deleted in one and not another (the `smoke` run's: 103.053 s valid with torch, 103.544 s invalid with
+  numpy, 103.111 s invalid in the game).
+- **Browser and Node.** The browser runs the same ticks, but its JavaScript engine's `Math.atan2`, `sin`, `cos`,
+  `tanh`, `exp` can differ from Node's in the last bit (Chromium 156 against Node 26: atan2 on about 12% of inputs,
+  sin 3%, tanh rarely). The built-in autopilot's laps still agree to the millisecond; a policy's do not have to (the
+  `mel_f1_a` policy: 102.100 s, invalid, in headless Chromium).
+- **Settings the environment fixes.** Traction control is the game's TC setting (the console warns if it is not
+  what the policy was trained with: `env.tc`); gears are always automatic for the policy (`autoGears`), whatever the
+  gearbox setting. Race conditions (a room's weather and wear, `?wear` / `?wet`) are outside training (the time trial's
+  conditions only).
+- **Multiplayer.** Other cars (contacts, proxies) were never in training; a pit stop is driven by the built-in
+  autopilot.
+

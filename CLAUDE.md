@@ -16,7 +16,7 @@ swaps Rapier's inline base64 WebAssembly for the identical `.wasm` file it ships
 dev and the tests use the inline copy.
 
     npm install
-    npm run dev         # dev server; ?autopilot in the URL skips the menu and lets the built-in driver lap
+    npm run dev         # dev server; ?autopilot in the URL skips the menu and lets the built-in driver lap (?autopilot=rl: a trained policy)
     npm run typecheck   # tsc for src/, then test/ and ai/ (only those get Node types)
     npm test            # Vitest project `unit`: headless physics (~35 s: the test files run in parallel)
     npm run test:laps   # Vitest project `laps`: the pinned laps at the 22 other circuits (2-4 min)
@@ -24,6 +24,7 @@ dev and the tests use the inline copy.
     npx vitest run test/handling.test.ts -t 'reverse'   # one file / one test by name
     npm run build       # typecheck + static build in dist/ (base './'); npm run preview serves it
     npm run build:env   # RL environment worker -> build/env/worker.mjs (git-ignored); node ai/client.mjs drives it
+    cd ai/rl && .venv/bin/python export_web.py --run runs/<name> --out ../../public/ai/<file>.bin   # a trained policy for the game
     npm run server      # multiplayer relay -> build/server/server.mjs, listening on ws://*:8787 (PORT, HOST, MAX_PLAYERS, BATCH_MS, MIN_LAP_SECS)
     npm run relay:cf    # the same relay on Cloudflare Workers, locally (wrangler dev, workerd, no account) on ws://127.0.0.1:8787
     npm run relay:deploy   # deploys it (the owner deploys: needs `wrangler login`)
@@ -92,6 +93,13 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   pinned laps moves it too: update both), random starts, every episode end, automatic resets.
   `test/ai-worker.test.ts` builds the worker into a temporary folder and drives it over the protocol with
   `ai/client.mjs`, comparing every reply bit for bit with the same environments run in-process.
+- Trained policies in the game: `test/ai-policy.test.ts` (the web policy file, inference against numpy's to 1e-5 on
+  the fixtures `ai/rl/tests/make_policy_fixture.py` writes into `test/fixtures/` for both exportable actors, the
+  files refused, the manifest), `test/ai-policy-driver.test.ts` (`PolicyDriver` in a harness `Session` against
+  `RaceEnv` from the flying start: every observation, action and the car bit for bit; the game's policy for 25 s, a
+  random-weights fixture into the walls in the drift car and the GT3; a restart), `test/laps-rl-f1.test.ts` (the
+  game's lcf1 Melbourne policy, `test/policies.ts` `gamePolicy`, laps validly with no resets within 0.5 s of the
+  lap its file's provenance records from the trainer's evaluation: replace the file, and this checks the new one).
 - Multiplayer: `test/net-*.test.ts` cover `src/net/` and the relay on their own (docs/net.md, **Tests**;
   `test/net-cf.test.ts` runs the Cloudflare relay in local workerd through wrangler's `unstable_startWorker`, ~3 s);
   `test/multiplayer.test.ts` joins game Sessions (harness `session()`) through an in-process `Relay` over
@@ -117,7 +125,8 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   is a tool (`PITLOSS=melbourne`): the time a pit stop costs each car.
 - In the browser, `window.__game` exposes `simulate(seconds, driver, probeSecs)`, `car` (a getter: the car object is
   replaced when you switch cars), `simTime`, `session`, `timing`, `track`, `input`, `setSetting(key, value)` and
-  `setAutopilot`, `stage` (renderer, scene, camera; the `GameHook` type in `main.ts`) and `multiplayer` (the
+  `setAutopilot` (`'rl'`: a trained policy, resolving once loaded; `policy` is its file and metadata; `simulate`
+  takes `'rl'` too), `stage` (renderer, scene, camera; the `GameHook` type in `main.ts`) and `multiplayer` (the
   room's `Multiplayer`, or null). Use it for checks that need the page (menu, HUD, settings), e.g.
   from headless Chromium; `input.bindings` holds the current keys. Judge menu and HUD changes by screenshots, at a
   desktop and a phone width.
@@ -427,6 +436,16 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
     placement is a spawn wherever it is) and clears timing (`useStore` + `reset`, events drained every tick).
     Steering goes in as `steerAngle` (share of the car's lock, `steerLockOf`), slew-limited by the env. NaN actions:
     the autopilot drives that step. `vec.ts` `VecEnv`: N of them in flat buffers, automatic resets with final obs.
+  - `control.ts` `Controller`: the action's way to the car (targets, slew, `DriveInput`, automatic gears) and what
+    the observation reads besides it (`ObsControl`, the step's wall contact, the projection with the last index as
+    hint). `RaceEnv` and `PolicyDriver` both use it: change it and both change, bit for bit.
+  - Trained policies in the game (docs/ai-env.md, **Trained policies in the game**): `policy.ts` (the web policy
+    file `ai/rl/export_web.py` writes, `parsePolicy`, `Policy.run`; `pickPolicy` and `loadPolicyFor` read
+    `public/ai/policies.json`: per car a `default` and per-circuit `tracks`), `policyDriver.ts` `PolicyDriver`
+    (a tick's input from a `{ car, resets, simTime, track }`, a `Session`; starts afresh on a placement, another car
+    or a missed tick). `main.ts` imports `policyDriver.ts` dynamically for `?autopilot=rl` (and a type from
+    `policy.ts`); the built-in autopilot drives where there is no policy, and for pit stops. The policy files are
+    not precached by the service worker.
   - `observation.ts`: `observe()` reads only `Vehicle` and the `Track` arrays (no Node or DOM: the browser will
     reuse it); `observationSpec()` names every element. Change both together and bump `OBS_VERSION`.
   - `walls.ts`: wall contact per tick, read from each engine (Rapier contact pairs; the LibreCorsa engine's
@@ -434,7 +453,8 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   - `protocol.ts` (pure byte layout) and `ai/worker.ts` (Node I/O; stdout carries protocol frames only).
     `vite.env.config.ts` bundles the worker with everything inline (SSR build, `noExternal`), embedding the git
     commit and dirty flag. `ai/client.mjs` / `ai/client.py`: reference clients; `ai/bench.mjs`: throughput.
-  - Nothing in `src/` outside `src/ai/` imports it, so the site's bundle does not contain it.
+  - Nothing in `src/` outside `src/ai/` imports it statically (main.ts loads the policy driver's chunk only for
+    `?autopilot=rl`), so the site's bundle does not contain it.
 - **Track data**: `tracks/<id>.csv` (centreline + widths, x east / y north in metres, first row at the start/finish
   line, in racing direction, ~5 m apart), loaded by `loadTrackCsv` as raw text; `parseCSV` skips `#` comment lines,
   where each file names its source. Thirteen are TUM racetrack-database files as they are; eleven (street and new

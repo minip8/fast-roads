@@ -1,4 +1,5 @@
 import RAPIER from '@dimforge/rapier3d-compat';
+import type { PolicyMeta } from './ai/policy';
 import { EngineAudio } from './audio';
 import { autopilot } from './autopilot';
 import { CameraRig } from './camera';
@@ -35,11 +36,14 @@ import { Weather, weatherFromUrl } from './weather';
 // Main: wires the modules together and runs the game loop. Started by boot.ts.
 // ============================================================================
 // Test hook (see CLAUDE.md), set in main(): drive the game from the console or a headless browser.
-type Driver = boolean | ((car: Vehicle, simTime: number) => DriveInput);   // true = autopilot, false = live input
+// true = autopilot, 'rl' = the trained policy (setAutopilot('rl') first; else the autopilot), false = live input
+type Driver = boolean | 'rl' | ((car: Vehicle, simTime: number) => DriveInput);
 export interface ProbeSample { t: number; s: number; kmh: number; g: number; lat: number; y: number; up: number }
 export interface GameHook {
   simulate(seconds: number, driver?: Driver, probeSecs?: number | null): ProbeSample[];
-  setAutopilot(on: boolean): void;
+  // true: the built-in autopilot; 'rl': a trained policy (public/ai/), once loaded (resolves true if one drives)
+  setAutopilot(on: boolean | 'rl'): Promise<boolean>;
+  readonly policy: { readonly file: string; readonly meta: PolicyMeta } | null;   // the trained policy driving, if any
   setSetting<K extends SettingKey>(key: K, value: Settings[K]): void;
   readonly car: Vehicle;             // a getter: switching car replaces the object
   readonly simTime: number;
@@ -52,6 +56,7 @@ export interface GameHook {
   readonly weather: Weather;                        // rain and wet track, as drawn and heard (weather.set)
 }
 type NetModule = typeof import('./netGame');
+type RlDriver = InstanceType<typeof import('./ai/policyDriver')['PolicyDriver']>;
 // Multiplayer while in a room (netGame.ts, loaded only then): the glue, the other cars drawn, the board.
 interface NetRuntime {
   mp: Multiplayer; view: InstanceType<NetModule['RemoteCars']>; board: InstanceType<NetModule['NetHud']>;
@@ -135,6 +140,32 @@ export async function main() {
   let started = params.has('autopilot'), paused = false, autoOn = params.has('autopilot');
   let acc = 0, last = performance.now(), menuTick = 0;
   session.onReset = () => cam.reset();
+  // ?autopilot=rl: a trained policy drives instead (src/ai/policyDriver.ts, imported only then), the file for this car
+  // and circuit from public/ai/policies.json; the built-in autopilot stands in where there is none. Another car
+  // loads its own.
+  let rlOn = params.get('autopilot') === 'rl', rl: RlDriver | null = null, rlFile = '', rlLoads = 0;
+  const loadRl = async () => {
+    const n = ++rlLoads, car = session.car.spec.id;
+    rl = null; rlFile = '';
+    const mod = await import('./ai/policyDriver').catch((err: unknown) => { console.warn('The policy driver failed to load', err); return null; });
+    const r = mod ? await mod.loadPolicyFor(`${import.meta.env.BASE_URL}ai/`, car, def.id) : { ok: false as const, error: 'the policy driver failed to load' };
+    if (n !== rlLoads || !rlOn) return;   // (superseded: another car, or switched off meanwhile)
+    if (!r.ok || !mod) {
+      console.warn(`Trained policy: ${r.ok ? '' : r.error}; the built-in autopilot drives`);
+      hud.showMsg(`Autopilot<small>No trained policy for the ${CARS[car].name} here</small>`, 2.5);
+      return;
+    }
+    rl = new mod.PolicyDriver(r.policy, session); rlFile = r.file;
+    const pv = r.policy.meta.provenance, env = r.policy.env;
+    console.info(`Trained policy ${r.file} drives (run ${String(pv.run)}, ${String(pv.env_steps ?? '?')} env steps)`, pv);
+    if (env.tc !== session.car.tc) console.warn(`Trained policy: trained with TC ${env.tc ? 'on' : 'off'}, the car has it ${session.car.tc ? 'on' : 'off'}`);
+    hud.showMsg(`Trained policy<small>${r.file}</small>`, 2.5);
+  };
+  // the input when the autopilot drives: the trained policy if one is loaded, but the built-in one for a pit stop
+  const autoInput = () => {
+    const pit = netRt?.mp.weekend.pitPlan ?? null;
+    return rl && !pit ? rl.input() : autopilot(session.car, track, 0, pit);
+  };
 
   // (in a room the weekend decides: a flying start on fresh tyres, or a recovery in a race)
   const restart = () => {
@@ -291,6 +322,7 @@ export async function main() {
       if (devRace?.compound) { fitDevCompound(session.car); session.restart(); }
       applySetting.gearbox(settings.gearbox); applySetting.tc(settings.tc); applySetting.assist(settings.assist);
       hud.clearLaps(); acc = 0;
+      if (rlOn) void loadRl();
       const { name, hint } = CARS[id];
       if (hint) hud.showMsg(`${name}<small>${hint}</small>`, 3);
     },
@@ -387,7 +419,8 @@ export async function main() {
     const n = Math.round(seconds / DT), log: ProbeSample[] = [];
     for (let k = 0; k < n; k++) {
       const c = session.car;
-      session.tick(typeof driver === 'function' ? driver(c, session.simTime) : driver ? autopilot(c, track) : input.poll(DT), driver === true);
+      const inp = typeof driver === 'function' ? driver(c, session.simTime) : driver === 'rl' && rl ? rl.input() : driver ? autopilot(c, track) : input.poll(DT);
+      session.tick(inp, driver === true || driver === 'rl');
       if (probe && k % Math.round(probe / DT) === 0) {
         log.push({ t: +session.simTime.toFixed(2), s: Math.round(c.proj.s), kmh: Math.round(c.speedF * 3.6), g: c.gear, lat: +c.proj.lat.toFixed(1), y: +c.pos.y.toFixed(3), up: +c.up.y.toFixed(3) });
       }
@@ -395,7 +428,13 @@ export async function main() {
     return log;
   };
   window.__game = {
-    simulate, setSetting, setAutopilot: (on) => { autoOn = on; },
+    simulate, setSetting,
+    setAutopilot: async (on) => {
+      autoOn = on !== false; rlOn = on === 'rl'; rl?.reset();
+      if (rlOn) await loadRl(); else { rl = null; rlFile = ''; rlLoads++; }
+      return !!rl;
+    },
+    get policy() { return rl ? { file: rlFile, meta: rl.policy.meta } : null; },
     get car() { return session.car; }, get simTime() { return session.simTime; },
     session, timing, track, input, autopilot, brakeMarkers: stage.brakeMarkers, stage, mirror, weather,
     get multiplayer() { return netRt?.mp ?? null; },
@@ -464,7 +503,7 @@ export async function main() {
       acc += fdt;
       let steps = 0;
       while (acc >= DT && steps < MAX_STEPS_PER_FRAME) {
-        const inp = !live ? PARKED : autoOn ? autopilot(session.car, track, 0, netRt?.mp.weekend.pitPlan ?? null) : input.poll(DT);
+        const inp = !live ? PARKED : autoOn ? autoInput() : input.poll(DT);
         if (netRt) netRt.mp.tick(inp, autoOn && live, nowS - (acc - DT), !live);   // (the local time this tick's state is for)
         else session.tick(inp, autoOn);
         acc -= DT; steps++;
@@ -498,6 +537,8 @@ export async function main() {
     const cockpitView = cam.mode === 'onboard' || cam.mode === 'driver';
     mirror.render(renderer, scene, stage.sun, car, mirror.wanted(cockpitView) && !hud.hidden && !menu.isOpen && !cam.lookBack, ghost, camera);
   };
+  if (rlOn) await loadRl();   // (before the first tick: the policy starts from the start spot, as in training)
+  last = performance.now();
   requestAnimationFrame(frame);
   // A hidden tab gets no frames: keep a room's connection alive meanwhile (the relay drops a client it has not heard
   // from for 10 s), with the car sent as paused (the simulation is stopped too: frames cap their time step).

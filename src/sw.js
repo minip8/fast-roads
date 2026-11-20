@@ -7,6 +7,7 @@
 // - Everything else is a content-hashed build file (or a small public file), served from the precache, else network.
 // - The car models (LAZY, a few MB each, versioned by ?v=<content hash>) are not precached: each is kept in its own
 //   cache the first time the game fetches it, and kept across deploys while the deploy still uses that version.
+// - The trained policies (ai/, fetched only with ?autopilot=rl) are neither: precache misses, so the network serves them.
 // - A new deploy changes this file, so the browser installs the new version on the next load; it activates at once
 //   and deletes the previous cache. Caches are per scope, so copies at different sub-paths don't touch each other.
 // - To retire it, deploy a sw.js that calls self.registration.unregister().

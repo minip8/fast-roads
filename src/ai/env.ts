@@ -5,23 +5,25 @@ import { CARS, type CarId } from '../cars';
 import { DT } from '../config';
 import { createVehicle, needsReset, Session, stepPhysics } from '../sim';
 import { loadCircuit } from '../circuit';
-import { pointAt, projectOnTrack, type Track, type TrackPos } from '../track';
+import { pointAt, type Track, type TrackPos } from '../track';
 import { TRACKS, type TrackId } from '../tracks';
 import type { DriveInput, Vehicle } from '../vehicle';
 import { DEFAULT_CONFIG, mergeConfig, type DeepPartial, type EnvConfig, type StartMode } from './config';
-import { CAR_IDS, observationSpec, observe, steerLockOf, type ObsControl, type ObsEntry } from './observation';
+import { clamp1, Controller, PHYSICS_HZ } from './control';
+import { CAR_IDS, observationSpec, type ObsEntry } from './observation';
 import { Rng } from './rng';
-import { WallSensor } from './walls';
 
 // ============================================================================
 // The RL environment: reset/step over the game's own Session (sim.ts), the code the game and the tests run. One
 // action is held for 120 / actionHz physics ticks; each tick is stepPhysics, exactly as Session.tick runs it, but
 // without Session.tick's own resets (a stuck autopilot, a car on its roof): here those end the episode instead
-// (terminated), so nothing moves the car behind the learner's back. docs/ai-env.md is the reference.
+// (terminated), so nothing moves the car behind the learner's back. The action's way to the car, and what the
+// observation reads besides the car, are control.ts's Controller, which a trained policy drives the game's car
+// through too (policyDriver.ts). docs/ai-env.md is the reference.
 // ============================================================================
 
 export const TRACK_IDS = Object.keys(TRACKS) as TrackId[];   // track_index in info
-export const PHYSICS_HZ = Math.round(1 / DT);
+export { PHYSICS_HZ };
 
 // Why an episode ended (info end_reason). 1-4 are terminations, 5-6 truncations.
 export const END_REASONS = ['none', 'flipped', 'wrong_way', 'stuck', 'wall', 'time_limit', 'lap_done'] as const;
@@ -91,9 +93,6 @@ export function validateConfig(cfg: EnvConfig) {
   if (!(cfg.cacheSessions >= 1)) throw new Error('cacheSessions must be at least 1');
 }
 
-const clamp1 = (v: number) => (v > 1 ? 1 : v < -1 ? -1 : v);
-const approach = (v: number, to: number, d: number) => (v < to ? Math.min(to, v + d) : Math.max(to, v - d));
-
 export interface StepResult { reward: number; terminated: boolean; truncated: boolean }
 
 export class RaceEnv {
@@ -106,25 +105,23 @@ export class RaceEnv {
   private readonly rng: Rng;
   private readonly scene = new THREE.Scene();       // never rendered: the cars' meshes are built but not drawn
   private readonly sessions = new Map<TrackId, Session>();
-  private readonly walls = new WallSensor();
+  private readonly control: Controller;
   session!: Session;
   track!: Track; trackId!: TrackId; carId!: CarId;
-  readonly proj: TrackPos = { i: -1, s: 0, lat: 0 };   // the car on the track after the last tick
   episode = 0;
   // episode state
   private t = 0; private limit = 0; private evalMode = false;
   private progress = 0; private maxProgress = 0; private stuck = 0; private laps = 0;
   private lastS = 0;
   private done = true;
-  private readonly ctl: ObsControl = { steerLock: 1, targetSteer: 0, targetPedal: 0, cmdSteer: 0, cmdPedal: 0, prevSteer: 0, prevPedal: 0, wallContact: false, wallHit: 0 };
-  private readonly inp: DriveInput = { throttle: 0, brake: 0, steer: 0, analog: true, steerAngle: 0, autoGears: true };
 
   // RAPIER.init() must have resolved and the config's tracks be loaded (RaceEnv.create does both).
   constructor(config?: DeepPartial<EnvConfig>, seed = 0, obs?: Float32Array, info?: Float64Array) {
     this.cfg = mergeConfig(DEFAULT_CONFIG, config);
     validateConfig(this.cfg);
     this.spec = observationSpec(this.cfg.obs);
-    this.ticksPerAction = PHYSICS_HZ / this.cfg.actionHz;
+    this.control = new Controller(this.cfg);
+    this.ticksPerAction = this.control.ticksPerAction;
     this.obs = obs ?? new Float32Array(this.spec.length);
     this.info = info ?? new Float64Array(INFO_FIELDS.length);
     if (this.obs.length !== this.spec.length || this.info.length !== INFO_FIELDS.length) throw new Error('obs/info buffer size');
@@ -139,6 +136,7 @@ export class RaceEnv {
   }
 
   get car(): Vehicle { return this.session.car; }
+  get proj(): Readonly<TrackPos> { return this.control.proj; }   // the car on the track after the last tick
   get simTime() { return this.t; }
 
   // A new episode: a fresh car (a new engine instance: full battery and fuel, tyres and brakes at their start
@@ -186,24 +184,17 @@ export class RaceEnv {
       const speed = opts.speed ?? (rc.speedFrac[0] + (rc.speedFrac[1] - rc.speedFrac[0]) * speedDraw) * speedProfile(tr, carId)[i];
       car.placeAt(s, lat, speed, heading);
     }
-    this.walls.attach(car);
+    this.control.reset(car, tr);
     sess.simTime = 0;
     sess.timing.useStore(def.storeKey + spec.storeKey);
     sess.timing.reset();
     sess.timing.events.length = 0;
 
-    this.proj.i = -1;
-    projectOnTrack(tr, car.pos.x, car.pos.z, -1, this.proj);
-    this.lastS = this.proj.s;
+    this.lastS = this.control.proj.s;
     this.t = 0; this.limit = this.evalMode ? cfg.evalSecs : cfg.episodeSecs;
     this.progress = this.maxProgress = 0; this.stuck = 0; this.laps = 0;
     this.done = false;
     this.episode++;
-    const c = this.ctl;
-    c.steerLock = steerLockOf(spec);
-    c.targetSteer = c.cmdSteer = c.prevSteer = 0;
-    c.targetPedal = c.cmdPedal = c.prevPedal = 0;
-    c.wallContact = false; c.wallHit = 0;
     if (writeInfo) {
       this.info.fill(0);
       for (const f of ['lap_time', 'lap_valid', 'sector1', 'sector2', 'sector3', 'lap_valid_now', 'autopilot_steer', 'autopilot_pedal'] as const) this.info[INFO[f]] = Number.NaN;
@@ -219,23 +210,10 @@ export class RaceEnv {
   step(steer: number, pedal: number): StepResult {
     if (Number.isNaN(steer) || Number.isNaN(pedal)) return this.drive(autopilot);
     if (this.done) throw new Error('step after the episode ended: reset first');
-    const cfg = this.cfg, c = this.ctl;
-    const a = clamp1(steer), b = clamp1(pedal);
-    if (cfg.actionMode === 'delta') {
-      c.targetSteer = clamp1(c.targetSteer + a * cfg.deltaScale[0]);
-      c.targetPedal = clamp1(c.targetPedal + b * cfg.deltaScale[1]);
-    } else { c.targetSteer = a; c.targetPedal = b; }
-    const smooth = cfg.reward.steerSmooth * (a - c.prevSteer) ** 2 + cfg.reward.pedalSmooth * (b - c.prevPedal) ** 2;
-    c.prevSteer = a; c.prevPedal = b;
-    const inp = this.inp, sRate = cfg.steerRate * DT, pRate = cfg.pedalRate * DT;
-    inp.steer = 0; inp.analog = true; inp.autoGears = true;
-    return this.run(() => {
-      c.cmdSteer = approach(c.cmdSteer, c.targetSteer, sRate);
-      c.cmdPedal = pRate > 0 ? approach(c.cmdPedal, c.targetPedal, pRate) : c.targetPedal;
-      inp.steerAngle = c.cmdSteer * c.steerLock;
-      inp.throttle = Math.max(0, c.cmdPedal); inp.brake = Math.max(0, -c.cmdPedal);
-      return inp;
-    }, smooth, false);
+    const rc = this.cfg.reward, c = this.control.ctl, a = clamp1(steer), b = clamp1(pedal);
+    const smooth = rc.steerSmooth * (a - c.prevSteer) ** 2 + rc.pedalSmooth * (b - c.prevPedal) ** 2;
+    this.control.act(a, b);
+    return this.run(() => this.control.input(), smooth, false);
   }
 
   // One step with a driver giving the game's DriveInput every tick (the autopilot, or a test's driver): the input
@@ -243,31 +221,25 @@ export class RaceEnv {
   // observation reports follow the driver, so a policy can take over smoothly.
   drive(driver: (car: Vehicle, track: Track) => DriveInput): StepResult {
     if (this.done) throw new Error('step after the episode ended: reset first');
-    const c = this.ctl;
-    return this.run(() => {
-      const inp = driver(this.car, this.track);
-      const st = inp.steerAngle != null ? clamp1(inp.steerAngle / c.steerLock) : clamp1(inp.steer);
-      c.targetSteer = c.cmdSteer = c.prevSteer = st;
-      c.targetPedal = c.cmdPedal = c.prevPedal = clamp1(inp.throttle - inp.brake);
-      return inp;
-    }, 0, true);
+    return this.run(() => this.control.follow(driver(this.car, this.track)), 0, true);
   }
 
   private run(input: () => DriveInput, smooth: number, autopiloted: boolean): StepResult {
-    const cfg = this.cfg, tc = cfg.termination, sess = this.session, tr = this.track, L = tr.L, info = this.info, p = this.proj;
-    let credited = 0, raw = 0, offTicks = 0, contact = false, hit = 0, end: number = END.none;
+    const cfg = this.cfg, tc = cfg.termination, sess = this.session, tr = this.track, L = tr.L, info = this.info;
+    const control = this.control, p = control.proj, walls = control.walls;
+    let credited = 0, raw = 0, offTicks = 0, end: number = END.none;
+    control.beginStep();
     info[INFO.lap_done] = 0;
     for (const f of ['lap_time', 'lap_valid', 'sector1', 'sector2', 'sector3'] as const) info[INFO[f]] = Number.NaN;
     for (let k = 0; k < this.ticksPerAction && end === END.none; k++) {
-      const car = sess.car, walls = this.walls;
-      walls.beforeTick(car);
+      const car = sess.car;
+      control.beforeTick(car);
       stepPhysics(sess.world, car, sess.timing, input(), sess.simTime);
-      walls.afterTick(car);
+      control.afterTick(car, tr);   // (wall contact, and where the car is now: p)
       sess.simTime += DT;
       this.t += DT;
       // centreline progress this tick, no more than the car can have moved (a projection that jumps to another
       // part of the track is not progress), and none while all four wheels are off (no gain from a cut)
-      projectOnTrack(tr, car.pos.x, car.pos.z, p.i, p);
       let ds = p.s - this.lastS;
       if (ds > L / 2) ds -= L; else if (ds < -L / 2) ds += L;
       const lim = car.vel.length() * DT * 1.5 + 0.05;
@@ -278,8 +250,6 @@ export class RaceEnv {
       if (off) offTicks++; else credited += ds;
       this.progress += ds;
       if (this.progress > this.maxProgress) this.maxProgress = this.progress;
-      contact ||= walls.contact;
-      if (walls.hit > hit) hit = walls.hit;
       const ev = sess.timing.events;
       for (const e of ev) if (e.type === 'lap') {
         this.laps++;
@@ -295,7 +265,7 @@ export class RaceEnv {
       else if (this.evalMode && info[INFO.lap_done]) end = END.lapDone;
       else if (this.t >= this.limit - 1e-9) end = END.timeLimit;
     }
-    const rc = cfg.reward, r = this.result;
+    const rc = cfg.reward, r = this.result, contact = control.contact, hit = control.hit;
     r.terminated = end >= END.flipped && end <= END.wall;
     r.truncated = end === END.timeLimit || end === END.lapDone;
     this.done = r.terminated || r.truncated;
@@ -308,10 +278,10 @@ export class RaceEnv {
     info[INFO.off_track_time] = offTicks * DT;
     info[INFO.wall_hit] = hit; info[INFO.wall_contact] = contact ? 1 : 0;
     info[INFO.end_reason] = end;
-    info[INFO.autopilot_steer] = autopiloted ? this.ctl.cmdSteer : Number.NaN;
-    info[INFO.autopilot_pedal] = autopiloted ? this.ctl.cmdPedal : Number.NaN;
+    info[INFO.autopilot_steer] = autopiloted ? control.ctl.cmdSteer : Number.NaN;
+    info[INFO.autopilot_pedal] = autopiloted ? control.ctl.cmdPedal : Number.NaN;
     this.writeState();
-    this.ctl.wallContact = contact; this.ctl.wallHit = hit;
+    control.endStep();
     this.observe();
     return r;
   }
@@ -320,7 +290,7 @@ export class RaceEnv {
     const info = this.info, car = this.car, tm = this.session.timing;
     info[INFO.episode_progress_m] = this.progress;
     info[INFO.episode_time] = this.t;
-    info[INFO.lap_s] = this.proj.s; info[INFO.lat] = this.proj.lat;
+    info[INFO.lap_s] = this.control.proj.s; info[INFO.lat] = this.control.proj.lat;
     info[INFO.speed] = car.speedF;
     info[INFO.laps] = this.laps;
     info[INFO.lap_valid_now] = tm.lapStart == null ? Number.NaN : tm.valid ? 1 : 0;
@@ -330,7 +300,7 @@ export class RaceEnv {
   }
 
   private observe() {
-    const n = observe(this.obs, this.car, this.track, this.proj, this.ctl, this.cfg.obs);
+    const n = this.control.observe(this.obs, this.car, this.track);
     if (n !== this.spec.length) throw new Error(`observation wrote ${n} values, spec has ${this.spec.length}`);
   }
 
