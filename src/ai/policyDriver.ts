@@ -2,6 +2,7 @@ import { DT } from '../config';
 import type { Track } from '../track';
 import type { DriveInput, Vehicle } from '../vehicle';
 import { Controller } from './control';
+import { pitOpen } from './pitOpen';
 import type { Policy } from './policy';
 
 export { loadPolicyFor } from './policy';   // (main.ts imports this module alone)
@@ -35,6 +36,7 @@ export class PolicyDriver {
   constructor(readonly policy: Policy, readonly source: PolicyCarSource) {
     this.control = new Controller(policy.env);
     this.obs = new Float32Array(policy.obsDim);
+    pitOpen(source.track);   // (built now, not at the first observation: tens of ms)
   }
 
   // Forget the state: the next input() observes the car as an episode's first step.

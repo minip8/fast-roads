@@ -14,10 +14,11 @@ export interface ObsConfig {
 }
 
 export interface RewardConfig {
-  progress: number;            // per metre of centreline progress (only while the car is on the track)
+  progress: number;            // per metre of centreline progress (only while the car is on the track, out of the pit lane)
   wallHit: number;             // per m/s of the hardest impact speed into a wall during the step
   wallContact: number;         // per step with any wall contact
   offTrack: number;            // per second with all four wheels past the track limits (the game's definition)
+  pitLane: number;             // per second in the pit lane (the game's definition: Timing's PIT LANE rule)
   steerSmooth: number;         // x (steer action - previous steer action)^2
   pedalSmooth: number;         // x (pedal action - previous pedal action)^2
   terminal: number;            // once, on a termination (not on a truncation)
@@ -74,7 +75,7 @@ export const DEFAULT_CONFIG: EnvConfig = {
   evalSecs: 300,
   cacheSessions: 2,
   obs: { lookahead: 16, lookMinM: 40, lookSecs: 4, lookPow: 1.5 },
-  reward: { progress: 1, wallHit: 1, wallContact: 0.2, offTrack: 5, steerSmooth: 0, pedalSmooth: 0, terminal: 20 },
+  reward: { progress: 1, wallHit: 1, wallContact: 0.2, offTrack: 5, pitLane: 5, steerSmooth: 0, pedalSmooth: 0, terminal: 20 },
   termination: { wrongWayM: 30, stuckSecs: 3, stuckSpeed: 1, wallImpactMs: 0 },
   reset: {
     tracks: ['melbourne'], cars: ['lcf1'], flyingProb: 0.1, start: 'random',

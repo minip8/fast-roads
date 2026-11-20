@@ -1,6 +1,6 @@
 """One evaluation lap, traced: python trace_lap.py <policy .npz/.pt | autopilot> [track] [car] [out.npz] [noise sigma]
 
-Prints where the lap lost its validity, wall contacts and off-track stretches, and saves the per-step info block
+Prints where the lap lost its validity, wall contacts, off-track and pit-lane stretches, and saves the per-step info block
 (columns: info_fields) and observations for analysis."""
 import sys
 
@@ -37,11 +37,13 @@ with EnvPool(1, 1, {'reward': ENV_REWARD, 'cacheSessions': 1, 'reset': {'tracks'
           f"  steps {len(I)}  top {v.max():.0f} km/h  min {v.min():.0f} km/h")
     for k in range(1, len(I)):
         if valid[k] == 0 and valid[k - 1] != 0:
-            print(f"  lap invalid at step {k}: s {s[k]:.0f} m  lat {lat[k]:+.2f} m  {v[k]:.0f} km/h  off_track_time {col('off_track_time')[k]:.3f}")
-    off = col('off_track_time') > 0
-    for k in np.flatnonzero(off & ~np.r_[False, off[:-1]]):
-        n = int(np.argmin(off[k:])) or len(off) - k
-        print(f"  off track from step {k}: s {s[k]:.0f} m  lat {lat[k]:+.2f} m  {v[k]:.0f} km/h for {col('off_track_time')[k:k + n].sum():.2f} s")
+            print(f"  lap invalid at step {k}: s {s[k]:.0f} m  lat {lat[k]:+.2f} m  {v[k]:.0f} km/h  off_track_time "
+                  f"{col('off_track_time')[k]:.3f}  pit_lane_time {col('pit_lane_time')[k]:.3f}")
+    for what, field in (('off track', 'off_track_time'), ('in the pit lane', 'pit_lane_time')):
+        on = col(field) > 0
+        for k in np.flatnonzero(on & ~np.r_[False, on[:-1]]):
+            n = int(np.argmin(on[k:])) or len(on) - k
+            print(f"  {what} from step {k}: s {s[k]:.0f} m  lat {lat[k]:+.2f} m  {v[k]:.0f} km/h for {col(field)[k:k + n].sum():.2f} s")
     wc = col('wall_contact') > 0
     for k in np.flatnonzero(wc & ~np.r_[False, wc[:-1]]):
         print(f"  wall contact from step {k}: s {s[k]:.0f} m  lat {lat[k]:+.2f} m  {v[k]:.0f} km/h  hit {col('wall_hit')[k]:.1f} m/s")

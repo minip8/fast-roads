@@ -14,6 +14,7 @@ import argparse
 import json
 import math
 import os
+import shutil
 import signal
 import sys
 import threading
@@ -515,20 +516,21 @@ def run(cfg: TrainConfig, run_dir: Path, make_pool: Callable[[TrainConfig], Any]
     return trainer
 
 
-def make_env_pool(cfg: TrainConfig):
+def make_env_pool(cfg: TrainConfig, worker: str | None = None):
     from envpool import EnvPool
     env = cfg.env if cfg.reward is None else merge(cfg.env, {'reward': ENV_REWARD})
-    return EnvPool(cfg.collect.num_workers, cfg.collect.envs_per_worker, env, seed=cfg.seed)
+    return EnvPool(cfg.collect.num_workers, cfg.collect.envs_per_worker, env, seed=cfg.seed, worker_path=worker)
 
 
-def lap_evaluator(cfg: TrainConfig) -> Evaluator:
+def lap_evaluator(cfg: TrainConfig, worker: str | None = None) -> Evaluator:
     from evaluate import evaluate_laps
 
     def evaluate(act_fn) -> tuple[list[dict], float]:
         e = cfg.eval
         combos = [tuple(c) for c in e.combos for _ in range(e.repeats)]
         noise = [e.noise if k else 0.0 for _ in e.combos for k in range(e.repeats)]
-        res = evaluate_laps(act_fn, combos, config=cfg.env, num_workers=e.num_workers, seed=cfg.seed + 7, noise=noise)
+        res = evaluate_laps(act_fn, combos, config=cfg.env, num_workers=e.num_workers, seed=cfg.seed + 7, noise=noise,
+                            worker_path=worker)
         # the score to minimise: each combo's mean lap time over its repeats, a lap that is not clean counting as
         # invalid_lap_secs, so more clean laps always beats a faster lap
         clean = lambda r: r['lap_valid'] and r['lap_time'] is not None and not r['wall_contact_steps']
@@ -536,6 +538,17 @@ def lap_evaluator(cfg: TrainConfig) -> Evaluator:
         return res, float(score)
 
     return evaluate
+
+
+def run_worker(run_dir: Path) -> str:
+    """The run's own copy of the env worker (made when the run begins): a rebuild of build/env/worker.mjs while the
+    run goes on must not change the environment under it, nor break the evaluations, which start workers each time."""
+    from envpool import WORKER
+    dst = run_dir / 'worker.mjs'
+    if not dst.exists():
+        run_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(WORKER, dst)
+    return str(dst)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -555,7 +568,8 @@ def main(argv: list[str] | None = None) -> None:
             sys.exit(f'{run_dir} already has a run: pass --resume, or choose another --name')
         cfg = load_config(args.config, args.set)
     try:
-        run(cfg, run_dir, make_env_pool, lap_evaluator(cfg), resume=args.resume)
+        worker = run_worker(run_dir)
+        run(cfg, run_dir, lambda c: make_env_pool(c, worker), lap_evaluator(cfg, worker), resume=args.resume)
     except RuntimeError as e:
         print(e, file=sys.stderr)
         sys.exit(1)

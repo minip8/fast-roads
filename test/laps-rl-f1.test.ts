@@ -1,14 +1,17 @@
 import { expect, it } from 'vitest';
 import { PolicyDriver } from '../src/ai/policyDriver';
 import { session } from './harness';
-import { gamePolicy } from './policies';
+import { gamePolicy, noGamePolicy } from './policies';
 
 // The game's trained policy for the lcf1 at Melbourne (public/ai/) laps the game's Session from the flying start, as
 // test/laps.ts does for the autopilot: a valid lap, no resets, in the time the trainer's evaluation gave that policy
 // (its file's provenance). The trainer ran it with float32 inference in torch or numpy and the game runs it in
 // TypeScript (policy.ts): actions agree to about 1e-6, but a lap is long enough for that to move the line a little.
-it('a trained policy laps Melbourne in the lcf1 as the trainer evaluated it', async () => {
-  const { file, policy } = gamePolicy('lcf1', 'melbourne');
+// Skipped while the manifest names no policy there.
+it('a trained policy laps Melbourne in the lcf1 as the trainer evaluated it', async (ctx) => {
+  const found = gamePolicy('lcf1', 'melbourne');
+  if (!found) return ctx.skip(noGamePolicy('lcf1', 'melbourne'));
+  const { file, policy } = found;
   const ev = (policy.meta.provenance.eval as { track: string; car: string; lap_time: number | null; lap_valid: boolean }[] | undefined)
     ?.find((r) => r.track === 'melbourne' && r.car === 'lcf1');
   if (!ev?.lap_time || !ev.lap_valid) throw new Error(`${file} has no valid evaluated lap at Melbourne in its provenance`);

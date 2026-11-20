@@ -4,12 +4,13 @@ import { END_REASONS, INFO, RaceEnv } from '../src/ai/env';
 import { parsePolicy, type Policy } from '../src/ai/policy';
 import { PolicyDriver } from '../src/ai/policyDriver';
 import { session } from './harness';
-import { fileBuffer, gamePolicy } from './policies';
+import { fileBuffer, gamePolicy, noGamePolicy } from './policies';
 
 // A trained policy driving the game's Session (src/ai/policyDriver.ts) does exactly what it does in the RL
 // environment: the same observations at every policy step and the same car, bit for bit, from the same flying start.
-// The game's policy for the lcf1 at Melbourne (public/ai/, through the manifest), and a random-weights fixture that
-// drives the drift car and the GT3 into the walls (the wall sensor on both engines, and the end of an episode).
+// The game's policy for the lcf1 at Melbourne (public/ai/, through the manifest; skipped while there is none), and a
+// random-weights fixture that drives each car into the walls (the wall sensor on both engines, and the end of an
+// episode).
 
 // Steps the environment (evaluation start: the game's flying start) and the game's Session side by side for up to
 // `seconds`, comparing every observation the policy is given; stops where the environment's episode ends.
@@ -35,8 +36,10 @@ async function sideBySide(policy: Policy, car: CarId, seconds: number) {
 }
 
 describe('a policy in the game', () => {
-  it('drives the Session exactly as the environment drives its car', async () => {
-    const { policy } = gamePolicy('lcf1', 'melbourne');
+  it('drives the Session exactly as the environment drives its car', async (ctx) => {
+    const found = gamePolicy('lcf1', 'melbourne');
+    if (!found) return ctx.skip(noGamePolicy('lcf1', 'melbourne'));
+    const { policy } = found;
     const { env, s, drv, c, steps, mismatch } = await sideBySide(policy, 'lcf1', 25);
     expect(steps).toBe(500);
     expect(mismatch).toBe(-1);
@@ -56,14 +59,22 @@ describe('a policy in the game', () => {
     expect([...drv.obs]).toEqual([...env.obs]);
   });
 
-  for (const car of ['drift', 'lcgt3'] as CarId[]) {
+  for (const car of ['drift', 'lcgt3', 'lcf1'] as CarId[]) {
     it(`and into the walls in the ${car} (random weights), to the end of the episode`, async () => {
       const policy = parsePolicy(fileBuffer('test/fixtures/policy-simba.bin'));
-      const { steps, mismatch, env, walls, drv } = await sideBySide(policy, car, 30);
+      const { steps, mismatch, env, walls, drv, s } = await sideBySide(policy, car, 30);
       console.log(`${car}: ${steps + 1} steps, ${walls} touching a wall, end ${END_REASONS[env.info[INFO.end_reason]]}`);
       expect(mismatch).toBe(-1);
       expect(walls).toBeGreaterThan(0);   // (the wall sensor and its observation were in play)
       expect(drv.steps).toBe(steps + 1);
+      // a restart puts the car back at the start spot, and the driver starts afresh: the environment's first observation
+      // (a LibreCorsa car's restart is a fresh engine, as the environment's reset is; the drift car's keeps its body)
+      if (car === 'drift') return;
+      s.restart();
+      s.tick(drv.input(), false);
+      expect(drv.steps).toBe(1);
+      env.reset({ eval: true });
+      expect([...drv.obs]).toEqual([...env.obs]);
     });
   }
 });

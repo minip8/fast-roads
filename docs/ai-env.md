@@ -18,10 +18,16 @@ the race weekends' rules (no limiter, no stops). What it means here: its pit wal
 engines (`wall_contact`, `wall_hit`, the `wall` end); beside the lane the track's barrier on that side is the pit
 wall's face, which `wall_left` / `wall_right` read like any barrier (the lane's own walls are not in those two); its
 road is asphalt and inside the track limits (`wheel_*_asphalt`, never `*_out` or `off_track` there); and a lap that
-goes into it is invalid (`lap_valid` 0, the game's PIT LANE rule: `Timing.pitLaneInvalid` stays on). Progress is still
-the centreline's `projectOnTrack` (not lane-aware), so where a lane cuts inside corners (Silverstone, Shanghai,
-Madrid) the jumps its projection makes are capped as any jump is. Random starts are on the track's road, the autopilot
-never turns into the lane, and every pinned number below is as it was before the lane.
+goes into it is invalid (`lap_valid` 0, the game's PIT LANE rule: `Timing.pitLaneInvalid` stays on). The rule is the
+car's centre on the lane's road and off the track's (`inPitLane` in `src/track.ts`), which can happen without passing
+any wall where the lane is open to the track: its entry before the pit wall's nose and its exit after the tail (40 to
+310 m of each lap, on the lane's side; where the lane's road meets the track's edge it covers the kerb there too). So
+the environment treats the lane as it treats leaving the track: the observation says where it is open (`pit_left`,
+`pit_right`, `look{k}_pit`) and when the car is in it (`in_pit_lane`), ticks in it earn no progress and cost
+`reward.pitLane`, and `info` reports the time in it (`pit_lane_time`). Progress is still the centreline's
+`projectOnTrack` (not lane-aware), so where a lane cuts inside corners (Silverstone, Shanghai, Madrid) the jumps its
+projection makes are capped as any jump is (behind the pit wall the car earns nothing anyway). Random starts are on the
+track's road, the autopilot never turns into the lane, and every pinned number below is as it was before the lane.
   `ai/bench.mjs`: throughput. None of it is in the game's bundle: the game imports the policy driver dynamically,
   only for `?autopilot=rl`.
 
@@ -81,8 +87,8 @@ replay buffer; with only autopilot steps from the flying start, the lap time equ
 
 ### Observation
 
-A flat float32 vector, 145 values with the default config (`16 look-ahead samples`; the size is
-`80 + 5 x obs.lookahead`). Each element is `raw x scale` (after the transform where one is named), then clipped to
+A flat float32 vector, 164 values with the default config (`16 look-ahead samples`; the size is
+`68 + 6 x obs.lookahead`). Each element is `raw x scale` (after the transform where one is named), then clipped to
 [-10, 10] (non-finite values become 0). Fixed constants only, no running statistics. The READY message carries the
 full spec (`obsSpec`: name, index, scale, unit, transform, description for every element): use the names, never
 hard-coded indices. Everything is track-relative or car-relative except the car one-hot.
@@ -100,32 +106,47 @@ hard-coded indices. Everything is track-relative or car-relative except the car 
 | 11, 12 | `edge_left`, `edge_right` | 0.1 | m | car centre to the left/right track edge (< 0 past it) |
 | 13, 14 | `wall_left`, `wall_right` | 0.1 | m | car centre to the left/right wall's face; 50 if none or further |
 | 15 | `off_track` | 1 | | all four wheels past the track limits (the game's rule: the lap is invalid) |
-| 16-31 | `wheel_{fl,fr,rl,rr}_{asphalt,kerb,grass,gravel}` | 1 | | surface under each wheel, one-hot per wheel |
-| 32-35 | `wheel_{fl,fr,rl,rr}_out` | 1 | | wheel past the track limit |
-| 36-39 | `wheel_{fl,fr,rl,rr}_slip` | 1 | | combined slip, 1 = at the tyre's grip peak whichever way it slips (cornering, braking, wheelspin; capped at 4) |
-| 40 | `gear` | 0.125 | | -1 reverse, 1.. forward |
-| 41 | `rpm` | 1 | share | rpm over the redline |
-| 42, 43 | `throttle`, `brake` | 1 | | what the engine got in the last tick, after the aids |
-| 44 | `steer` | 1 | | front road-wheel angle over the full lock (+ = left) |
-| 45, 46 | `tc_active`, `abs_active` | 1 | | the aid cut in during the last tick |
-| 47, 48 | `target_steer`, `target_pedal` | 1 | | command the actions ask for (delta mode: integrated) |
-| 49, 50 | `cmd_steer`, `cmd_pedal` | 1 | | command sent in the last tick, after the slew limits |
-| 51, 52 | `prev_steer`, `prev_pedal` | 1 | | last action as given (delta mode: the deltas) |
-| 53 | `wall_contact` | 1 | | touched a wall during the last step |
-| 54 | `wall_hit` | 0.1 | m/s | hardest impact speed into a wall during the last step |
-| 55 | `look_reach` | 1/400 | m | reach R of the look-ahead: `lookMinM + lookSecs x max(speed_fwd, 0)` (default 40 m + 4 s) |
-| 56 + 5k ... | `look{k}_curv`, `_wl`, `_wr`, `_sin`, `_cos` | 1, 0.1, 0.1, 1, 1 | | sample k = 0..15 at R x ((k+1)/16)^1.5 along the centreline: curvature as sign(c) sqrt(abs(c) x 50 m) (+ = left; a 50 m radius reads 1), half-widths to the left/right edge (m), and sin/cos of the bearing of that centreline point from the car's nose (+ = left) |
-| 136 | `tyres_present` | 1 | | the car models tyre temperatures (lcf1, lcgt3) |
-| 137-140 | `tyre_{fl,fr,rl,rr}_temp` | 1 | | carcass temperature, 0 at the bottom of that axle's working window, 1 at its top (0 if absent) |
-| 141, 142 | `battery_present`, `battery` | 1 | | hybrid battery (lcf1 only), charge 0..1 |
-| 143, 144 | `flaps_fitted`, `flaps_open` | 1 | | movable wings (lcf1 only: they open by themselves on straights) |
+| 16 | `in_pit_lane` | 1 | | the car's centre is in the pit lane: on its road and off the track's (the game's PIT LANE rule: the lap is invalid) |
+| 17, 18 | `pit_left`, `pit_right` | 1 | | at the car's track sample, the pit lane is open to the track on that side: leaving the road there is entering it (below) |
+| 19-34 | `wheel_{fl,fr,rl,rr}_{asphalt,kerb,grass,gravel}` | 1 | | surface under each wheel, one-hot per wheel |
+| 35-38 | `wheel_{fl,fr,rl,rr}_out` | 1 | | wheel past the track limit |
+| 39-42 | `wheel_{fl,fr,rl,rr}_slip` | 1 | | combined slip, 1 = at the tyre's grip peak whichever way it slips (cornering, braking, wheelspin; capped at 4) |
+| 43 | `gear` | 0.125 | | -1 reverse, 1.. forward |
+| 44 | `rpm` | 1 | share | rpm over the redline |
+| 45, 46 | `throttle`, `brake` | 1 | | what the engine got in the last tick, after the aids |
+| 47 | `steer` | 1 | | front road-wheel angle over the full lock (+ = left) |
+| 48, 49 | `tc_active`, `abs_active` | 1 | | the aid cut in during the last tick |
+| 50, 51 | `target_steer`, `target_pedal` | 1 | | command the actions ask for (delta mode: integrated) |
+| 52, 53 | `cmd_steer`, `cmd_pedal` | 1 | | command sent in the last tick, after the slew limits |
+| 54, 55 | `prev_steer`, `prev_pedal` | 1 | | last action as given (delta mode: the deltas) |
+| 56 | `wall_contact` | 1 | | touched a wall during the last step |
+| 57 | `wall_hit` | 0.1 | m/s | hardest impact speed into a wall during the last step |
+| 58 | `look_reach` | 1/400 | m | reach R of the look-ahead: `lookMinM + lookSecs x max(speed_fwd, 0)` (default 40 m + 4 s) |
+| 59 + 6k ... | `look{k}_curv`, `_wl`, `_wr`, `_sin`, `_cos`, `_pit` | 1, 0.1, 0.1, 1, 1, 1 | | sample k = 0..15 at R x ((k+1)/16)^1.5 along the centreline: curvature as sign(c) sqrt(abs(c) x 50 m) (+ = left; a 50 m radius reads 1), half-widths to the left/right edge (m), sin/cos of the bearing of that centreline point from the car's nose (+ = left), and the pit lane open there: +1 on the left, -1 on the right, 0 none (at the nearer track sample) |
+| 155 | `tyres_present` | 1 | | the car models tyre temperatures (lcf1, lcgt3) |
+| 156-159 | `tyre_{fl,fr,rl,rr}_temp` | 1 | | carcass temperature, 0 at the bottom of that axle's working window, 1 at its top (0 if absent) |
+| 160, 161 | `battery_present`, `battery` | 1 | | hybrid battery (lcf1 only), charge 0..1 |
+| 162, 163 | `flaps_fitted`, `flaps_open` | 1 | | movable wings (lcf1 only: they open by themselves on straights) |
+
+**Where the pit lane is open** (`pit_left`, `pit_right`, `look{k}_pit`; `src/ai/pitOpen.ts`): a per-sample flag for
+each side, built once per circuit by asking the timing's own test. Sample i, side L / R is set if any of 35 points
+round it (0, 0.5 and 1 m either way along the track, times 0.05, 0.5, 1, 1.5, 2, 2.5 and 3 m past that edge, all in
+front of the track's barrier) is in the pit lane (`inPitLane`) on its open stretch (not between the pit wall's nose
+and tail, where the lane is behind the wall and `wall_left` / `wall_right` read the wall's face), then grown by one
+sample (about 2 m) each way, for the lane's road beginning between those points at a stretch's ends. Checked at every
+circuit against a far finer search (every 0.25 m along the lap, 0.1 m steps out to 4 m past the edge and 0.25 m to 12
+m, `test/ai-pit.test.ts`): wherever a car's centre in front of the barrier would be in the open lane, its nearest track
+sample has that side set. Flagged per lap: 42 m (Monaco) to 308 m (Hungaroring, whose exit road runs beside the
+track for 200 m), on the lane's side only; Melbourne 132 m, on the right (4762-4832 m and 86-148 m from the line).
 
 The function is `observe()` in `src/ai/observation.ts`: it reads the car only through the game's `Vehicle`
 interface and the track's arrays, so the browser can build the same vector for a trained policy. `OBS_VERSION`
 (sent in HELLO and READY) changes whenever the layout, a scale or what an element measures changes. Version 2: the
 wheel slips are 1 at the tyre's grip peak in braking and wheelspin too (on the LibreCorsa-engine cars they were measured
 against the lateral peak, which the longitudinal one comes before) and on the drift car (whose 1 was 0.15 rad of slip
-angle, about half its tyres' peak).
+angle, about half its tyres' peak). Version 3: the pit lane (`in_pit_lane`, `pit_left`, `pit_right` after `off_track`,
+and `look{k}_pit` after each sample's `_cos`), so every element from `wheel_fl_asphalt` on has moved; 164 values
+(version 2 had 145, `65 + 5 x obs.lookahead`).
 
 ### Reward
 
@@ -133,9 +154,10 @@ Per step, the sum of these terms (each also reported in `info`, so shaping can b
 
 | term | default | definition |
 |---|---|---|
-| `reward_progress` | `progress` = 1 per m | centreline progress (m) during the step, from `projectOnTrack` every tick: the lap wrap is handled, each tick's progress is capped at 1.5 x the distance the car can have covered (+5 cm), so a projection that jumps to another part of the track earns nothing, and **ticks with all four wheels past the track limits earn nothing** (the game's track-limit rule from `src/timing.ts`): cutting does not pay |
+| `reward_progress` | `progress` = 1 per m | centreline progress (m) during the step, from `projectOnTrack` every tick: the lap wrap is handled, each tick's progress is capped at 1.5 x the distance the car can have covered (+5 cm), so a projection that jumps to another part of the track earns nothing, and **ticks with all four wheels past the track limits earn nothing** (the game's track-limit rule from `src/timing.ts`), **nor do ticks in the pit lane** (its PIT LANE rule): cutting does not pay |
 | `reward_wall` | `wallHit` = 1 per m/s, `wallContact` = 0.2 | -(wallHit x hardest impact speed into a wall during the step + wallContact if any wall contact) |
 | `reward_off_track` | `offTrack` = 5 per s | -(offTrack x seconds of the step with all four wheels off) |
+| `reward_pit_lane` | `pitLane` = 5 per s | -(pitLane x seconds of the step in the pit lane) |
 | `reward_smooth` | `steerSmooth` = 0, `pedalSmooth` = 0 | -(steerSmooth x (steer - previous steer)^2 + pedalSmooth x (pedal - previous pedal)^2), on the actions as given |
 | `reward_terminal` | `terminal` = 20 | -terminal on a termination (never on a truncation) |
 
@@ -190,11 +212,12 @@ through the worker against an in-process run).
 
 ### Info
 
-Per environment per step, `F` = 28 float64 values (the order is `infoFields` in HELLO/READY):
+Per environment per step, `F` = 30 float64 values (the order is `infoFields` in HELLO/READY; fields added later go at
+the end, so the indices of the older ones stay):
 
 | index | field | |
 |---|---|---|
-| 0-4 | `reward_progress`, `reward_wall`, `reward_off_track`, `reward_smooth`, `reward_terminal` | the reward's terms (they sum to the reward) |
+| 0-4 | `reward_progress`, `reward_wall`, `reward_off_track`, `reward_smooth`, `reward_terminal` | the reward's terms (with `reward_pit_lane`, 29, they sum to the reward) |
 | 5 | `progress_m` | centreline progress this step (m), on or off the track |
 | 6 | `episode_progress_m` | since the episode began |
 | 7 | `episode_time` | sim seconds since the episode began |
@@ -215,6 +238,8 @@ Per environment per step, `F` = 28 float64 values (the order is `infoFields` in 
 | 25 | `track_index` | index into `tracks` (HELLO) |
 | 26 | `car_index` | index into `cars` (HELLO): 0 lcf1, 1 lcgt3, 2 drift |
 | 27 | `episode` | episodes begun by this environment so far (1 for the first) |
+| 28 | `pit_lane_time` | s of this step in the pit lane (the PIT LANE rule's test after each tick: when it is > 0 with a lap under way, that lap is deleted in this step) |
+| 29 | `reward_pit_lane` | the reward's pit lane term |
 
 ## Wire protocol (version 1)
 
@@ -294,20 +319,20 @@ and continue from the new `obs`.
 
 ### Example
 
-A session with one environment (sizes for the default config: D = 145, F = 28). Bytes in hex; `len` is the u32
+A session with one environment (sizes for the default config: D = 164, F = 30). Bytes in hex; `len` is the u32
 length prefix, `hdr` the payload's first 8 bytes (type, 3 zeros, arg).
 
     worker: len | hdr 01 000000 <json bytes> | HELLO {"protocol":1,"game":{"commit":"9e26...","dirty":false,...},...}
     client: len | hdr 02 000000 <json bytes> | INIT {"numEnvs":1,"seed":7,"config":{"reset":{"tracks":["melbourne"],"cars":["lcf1"]}}}
-    worker: len | hdr 03 000000 <json bytes> | READY {..., "obsSize":145, "obsSpec":[{"name":"car_lcf1","index":0,"scale":1,...}, ...]}
+    worker: len | hdr 03 000000 <json bytes> | READY {..., "obsSize":164, "obsSpec":[{"name":"car_lcf1","index":0,"scale":1,...}, ...]}
     client: len | hdr 10 000000 <json bytes> | RESET {"eval":true}
-    worker: len=832 | hdr 11 000000 01000000 | u32 1, 145, 28, 0 at 8 | obs f32[145] at 24 | info f64[28] at 608
+    worker: len=920 | hdr 11 000000 01000000 | u32 1, 164, 30, 0 at 8 | obs f32[164] at 24 | info f64[30] at 680
     client: len=16  | hdr 20 000000 01000000 | f32 0.0, f32 1.0 (steer 0, full throttle)
-    worker: len=840 | hdr 21 000000 01000000 | u32 1, 145, 28, 0 | obs at 24 | reward f32 at 604 |
-                      terminated u8 at 608 | truncated u8 at 609 | info f64[28] at 616 | (K = 0: nothing after 840)
+    worker: len=928 | hdr 21 000000 01000000 | u32 1, 164, 30, 0 | obs at 24 | reward f32 at 680 |
+                      terminated u8 at 684 | truncated u8 at 685 | info f64[30] at 688 | (K = 0: nothing after 928)
     ...               about 2,370 steps later, in evaluation mode:
-    worker: len=1428 | hdr 21 ... | K = 1 | truncated[0] = 1 | info: end_reason 6 (lap_done), lap_time, lap_valid,
-                      sectors | done u32 at 840 = 0 | final obs f32[145] at 848 | obs at 24: the next lap's start
+    worker: len=1592 | hdr 21 ... | K = 1 | truncated[0] = 1 | info: end_reason 6 (lap_done), lap_time, lap_valid,
+                      sectors | done u32 at 928 = 0 | final obs f32[164] at 936 | obs at 24: the next lap's start
     client: len=8   | hdr 7f 000000 00000000 | CLOSE
 
 `ai/client.mjs` (Node) and `ai/client.py` (Python, `struct`/`array` only) implement all of this in about 100 lines
@@ -331,10 +356,11 @@ Every field, with its default (`DEFAULT_CONFIG` in `src/ai/config.ts`, also sent
 | `obs.lookahead` | 16 | look-ahead samples (changes the observation size) |
 | `obs.lookMinM`, `obs.lookSecs` | 40, 4 | look-ahead reach: lookMinM + lookSecs x forward speed |
 | `obs.lookPow` | 1.5 | sample spacing exponent (> 1: denser near the car) |
-| `reward.progress` | 1 | per metre of on-track centreline progress |
+| `reward.progress` | 1 | per metre of centreline progress on the track (not off it, not in the pit lane) |
 | `reward.wallHit` | 1 | per m/s of the step's hardest wall impact |
 | `reward.wallContact` | 0.2 | per step touching a wall |
 | `reward.offTrack` | 5 | per second with all four wheels off |
+| `reward.pitLane` | 5 | per second in the pit lane |
 | `reward.steerSmooth`, `reward.pedalSmooth` | 0, 0 | x squared change of the action |
 | `reward.terminal` | 20 | subtracted on a termination |
 | `termination.wrongWayM` | 30 | m behind the furthest point reached (0: off) |
@@ -369,7 +395,7 @@ Measured with `node ai/bench.mjs` on an AMD Ryzen 5 5600G (6 cores, 12 threads, 
   observation, reward) is about 1%. The drift car spends about 80% in Rapier's `world.step`, almost all of it on the
   circuit's 5,300 static wall colliders and the ground box (a world with the walls and no car costs 0.43 ms a step).
   Making that cheaper means changing how walls are built, which is a physics change, so it was not done.
-- Message overhead is negligible next to stepping (a step's reply is about 0.8 kB per environment).
+- Message overhead is negligible next to stepping (a step's reply is about 0.9 kB per environment).
 
 ## Trained policies in the game
 
@@ -404,7 +430,8 @@ and `output` (as in the `.npz`: `ai/rl/policy_np.py`), `arrays` (`{name: {offset
 evaluated laps, the worker's build, a note).
 
 **In the game.** `public/ai/policies.json` names the files, per car id: `{ "lcf1": { "default": "lcf1.bin",
-"tracks": { "melbourne": "lcf1-melbourne.bin" } } }`. The circuit's specialist is used, else the car's default, else
+"tracks": { "melbourne": "lcf1-melbourne.bin" } } }` (it is `{}` while no policy is trained on the current
+observation version; the tests that drive the game's own policy skip then). The circuit's specialist is used, else the car's default, else
 the built-in autopilot drives (with a console warning); another car loads its own. `src/ai/policy.ts` parses the file
 (`parsePolicy`) and refuses one whose `obsVersion` is not the game's `OBS_VERSION`, whose `obs_dim` is not
 `observationSpec(env.obs)`'s length, or that lacks a control field; `Policy.run` computes the action (float32 between

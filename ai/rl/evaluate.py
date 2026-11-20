@@ -55,7 +55,7 @@ def _merge(base: dict, over: dict) -> dict:
 
 def evaluate_laps(act_fn: ActFn | None, combos: list[tuple[str, str]], *, config: dict | None = None,
                   num_workers: int = 1, max_steps: int | None = None, seed: int = 0,
-                  noise: list[float] | None = None) -> list[dict]:
+                  noise: list[float] | None = None, worker_path: str | None = None) -> list[dict]:
     """One evaluation episode per (track, car) combo; act_fn None = the autopilot. Returns one dict per combo.
 
     noise: per combo, the sigma of Gaussian noise added to the policy's actions (0: none). A lap is a chaotic system:
@@ -83,10 +83,11 @@ def evaluate_laps(act_fn: ActFn | None, combos: list[tuple[str, str]], *, config
     rng = np.random.default_rng(seed)
 
     results = [dict(track=t, car=c, lap_time=None, lap_valid=False, end_reason='unfinished', steps=0,
-                    episode_time=0.0, wall_contact_steps=0, max_wall_hit=0.0, off_track_time=0.0,
+                    episode_time=0.0, wall_contact_steps=0, max_wall_hit=0.0, off_track_time=0.0, pit_lane_time=0.0,
                     min_speed=math.inf, mean_speed=0.0, reward_sum=0.0) for t, c in combos]
-    with EnvPool(workers, epw, cfg, seed=seed) as pool:
+    with EnvPool(workers, epw, cfg, seed=seed, worker_path=worker_path) as pool:
         ix = pool.info_index
+        i_pit = ix.get('pit_lane_time')   # (a worker built before the pit lane was observed has none: 0)
         obs, _ = pool.reset([{'eval': True, 'track': t, 'car': c, 'start': 'flying'} for t, c in slots])
         active = np.zeros(total, bool)
         active[:n] = True
@@ -111,6 +112,8 @@ def evaluate_laps(act_fn: ActFn | None, combos: list[tuple[str, str]], *, config
                 res['wall_contact_steps'] += int(row[ix['wall_contact']] > 0)
                 res['max_wall_hit'] = max(res['max_wall_hit'], float(row[ix['wall_hit']]))
                 res['off_track_time'] += float(row[ix['off_track_time']])
+                if i_pit is not None:
+                    res['pit_lane_time'] += float(row[i_pit])
                 sp = float(row[ix['speed']])
                 res['min_speed'] = min(res['min_speed'], sp)
                 speed_sum[g] += sp

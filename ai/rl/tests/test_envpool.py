@@ -1,4 +1,4 @@
-"""EnvPool and evaluate_laps against the built worker (npm run build:env). About 30 s."""
+"""EnvPool and evaluate_laps against the built worker (npm run build:env). About 45 s."""
 import gc
 import os
 import signal
@@ -10,6 +10,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from envpool import WORKER, EnvPool, EnvPoolError, StepResult  # noqa: E402
 from evaluate import evaluate_laps, pinned_laps  # noqa: E402
+from reward import ENV_REWARD, Shaper  # noqa: E402
 
 pytestmark = pytest.mark.skipif(not os.path.exists(WORKER), reason='build/env/worker.mjs missing: npm run build:env')
 
@@ -43,10 +44,36 @@ def test_autopilot_reproduces_pinned_melbourne_laps():
     assert pinned[('melbourne', 'lcf1')] == 116.548
     for r in res:
         assert r['end_reason'] == 'lap_done', r
-        assert r['lap_valid'] and r['wall_contact_steps'] == 0 and r['off_track_time'] == 0
+        assert r['lap_valid'] and r['wall_contact_steps'] == 0 and r['off_track_time'] == 0 and r['pit_lane_time'] == 0
         assert round(r['lap_time'], 3) == pinned[(r['track'], r['car'])], r
         assert r['steps'] > 2000 and r['min_speed'] > 10 and r['episode_time'] > r['lap_time']
     assert our_workers() == []
+
+
+def test_pit_lane_in_info_and_the_trainers_reward():
+    """Steered into Melbourne's open pit exit (after the line, on the right) with the trainer's env config: the env
+    pays no progress there and leaves the penalty to the trainer (reward.py), which charges it by speed."""
+    with EnvPool(1, 1, {'reward': ENV_REWARD}) as pool:
+        ix, ox = pool.info_index, pool.obs_index
+        sh = Shaper(ix, 1 / pool.config['actionHz'])
+        obs, info = pool.reset({'s': 5266.0, 'lat': -4.3, 'heading': 0.0, 'speed': 25.0})
+        seen = 0
+        for _ in range(120):
+            s, edge = info[0, ix['lap_s']], obs[0, ox['edge_right']] * 10
+            steer = float(np.clip(-0.08 * (edge + 4), -0.15, 0.15)) if 90 < s < 1000 else 0.0
+            r = pool.step(np.array([[steer, 0.3]], np.float32))
+            obs, info = r.obs, r.info
+            assert len(r.done_idx) == 0
+            row = info[0]
+            assert row[ix['reward_pit_lane']] == 0   # (the env's own term is off: ENV_REWARD)
+            if row[ix['pit_lane_time']] == 0.05:
+                seen += 1
+                assert obs[0, ox['in_pit_lane']] == 1 and row[ix['reward_progress']] == 0
+                assert row[ix['lap_valid_now']] == 0
+                assert sh(info)[0] == pytest.approx(-2 * abs(row[ix['speed']]) * 0.05, rel=1e-5)
+            if row[ix['lap_valid_now']] == 0 and s > 200:
+                break
+        assert seen > 0
 
 
 def test_determinism_and_worker_seeds():
@@ -74,7 +101,8 @@ def test_determinism_and_worker_seeds():
 def test_auto_reset_bookkeeping():
     with EnvPool(2, 3, {'episodeSecs': 2}, seed=5) as pool:
         N, D, F = pool.num_envs, pool.obs_dim, pool.info_dim
-        assert (N, D, F) == (6, 145, 28) and len(pool.obs_spec) == D and pool.obs_index['speed_fwd'] == 3
+        assert (N, D, F) == (6, 164, 30) and len(pool.obs_spec) == D and pool.obs_index['speed_fwd'] == 3
+        assert pool.info_fields[-2:] == ['pit_lane_time', 'reward_pit_lane'] and pool.ready['obsVersion'] == 3
         obs, info = pool.reset()
         assert obs.shape == (N, D) and obs.dtype == np.float32 and info.shape == (N, F) and info.dtype == np.float64
         assert (info[:, pool.info_index['episode']] == 1).all()
@@ -135,7 +163,7 @@ def test_error_reply_keeps_the_pool():
         with pytest.raises(EnvPoolError, match='unknown track') as e:
             pool.reset({'track': 'nowhere'})
         assert not e.value.fatal and not pool.closed
-        assert pool.step(np.full((2, 2), np.nan, np.float32)).obs.shape == (2, 145)
+        assert pool.step(np.full((2, 2), np.nan, np.float32)).obs.shape == (2, 164)
 
 
 def test_dead_worker_raises_and_close_leaves_no_children():

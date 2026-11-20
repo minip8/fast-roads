@@ -1,7 +1,8 @@
 import type { AnyCarSpec, CarId, CarInfo } from '../cars';
-import type { Track, TrackPos } from '../track';
+import { inPitLane, type Track, type TrackPos } from '../track';
 import type { Vehicle } from '../vehicle';
 import type { ObsConfig } from './config';
+import { pitOpen } from './pitOpen';
 
 // ============================================================================
 // The RL observation: a flat Float32 vector, track-relative so that one policy can drive any circuit and car. A pure
@@ -9,7 +10,9 @@ import type { ObsConfig } from './config';
 // passes in: no Node or DOM APIs, so the browser can build the same vector for inference. Every element is
 // raw value x scale (after the transform, if one is named), then clipped to +-OBS_CLIP; observationSpec lists them all.
 // ============================================================================
-export const OBS_VERSION = 2;   // 2: the wheel slips read 1 at the tyre's peak in any direction, on every car
+// 2: the wheel slips read 1 at the tyre's peak in any direction, on every car. 3: the pit lane (in_pit_lane, where it is
+// open beside the car and at each look-ahead sample).
+export const OBS_VERSION = 3;
 export const OBS_CLIP = 10;
 export const CAR_IDS: readonly CarId[] = ['lcf1', 'lcgt3', 'drift'];   // the one-hot's order
 export const CURV_REF_M = 50;   // look-ahead curvature: sign(k) sqrt(|k| x CURV_REF_M), so a 50 m radius reads 1
@@ -58,6 +61,9 @@ export function observationSpec(cfg: ObsConfig): ObsEntry[] {
   add('wall_left', 1 / 10, 'm', `distance from the car's centre to the left wall's face (${WALL_FAR_M} if none or further)`);
   add('wall_right', 1 / 10, 'm', `distance from the car's centre to the right wall's face (${WALL_FAR_M} if none or further)`);
   add('off_track', 1, '', 'all four wheels past the track limits (the game\'s definition: the lap is invalid)', 'flag');
+  add('in_pit_lane', 1, '', 'the car\'s centre is in the pit lane: on its road, off the track\'s (the game\'s PIT LANE rule: the lap is invalid)', 'flag');
+  add('pit_left', 1, '', 'here the pit lane\'s road adjoins the track\'s left edge, open to it (its entry or exit: leaving the road there is entering the lane)', 'flag');
+  add('pit_right', 1, '', 'the same on the right', 'flag');
   for (const w of WHEELS) for (const s of SURFS) add(`wheel_${w}_${s}`, 1, '', `wheel ${w.toUpperCase()} on ${s}`, 'one_hot');
   for (const w of WHEELS) add(`wheel_${w}_out`, 1, '', `wheel ${w.toUpperCase()} past the track limit`, 'flag');
   for (const w of WHEELS) add(`wheel_${w}_slip`, 1, '', `wheel ${w.toUpperCase()} combined slip (1 = at the grip peak, whichever way the tyre slips)`);
@@ -84,6 +90,7 @@ export function observationSpec(cfg: ObsConfig): ObsEntry[] {
     add(`look${k}_wr`, 1 / 10, 'm', `${at}: half-width to the right edge`);
     add(`look${k}_sin`, 1, '', `${at}: sin of the bearing of the centreline point from the car's nose (+ = left)`);
     add(`look${k}_cos`, 1, '', `${at}: cos of that bearing`);
+    add(`look${k}_pit`, 1, '', `${at}: the pit lane adjoins the track there, open to it: +1 on the left, -1 on the right, 0 none`);
   }
   add('tyres_present', 1, '', 'the car models tyre temperatures (else the four below are 0)', 'flag');
   for (const w of WHEELS) add(`tyre_${w}_temp`, 1, '', `tyre ${w.toUpperCase()} carcass temperature: 0 at the bottom of the axle's working window, 1 at its top`);
@@ -128,6 +135,10 @@ export function observe(out: Float32Array, car: Vehicle, tr: Track, p: TrackPos,
   put((tr.barRValid[i] ? Math.min(WALL_FAR_M, tr.barR[i] + lat) : WALL_FAR_M) / 10);
   const W = car.wheels;
   put(W[0].out && W[1].out && W[2].out && W[3].out ? 1 : 0);
+  // the pit lane: the timing's own test, as it ran in the last tick (the car's lap position as the hint)
+  const po = pitOpen(tr);
+  put(inPitLane(tr, car.pos.x, car.pos.z, car.proj.i) ? 1 : 0);
+  put(po.left[i]); put(po.right[i]);
   for (let k = 0; k < 4; k++) for (let s = 0; s < 4; s++) put(W[k].surf === s ? 1 : 0);
   for (let k = 0; k < 4; k++) put(W[k].out ? 1 : 0);
   for (let k = 0; k < 4; k++) put(Math.min(4, W[k].slip));
@@ -162,6 +173,8 @@ export function observe(out: Float32Array, car: Vehicle, tr: Track, p: TrackPos,
     const a = dx * lx + dz * lz, b = dx * fx + dz * fz, r = Math.hypot(a, b) || 1;
     put(a / r);
     put(b / r);
+    const q = f < 0.5 ? j : j2;   // (the nearer sample)
+    put(po.left[q] ? 1 : po.right[q] ? -1 : 0);
   }
   const ty = car.tyres;
   put(ty ? 1 : 0);

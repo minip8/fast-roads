@@ -3,7 +3,7 @@
     python bench_agent.py                                    # the default config
     python bench_agent.py --set sac.batch_size=1024 --set sac.compile=true --set sac.amp=off
 
-Fills a buffer of the configured capacity with random transitions (40 envs, D = 145, 1% episode ends), runs a
+Fills a buffer of the configured capacity with random transitions (40 envs, D = 164, 1% episode ends), runs a
 warm-up (CUDA graph capture, compilation) and times `--secs` of updates. Prints warm-up time, updates/s and VRAM.
 """
 from __future__ import annotations
@@ -24,7 +24,7 @@ def main() -> None:
     ap.add_argument('--set', action='append', default=[])
     ap.add_argument('--secs', type=float, default=10.0)
     ap.add_argument('--envs', type=int, default=40)
-    ap.add_argument('--obs-dim', type=int, default=145)
+    ap.add_argument('--obs-dim', type=int, default=164)
     ap.add_argument('--fill', type=int, default=20_000, help='env steps written (all envs each)')
     args = ap.parse_args()
     cfg = load_config(sets=args.set)

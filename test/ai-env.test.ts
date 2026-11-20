@@ -7,6 +7,7 @@ import { END, getTrack, INFO, INFO_FIELDS, RaceEnv, speedProfile } from '../src/
 import { CAR_IDS, observationSpec, observe, steerLockOf } from '../src/ai/observation';
 import { VecEnv } from '../src/ai/vec';
 import { LcCar } from '../src/lc/lcCar';
+import { inPitLane, pointAt } from '../src/track';
 import { TRACKS, type TrackId } from '../src/tracks';
 import { ourCar } from './harness';
 
@@ -25,6 +26,11 @@ describe('observation', () => {
     const spec = observationSpec(e.cfg.obs);
     expect(spec.map((s) => s.index)).toEqual(spec.map((_, i) => i));
     expect(new Set(spec.map((s) => s.name)).size).toBe(spec.length);
+    expect(spec.length).toBe(68 + 6 * e.cfg.obs.lookahead);   // (docs/ai-env.md: 164 by default)
+    expect(spec.slice(15, 19).map((s) => s.name)).toEqual(['off_track', 'in_pit_lane', 'pit_left', 'pit_right']);
+    expect(spec.filter((s) => s.name.startsWith('look0_')).map((s) => s.name.slice(6))).toEqual(['curv', 'wl', 'wr', 'sin', 'cos', 'pit']);
+    expect(INFO_FIELDS.slice(-2)).toEqual(['pit_lane_time', 'reward_pit_lane']);   // (appended: the older indices stay)
+    expect(INFO.episode).toBe(27);
     for (const car of ALL) {
       e.reset({ car, start: 'flying' });
       expect(e.obs.length).toBe(spec.length);
@@ -40,6 +46,7 @@ describe('observation', () => {
       expect(at(e, 'battery_present')).toBe(car === 'lcf1' ? 1 : 0);
       expect(at(e, 'flaps_fitted')).toBe(car === 'lcf1' ? 1 : 0);
       expect(at(e, 'gear')).toBeGreaterThan(0);
+      expect(at(e, 'in_pit_lane')).toBe(0);
       // a pure function of the state: the same vector again
       const again = new Float32Array(spec.length);
       observe(again, c, e.track, e.proj, { steerLock: steerLockOf(c.spec), targetSteer: 0, targetPedal: 0, cmdSteer: 0, cmdPedal: 0, prevSteer: 0, prevPedal: 0, wallContact: false, wallHit: 0 }, e.cfg.obs);
@@ -112,7 +119,7 @@ describe('autopilot through the environment', () => {
     for (let n = 0; n < 4000; n++) {
       const r = e.step(NaN, NaN);   // NaN: the autopilot drives
       progress += e.info[INFO.reward_progress];
-      other += e.info[INFO.reward_wall] + e.info[INFO.reward_off_track];
+      other += e.info[INFO.reward_wall] + e.info[INFO.reward_off_track] + e.info[INFO.reward_pit_lane] + e.info[INFO.pit_lane_time];
       expect(e.info[INFO.autopilot_steer]).toBeGreaterThanOrEqual(-1);
       if (r.terminated || r.truncated) {
         expect(r.truncated && !r.terminated).toBe(true);
@@ -148,6 +155,54 @@ describe('autopilot through the environment', () => {
     e.reset({ start: 'flying' });
     for (let n = 0; n < 600; n++) e.step(NaN, NaN);
     expect(viaActions).toBeGreaterThan(0.97 * e.info[INFO.episode_progress_m]);
+  });
+});
+
+describe('the pit lane', () => {
+  it("is in the observation, earns no progress and costs its penalty, and the game's timing deletes the lap", async () => {
+    // Melbourne's lane is on the right; its exit (open to the track from the pit wall's tail, 88 m after the line,
+    // until it rejoins the road at 163 m) is after the line, so a lap is under way there. From the right of the start
+    // straight, over the line, then steering right into the exit.
+    const e = await env({ reset: { cars: ['lcf1'] } }), tr = getTrack('melbourne');
+    e.reset({ s: tr.L - 30, lat: -(tr.WR[pointAt(tr, tr.L - 30).i] - 2), heading: 0, speed: 25 });
+    const lookPit = () => e.spec.filter((x) => /^look\d+_pit$/.test(x.name)).map((x) => e.obs[x.index]);
+    expect(at(e, 'in_pit_lane')).toBe(0);
+    expect(at(e, 'pit_right')).toBe(0);
+    expect(lookPit()).toContain(-1);          // the exit's open stretch ahead, on the right
+    expect(lookPit()).not.toContain(1);
+    let sawSide = false, entered = -1, inside = 0;
+    for (let n = 0; n < 120; n++) {
+      const s = e.info[INFO.lap_s], lat = e.info[INFO.lat];
+      const before = e.info[INFO.lap_valid_now];
+      // straight on to 90 m past the line, then out to 4 m beyond the right edge
+      const steer = s > 90 && s < 1000 ? Math.max(-0.15, Math.min(0.15, -0.08 * (lat + tr.WR[e.proj.i] + 4))) : 0;
+      const r = e.step(steer, 0.3);
+      const i = e.info;
+      expect(r.terminated || r.truncated).toBe(false);
+      expect(r.reward).toBeCloseTo(i[INFO.reward_progress] + i[INFO.reward_wall] + i[INFO.reward_off_track] + i[INFO.reward_smooth]
+        + i[INFO.reward_terminal] + i[INFO.reward_pit_lane], 9);
+      if (at(e, 'pit_right') && !at(e, 'in_pit_lane')) sawSide = true;
+      expect(at(e, 'in_pit_lane')).toBe(inPitLane(tr, e.car.pos.x, e.car.pos.z, e.car.proj.i) ? 1 : 0);
+      expect(i[INFO.reward_pit_lane]).toBeCloseTo(-e.cfg.reward.pitLane * i[INFO.pit_lane_time], 12);
+      if (i[INFO.pit_lane_time] > 0 && entered < 0) {
+        entered = n;
+        expect(before).toBe(1);                       // a valid lap under way...
+        expect(i[INFO.lap_valid_now]).toBe(0);        // ...deleted in this very step (PIT LANE)
+        expect(e.session.timing.invalidReason).toBe('PIT LANE');
+        expect(i[INFO.off_track_time]).toBe(0);       // (on asphalt, inside the track limits: nothing else says so)
+      }
+      if (i[INFO.pit_lane_time] === 0.05) {           // a whole step in the lane: no progress paid
+        inside++;
+        expect(at(e, 'in_pit_lane')).toBe(1);
+        expect(i[INFO.progress_m]).toBeGreaterThan(0.5);
+        expect(i[INFO.reward_progress]).toBe(0);
+        expect(i[INFO.reward_pit_lane]).toBeCloseTo(-0.25, 12);
+      }
+      if (i[INFO.lap_valid_now] === 0 && e.info[INFO.lap_s] > 200) break;
+    }
+    expect(sawSide).toBe(true);
+    expect(entered).toBeGreaterThan(0);
+    expect(inside).toBeGreaterThan(0);
   });
 });
 

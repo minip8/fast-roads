@@ -6,7 +6,7 @@ exported policy's reference runner).
     cd ai/rl && .venv/bin/python tests/make_policy_fixture.py      # -> test/fixtures/policy-*.bin, policy-parity.json
 
 Deterministic (seeded): rerun only when the format or the runner changes. The observation size is the environment's
-default (145: OBS_VERSION 2, 16 look-ahead samples), which the game checks a policy file against.
+default (164: OBS_VERSION 3, 16 look-ahead samples), which the game checks a policy file against.
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from export_web import pack  # noqa: E402
 from policy_np import FORMAT, NumpyPolicy  # noqa: E402
 
 OUT = HERE.parent.parent.parent / 'test' / 'fixtures'
-OBS_DIM, ACT_DIM, OBS_VERSION, CLIP = 145, 2, 2, 10.0
+OBS_DIM, ACT_DIM, OBS_VERSION, CLIP = 164, 2, 3, 10.0
 # the control part of the environment's defaults (src/ai/config.ts DEFAULT_CONFIG) as a policy file carries it
 ENV = {'actionHz': 20, 'actionMode': 'absolute', 'deltaScale': [0.25, 0.5], 'steerRate': 3, 'pedalRate': 0, 'tc': True,
        'obs': {'lookahead': 16, 'lookMinM': 40, 'lookSecs': 4, 'lookPow': 1.5}}

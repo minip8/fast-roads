@@ -5,12 +5,13 @@ import { CARS, type CarId } from '../cars';
 import { DT } from '../config';
 import { createVehicle, needsReset, Session, stepPhysics } from '../sim';
 import { loadCircuit } from '../circuit';
-import { pointAt, type Track, type TrackPos } from '../track';
+import { inPitLane, pointAt, type Track, type TrackPos } from '../track';
 import { TRACKS, type TrackId } from '../tracks';
 import type { DriveInput, Vehicle } from '../vehicle';
 import { DEFAULT_CONFIG, mergeConfig, type DeepPartial, type EnvConfig, type StartMode } from './config';
 import { clamp1, Controller, PHYSICS_HZ } from './control';
 import { CAR_IDS, observationSpec, type ObsEntry } from './observation';
+import { pitOpen } from './pitOpen';
 import { Rng } from './rng';
 
 // ============================================================================
@@ -51,6 +52,9 @@ export const INFO_FIELDS = [
   'autopilot_steer', 'autopilot_pedal',   // the autopilot drove this step: its last tick as an absolute action, else NaN
   'track_index', 'car_index',          // into TRACK_IDS and CAR_IDS
   'episode',             // episodes begun by this environment (1 for the first)
+  // (added later, so at the end: the indices above stay as they were)
+  'pit_lane_time',       // s of this step in the pit lane (the game's PIT LANE rule: the lap under way is invalid)
+  'reward_pit_lane',     // the reward's pit lane term (with the five reward_* above, it sums to the reward)
 ] as const;
 export const INFO = Object.fromEntries(INFO_FIELDS.map((f, i) => [f, i])) as { [K in (typeof INFO_FIELDS)[number]]: number };
 
@@ -68,7 +72,7 @@ const tracks = new Map<TrackId, Track>();
 export async function loadTracks(ids: readonly TrackId[]) {
   for (const id of ids) {
     if (!TRACKS[id]) throw new Error(`unknown track ${id}`);
-    if (!tracks.has(id)) tracks.set(id, await loadCircuit(TRACKS[id]));
+    if (!tracks.has(id)) { const t = await loadCircuit(TRACKS[id]); pitOpen(t); tracks.set(id, t); }   // (the observation's pit flags too: tens of ms)
   }
 }
 export function getTrack(id: TrackId): Track {
@@ -227,7 +231,7 @@ export class RaceEnv {
   private run(input: () => DriveInput, smooth: number, autopiloted: boolean): StepResult {
     const cfg = this.cfg, tc = cfg.termination, sess = this.session, tr = this.track, L = tr.L, info = this.info;
     const control = this.control, p = control.proj, walls = control.walls;
-    let credited = 0, raw = 0, offTicks = 0, end: number = END.none;
+    let credited = 0, raw = 0, offTicks = 0, pitTicks = 0, end: number = END.none;
     control.beginStep();
     info[INFO.lap_done] = 0;
     for (const f of ['lap_time', 'lap_valid', 'sector1', 'sector2', 'sector3'] as const) info[INFO[f]] = Number.NaN;
@@ -239,15 +243,20 @@ export class RaceEnv {
       sess.simTime += DT;
       this.t += DT;
       // centreline progress this tick, no more than the car can have moved (a projection that jumps to another
-      // part of the track is not progress), and none while all four wheels are off (no gain from a cut)
+      // part of the track is not progress), and none while all four wheels are off or the car is in the pit lane (no
+      // gain from a cut: both delete the lap)
       let ds = p.s - this.lastS;
       if (ds > L / 2) ds -= L; else if (ds < -L / 2) ds += L;
       const lim = car.vel.length() * DT * 1.5 + 0.05;
       ds = ds > lim ? lim : ds < -lim ? -lim : ds;
       this.lastS = p.s;
       const W = car.wheels, off = W[0].out && W[1].out && W[2].out && W[3].out;
+      // (the timing's own test, as stepPhysics just ran it: in the pit lane, the lap under way is deleted)
+      const pit = inPitLane(tr, car.pos.x, car.pos.z, car.proj.i);
       raw += ds;
-      if (off) offTicks++; else credited += ds;
+      if (off) offTicks++;
+      if (pit) pitTicks++;
+      if (!off && !pit) credited += ds;
       this.progress += ds;
       if (this.progress > this.maxProgress) this.maxProgress = this.progress;
       const ev = sess.timing.events;
@@ -271,11 +280,13 @@ export class RaceEnv {
     this.done = r.terminated || r.truncated;
     const rp = rc.progress * credited, rw = -(rc.wallHit * hit + rc.wallContact * (contact ? 1 : 0));
     const ro = -rc.offTrack * offTicks * DT, rs = -smooth, rt = r.terminated ? -rc.terminal : 0;
-    r.reward = rp + rw + ro + rs + rt;
+    const rpl = -rc.pitLane * pitTicks * DT;
+    r.reward = rp + rw + ro + rs + rt + rpl;
     info[INFO.reward_progress] = rp; info[INFO.reward_wall] = rw; info[INFO.reward_off_track] = ro;
-    info[INFO.reward_smooth] = rs; info[INFO.reward_terminal] = rt;
+    info[INFO.reward_smooth] = rs; info[INFO.reward_terminal] = rt; info[INFO.reward_pit_lane] = rpl;
     info[INFO.progress_m] = raw;
     info[INFO.off_track_time] = offTicks * DT;
+    info[INFO.pit_lane_time] = pitTicks * DT;
     info[INFO.wall_hit] = hit; info[INFO.wall_contact] = contact ? 1 : 0;
     info[INFO.end_reason] = end;
     info[INFO.autopilot_steer] = autopiloted ? control.ctl.cmdSteer : Number.NaN;

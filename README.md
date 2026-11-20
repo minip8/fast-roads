@@ -24,8 +24,9 @@ online, so a new deploy shows up on the next load.
 For development, append `?autopilot` to the URL to skip the menu and watch the built-in driver lap the circuit.
 The autopilot isn't part of the game itself. It laps every circuit cleanly in every car except the drift car at
 Spa, which slides wide in the fast sweepers there. `?autopilot=rl` has a driver trained by reinforcement learning
-drive instead (`ai/rl/`; the policies are in `public/ai/`, listed per car and circuit in `policies.json`: for now the
-F1 at Melbourne, about 101.7 s a lap); where there is none for the car and circuit, the built-in autopilot drives.
+drive instead (`ai/rl/`; the policies are in `public/ai/`, listed per car and circuit in `policies.json`: none for
+now, until they are retrained on the current observation); where there is none for the car and circuit, the built-in
+autopilot drives.
 See docs/ai-env.md, **Trained policies in the game**. `?opponents=2` (that many of your car) or `?opponents=lcgt3,drift`
 (car ids: `lcf1`, `lcgt3`, `drift`) adds autopilot cars starting 30 m apart ahead of you, to drive into: a first step
 towards multiplayer, with no race rules, HUD or minimap for them. A restart puts them back too.
@@ -589,7 +590,7 @@ and override the mouse while held.
   headless simulation. Reset/step over the same session the game and tests run (20 actions a second by default:
   steering as a share of the car's lock and one throttle/brake axis, automatic gears), a track-relative observation
   vector built by a pure function the browser can reuse, a reward for centreline progress that pays nothing for
-  cutting, penalties for walls and leaving the track, random starts anywhere on the lap, and an evaluation mode that
+  cutting or the pit lane, penalties for walls, leaving the track and entering the pit lane, random starts anywhere on the lap, and an evaluation mode that
   times one flying lap with the game's own timing. `npm run build:env` bundles a worker process that runs a batch of
   environments for a trainer over a binary stdin/stdout protocol; `docs/ai-env.md` documents all of it. Not part of
   the game's bundle.

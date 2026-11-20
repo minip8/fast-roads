@@ -44,19 +44,19 @@ describe('policy inference', () => {
     expect(() => parsePolicy(new ArrayBuffer(16))).toThrow(/not a policy file/);
     expect(() => parsePolicy(edit(buf, (m) => { m.obsVersion = OBS_VERSION - 1; }))).toThrow(/observation version/);
     expect(() => parsePolicy(edit(buf, (m) => { m.obs_dim = 150; }))).toThrow(/observes 150 values/);
-    expect(() => parsePolicy(edit(buf, (m) => { (m.env as { obs: { lookahead: number } }).obs.lookahead = 12; }))).toThrow(/observes 145 values.*125/);
+    expect(() => parsePolicy(edit(buf, (m) => { (m.env as { obs: { lookahead: number } }).obs.lookahead = 12; }))).toThrow(/observes 164 values.*140/);
     expect(() => parsePolicy(edit(buf, (m) => { delete (m.env as Record<string, unknown>).steerRate; }))).toThrow(/env.steerRate/);
     expect(() => parsePolicy(edit(buf, (m) => { (m.env as { actionHz: number }).actionHz = 7; }))).toThrow(/actionHz/);
     expect(() => parsePolicy(buf.slice(0, buf.byteLength - 8))).toThrow(/past the end/);
   });
 
-  it('runs a real policy in a fraction of a millisecond', () => {
-    const p: Policy = parsePolicy(file('public/ai/lcf1-melbourne.bin')), obs = Float32Array.from(parity.obs[0]), act = new Float32Array(2);
+  it('runs a policy in a fraction of a millisecond', () => {
+    const p: Policy = parsePolicy(fixture('simba')), obs = Float32Array.from(parity.obs[0]), act = new Float32Array(2);
     for (let k = 0; k < 200; k++) p.run(obs, act);   // (warm up the JIT)
     const n = 500, t0 = performance.now();
     for (let k = 0; k < n; k++) p.run(obs, act);
     const ms = (performance.now() - t0) / n;
-    console.log(`policy ${p.meta.provenance.run}: ${ms.toFixed(3)} ms per call`);
+    console.log(`policy ${String(p.meta.provenance.fixture)}: ${ms.toFixed(3)} ms per call`);
     expect(ms).toBeLessThan(3);   // (loose, for a busy machine: about 0.1 ms for a 256 x 256 MLP actor, 0.5 for a 256-wide SimBa one)
     expect([...act].every((v) => Math.abs(v) <= 1)).toBe(true);
   });

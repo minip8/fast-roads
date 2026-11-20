@@ -141,7 +141,7 @@ def main(argv: list[str] | None = None) -> None:
     if ev:
         provenance['env_steps'] = ev.get('env_steps')
         provenance['eval'] = [{k: r.get(k) for k in ('track', 'car', 'lap_time', 'lap_valid', 'end_reason', 'off_track_time',
-                                                     'wall_contact_steps')} for r in ev.get('results', [])]
+                                                     'pit_lane_time', 'wall_contact_steps')} for r in ev.get('results', [])]
     meta = dict(pol.meta, obsVersion=ready['obsVersion'], env=config,
                 trained={'cars': config['reset']['cars'], 'tracks': config['reset']['tracks']}, provenance=provenance)
     data = pack(meta, pol.arrays)

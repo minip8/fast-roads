@@ -21,6 +21,8 @@ for n, d in enumerate(lines):
         lap = f"{r['lap_time']:8.3f}" if r['lap_time'] else '       -'
         flag = 'ok ' if r['lap_valid'] else ('INV' if r['lap_time'] else r['end_reason'][:3])
         text = f"{track[:9]}/{car} {lap} {flag} wall {r['wall_contact_steps']:3d} off {r['off_track_time']:5.2f}"
+        if r.get('pit_lane_time'):
+            text += f" pit {r['pit_lane_time']:4.2f}"
         ok = [x['lap_time'] for x in rs if clean(x)]
         if len(rs) > 1:
             text += f"  clean {len(ok)}/{len(rs)}" + (f" median {statistics.median(ok):.3f}" if ok else '')

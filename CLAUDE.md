@@ -90,16 +90,21 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   on another engine.
 - `test/ai-env.test.ts` checks the RL environment (`src/ai/`): the observation against its spec, bit-identical
   determinism, the autopilot's pinned lcf1 Melbourne lap through evaluation mode (so a physics change that moves the
-  pinned laps moves it too: update both), random starts, every episode end, automatic resets.
+  pinned laps moves it too: update both), random starts, every episode end, automatic resets, the pit lane (a car
+  steered into Melbourne's open exit: its observation, no progress, the penalty, the lap deleted in that step).
+  `test/ai-pit.test.ts` checks the observation's pit-lane flags (`pitOpen`) against a fine brute-force search of
+  `inPitLane` beside every circuit (no misses; ~13 s) and prints each circuit's flagged stretches.
   `test/ai-worker.test.ts` builds the worker into a temporary folder and drives it over the protocol with
   `ai/client.mjs`, comparing every reply bit for bit with the same environments run in-process.
 - Trained policies in the game: `test/ai-policy.test.ts` (the web policy file, inference against numpy's to 1e-5 on
   the fixtures `ai/rl/tests/make_policy_fixture.py` writes into `test/fixtures/` for both exportable actors, the
   files refused, the manifest), `test/ai-policy-driver.test.ts` (`PolicyDriver` in a harness `Session` against
   `RaceEnv` from the flying start: every observation, action and the car bit for bit; the game's policy for 25 s, a
-  random-weights fixture into the walls in the drift car and the GT3; a restart), `test/laps-rl-f1.test.ts` (the
+  random-weights fixture into the walls in every car; a restart), `test/laps-rl-f1.test.ts` (the
   game's lcf1 Melbourne policy, `test/policies.ts` `gamePolicy`, laps validly with no resets within 0.5 s of the
   lap its file's provenance records from the trainer's evaluation: replace the file, and this checks the new one).
+  The tests of the game's own policy skip (saying why) while `policies.json` names none: after an `OBS_VERSION`
+  change the old files cannot load, and the manifest stays `{}` until policies are retrained.
 - Multiplayer: `test/net-*.test.ts` cover `src/net/` and the relay on their own (docs/net.md, **Tests**;
   `test/net-cf.test.ts` runs the Cloudflare relay in local workerd through wrangler's `unstable_startWorker`, ~3 s);
   `test/multiplayer.test.ts` joins game Sessions (harness `session()`) through an in-process `Relay` over
@@ -447,7 +452,11 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
     `policy.ts`); the built-in autopilot drives where there is no policy, and for pit stops. The policy files are
     not precached by the service worker.
   - `observation.ts`: `observe()` reads only `Vehicle` and the `Track` arrays (no Node or DOM: the browser will
-    reuse it); `observationSpec()` names every element. Change both together and bump `OBS_VERSION`.
+    reuse it); `observationSpec()` names every element. Change both together and bump `OBS_VERSION`. `pitOpen.ts`:
+    where the pit lane is open to the track (its entry before the pit wall's nose, its exit after the tail), per
+    track sample and side, built once per track (a `WeakMap`, not on `Track`) from `inPitLane` itself. The lane's
+    open road is asphalt inside the track limits, so only these flags, `in_pit_lane` and the env's PIT LANE rule
+    (no progress, `reward.pitLane`, `pit_lane_time`) tell a learner what the timing deletes the lap for.
   - `walls.ts`: wall contact per tick, read from each engine (Rapier contact pairs; the LibreCorsa engine's
     telemetry over its steps, by wrapping the engine instance's `step`). `rng.ts`: seeded sfc32; no `Math.random`.
   - `protocol.ts` (pure byte layout) and `ai/worker.ts` (Node I/O; stdout carries protocol frames only).
