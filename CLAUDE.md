@@ -100,11 +100,12 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   the fixtures `ai/rl/tests/make_policy_fixture.py` writes into `test/fixtures/` for both exportable actors, the
   files refused, the manifest), `test/ai-policy-driver.test.ts` (`PolicyDriver` in a harness `Session` against
   `RaceEnv` from the flying start: every observation, action and the car bit for bit; the game's policy for 25 s, a
-  random-weights fixture into the walls in every car; a restart), `test/laps-rl-f1.test.ts` (the
-  game's lcf1 Melbourne policy, `test/policies.ts` `gamePolicy`, laps validly with no resets within 0.5 s of the
-  lap its file's provenance records from the trainer's evaluation: replace the file, and this checks the new one).
-  The tests of the game's own policy skip (saying why) while `policies.json` names none: after an `OBS_VERSION`
-  change the old files cannot load, and the manifest stays `{}` until policies are retrained.
+  random-weights fixture into the walls in every car; a restart), `test/laps-rl.test.ts` (the
+  game's policy for each car at Melbourne, `test/policies.ts` `gamePolicy`, laps validly with no resets within 0.5 s
+  of the lap its file's provenance records from the trainer's evaluation: replace the file, and this checks the new
+  one). The tests of the game's own policy skip (saying why) for a car `policies.json` names none for: after an
+  `OBS_VERSION` change the old files cannot load, and a car has none until its policy is retrained (now: the GT3's
+  `lcgt3.bin`, one policy for all 24 circuits).
 - Multiplayer: `test/net-*.test.ts` cover `src/net/` and the relay on their own (docs/net.md, **Tests**;
   `test/net-cf.test.ts` runs the Cloudflare relay in local workerd through wrangler's `unstable_startWorker`, ~3 s);
   `test/multiplayer.test.ts` joins game Sessions (harness `session()`) through an in-process `Relay` over
