@@ -179,6 +179,7 @@ class Collector(threading.Thread):
         if cfg.collect.noise not in ('white', 'pink'):
             raise ValueError(f'unknown noise {cfg.collect.noise!r}')
         self.paused_secs = 0.0
+        self.combos = env_combos(cfg)
         # the trainer's own reward from the env's info (reward.py), or the env's reward as it is
         self.shape = Shaper(pool.info_index, 1 / pool.config['actionHz'], cfg.reward) if cfg.reward is not None else None
 
@@ -186,8 +187,9 @@ class Collector(threading.Thread):
         sh, c = self.shared, self.cfg.collect
         version = -1
         try:
-            obs, _ = self.pool.reset()
             n = self.pool.num_envs
+            obs, _ = self.pool.reset([{'track': t, 'car': k} for t, k in (self.combos[g % len(self.combos)] for g in range(n))]
+                                     if c.pin else None)
             while not sh.stop.is_set():
                 if c.min_utd > 0 and sh.learning and sh.utd_since_start() < c.min_utd:
                     t0 = time.perf_counter()
@@ -270,7 +272,14 @@ class EvalThread(threading.Thread):
         with open(self.run_dir / 'eval.jsonl', 'a') as f:
             f.write(json.dumps(line, default=_json_default) + '\n')
         print(f"[eval] steps {ck['env_steps']:,}  score {score:.3f}{'  (best)' if line['best'] else ''}  "
-              + '  '.join(_eval_brief(r) for r in records), flush=True)
+              + ('  '.join(_eval_brief(r) for r in records) if len(records) <= 4 else _eval_count(records)), flush=True)
+
+
+def _eval_count(records: list[dict]) -> str:
+    if 'lap_time' not in records[0]:
+        return f'{len(records)} results'
+    clean = sum(bool(r['lap_valid'] and r['lap_time'] and not r['wall_contact_steps']) for r in records)
+    return f"{clean}/{len(records)} laps clean, {sum(r['lap_time'] is not None for r in records)} finished"
 
 
 def _eval_brief(r: dict) -> str:
@@ -521,6 +530,12 @@ def run(cfg: TrainConfig, run_dir: Path, make_pool: Callable[[TrainConfig], Any]
     return trainer
 
 
+def env_combos(cfg: TrainConfig) -> list[tuple[str, str]]:
+    """Every (track, car) the run trains on: env.reset.tracks x cars (the env's defaults where the config is silent)."""
+    reset = cfg.env.get('reset', {})
+    return [(t, c) for t in reset.get('tracks', ['melbourne']) for c in reset.get('cars', ['lcf1'])]
+
+
 def make_env_pool(cfg: TrainConfig, worker: str | None = None):
     from envpool import EnvPool
     env = cfg.env if cfg.reward is None else merge(cfg.env, {'reward': ENV_REWARD})
@@ -532,8 +547,9 @@ def lap_evaluator(cfg: TrainConfig, worker: str | None = None) -> Evaluator:
 
     def evaluate(act_fn) -> tuple[list[dict], float]:
         e = cfg.eval
-        combos = [tuple(c) for c in e.combos for _ in range(e.repeats)]
-        noise = [e.noise if k else 0.0 for _ in e.combos for k in range(e.repeats)]
+        base = [tuple(c) for c in e.combos] or env_combos(cfg)
+        combos = [c for c in base for _ in range(e.repeats)]
+        noise = [e.noise if k else 0.0 for _ in base for k in range(e.repeats)]
         res = evaluate_laps(act_fn, combos, config=cfg.env, num_workers=e.num_workers, seed=cfg.seed + 7, noise=noise,
                             worker_path=worker)
         # the score to minimise: each combo's mean lap time over its repeats, a lap that is not clean counting as

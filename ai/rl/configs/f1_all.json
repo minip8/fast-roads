@@ -1,0 +1,83 @@
+{
+  "env": {
+    "actionHz": 20,
+    "episodeSecs": 90,
+    "reward": {
+      "steerSmooth": 2.0,
+      "pedalSmooth": 0.5
+    },
+    "reset": {
+      "tracks": [
+        "melbourne",
+        "silverstone",
+        "shanghai",
+        "suzuka",
+        "miami",
+        "montreal",
+        "monaco",
+        "barcelona",
+        "spielberg",
+        "spa",
+        "hungaroring",
+        "zandvoort",
+        "monza",
+        "madrid",
+        "baku",
+        "singapore",
+        "austin",
+        "mexico",
+        "saopaulo",
+        "lasvegas",
+        "lusail",
+        "yasmarina",
+        "bahrain",
+        "jeddah"
+      ],
+      "cars": [
+        "lcf1"
+      ]
+    },
+    "cacheSessions": 1
+  },
+  "reward": {},
+  "sac": {
+    "gamma": 0.995,
+    "n_step": 5,
+    "batch_size": 1024,
+    "grad_clip": 10.0,
+    "actor": {
+      "kind": "mlp",
+      "mlp_layers": [
+        256,
+        256
+      ]
+    },
+    "critic": {
+      "kind": "mlp",
+      "mlp_layers": [
+        512,
+        512,
+        512
+      ]
+    },
+    "init_alpha": 0.001,
+    "lr_alpha": 0.0,
+    "action_scale": [
+      1.0,
+      1.25
+    ]
+  },
+  "replay": {
+    "capacity": 5000000
+  },
+  "collect": {
+    "num_workers": 6,
+    "envs_per_worker": 16,
+    "pin": true
+  },
+  "eval": {
+    "every_secs": 600,
+    "repeats": 2,
+    "num_workers": 2
+  }
+}

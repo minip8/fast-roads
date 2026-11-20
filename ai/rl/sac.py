@@ -132,8 +132,12 @@ class SAC:
 
     def actor_loss(self, obs):
         o = self.norm(obs)
+        # the actor sees the observation with a little noise, the critic the clean one: the policy that maximises
+        # E[Q(s, pi(s + noise))] cannot hang on the last digit of an input (GT Sophy's policy dropout, CAPS' spatial
+        # term: a smooth policy, not one that dithers or that a rounding difference sends another way)
+        oa = o + self.cfg.actor_obs_noise * torch.randn_like(o) if self.cfg.actor_obs_noise > 0 else o
         with self._amp():
-            mean, log_std = self.actor.dist(o)
+            mean, log_std = self.actor.dist(oa)
             u = mean + torch.exp(log_std) * torch.randn_like(mean)
             a, logp = self.actor.squash(u), squashed_log_prob(u, mean, log_std)
             qa = self.critic(o, a, detach=True).mean(-1)               # [C, B]

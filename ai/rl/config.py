@@ -50,6 +50,7 @@ class SACConfig:
     # the env's prev_steer / prev_pedal). Where the critic is indifferent the mean then stays where it was instead of
     # dithering; a reward penalty cannot do this, being drowned by the exploration noise of the sampled actions.
     rate_reg: list[float] = field(default_factory=list)   # per action; empty: off
+    actor_obs_noise: float = 0.0  # sigma of Gaussian noise on the actor's (normalised) input in its own update
     prev_action_index: list[int] = field(default_factory=list)
     actor: NetConfig = field(default_factory=lambda: NetConfig(hidden=256, blocks=1, mlp_layers=[256, 256]))
     critic: NetConfig = field(default_factory=NetConfig)
@@ -73,6 +74,10 @@ class ReplayConfig:
 class CollectConfig:
     num_workers: int = 5
     envs_per_worker: int = 8
+    # True: each env keeps one (track, car) of env.reset.tracks x cars for all its episodes, the combos dealt round
+    # the envs, so every combo has the same share of the experience (and of every batch) and no env rebuilds a
+    # circuit's physics world. False: the env draws track and car at each reset
+    pin: bool = False
     random_steps: int = 10_000    # env steps (all envs together) of uniform random actions at the start
     learning_starts: int = 10_000  # transitions in the buffer before the first update (also the refill on resume)
     utd: float = 1.0              # cap: updates never exceed utd x env steps collected
@@ -85,7 +90,7 @@ class CollectConfig:
 @dataclass
 class EvalConfig:
     every_secs: float = 300.0
-    combos: list[list[str]] = field(default_factory=lambda: [['melbourne', 'lcf1']])
+    combos: list[list[str]] = field(default_factory=list)  # [track, car] pairs; empty: every pair of env.reset
     num_workers: int = 1
     invalid_lap_secs: float = 1000.0  # score of a lap that is invalid, unfinished or touched a wall
     repeats: int = 1              # laps per combo: the first as the policy drives it, the others with action noise
