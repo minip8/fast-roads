@@ -260,3 +260,21 @@ def test_rate_regulariser_pulls_the_mean_to_the_previous_action():
     assert after < 0.25 * before and abs(rate.item() - after) < 0.05
     with pytest.raises(ValueError):
         agent(rate_reg=[1.0, 1.0])   # no prev_action_index
+
+
+def test_averaged_actor_and_learning_rates_on_load():
+    a = agent(actor_ema=0.9)
+    start = [p.clone() for p in a.actor.parameters()]
+    a.update(5)
+    live, avg = list(a.actor.parameters()), list(a.actor_ema.parameters())
+    # after one call of 5 updates the average has moved 1 - 0.9^5 of the way from the start to the live actor
+    w = 1 - 0.9 ** 5
+    for s, l, e in zip(start, live, avg):
+        torch.testing.assert_close(e, s + w * (l - s), atol=1e-6, rtol=1e-5)
+    assert 'actor_ema' in a.policy_state() and 'actor_ema' not in agent().policy_state()
+    b = agent(actor_ema=0.9, lr_actor=1e-5)
+    old = {k: v for k, v in a.state_dict().items() if k != 'actor_ema'}   # a checkpoint from before the average
+    b.load_state_dict(old)
+    for l, e in zip(a.actor.parameters(), b.actor_ema.parameters()):
+        torch.testing.assert_close(e, l)
+    assert b.actor_opt.param_groups[0]['lr'] == 1e-5

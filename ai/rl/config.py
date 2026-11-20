@@ -50,6 +50,10 @@ class SACConfig:
     # the env's prev_steer / prev_pedal). Where the critic is indifferent the mean then stays where it was instead of
     # dithering; a reward penalty cannot do this, being drowned by the exploration noise of the sampled actions.
     rate_reg: list[float] = field(default_factory=list)   # per action; empty: off
+    # > 0: keep an exponential average of the actor's weights (this decay per update; 0.9999 averages over about
+    # 10,000 updates) and evaluate and export that instead of the live actor, whose rare glitches move from circuit
+    # to circuit between checkpoints (policy churn). The collector explores with the live actor
+    actor_ema: float = 0.0
     actor_obs_noise: float = 0.0  # sigma of Gaussian noise on the actor's (normalised) input in its own update
     prev_action_index: list[int] = field(default_factory=list)
     actor: NetConfig = field(default_factory=lambda: NetConfig(hidden=256, blocks=1, mlp_layers=[256, 256]))

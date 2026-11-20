@@ -257,7 +257,7 @@ class EvalThread(threading.Thread):
                 sh.fail('evaluation')
 
     def _evaluate(self, ck: dict) -> None:
-        self.policy.load(ck['policy'])
+        self.policy.load(ck['policy'], averaged=True)
         t0 = time.time()
         records, score = self.evaluate(lambda o: self.policy(o, deterministic=True))
         line = {'time': time.time(), 'env_steps': ck['env_steps'], 'updates': ck['agent']['updates'],
@@ -308,7 +308,7 @@ def export_from_checkpoint(ck: dict, path: Path) -> None:
     """Writes the checkpoint's deterministic actor as a policy .npz (layout in policy_np.py)."""
     cfg = load_config(base=ck['config'])
     agent = SAC(cfg.sac, ck['obs_dim'], ck['act_dim'], 'cpu')
-    agent.actor.load_state_dict(ck['policy']['actor'])
+    agent.actor.load_state_dict(ck['policy'].get('actor_ema', ck['policy']['actor']))
     agent.obs_mean.copy_(ck['policy']['obs_mean'])
     agent.obs_inv_std.copy_(ck['policy']['obs_inv_std'])
     agent.export_policy(path)

@@ -88,6 +88,9 @@ class SAC:
         self._critic_params = list(self.critic.parameters())
         self._target_params = list(self.target.parameters())
         self._actor_params = list(self.actor.parameters())
+        # an average of the actor over its recent updates: what is evaluated and exported (policy_state's actor_ema)
+        self.actor_ema = copy.deepcopy(self.actor).requires_grad_(False) if cfg.actor_ema > 0 else None
+        self._ema_params = list(self.actor_ema.parameters()) if self.actor_ema is not None else []
         # frozen normaliser stats (set_obs_stats), target entropy (set per update call)
         self.obs_mean = torch.zeros(obs_dim, device=dev)
         self.obs_inv_std = torch.ones(obs_dim, device=dev)
@@ -223,6 +226,8 @@ class SAC:
             else:
                 self._step(with_actor)
             self._count(with_actor)
+        if self._ema_params and k:   # once per call, not per update: at 1e-4 a float32 increment would round away
+            torch._foreach_lerp_(self._ema_params, self._actor_params, 1.0 - cfg.actor_ema ** k)
         if self.device.type == 'cuda':
             self._last_call = torch.cuda.Event(blocking=True)  # wait without spinning a core
             self._last_call.record()
@@ -260,8 +265,11 @@ class SAC:
 
     def policy_state(self) -> dict:
         """Actor weights and normaliser stats on the CPU, for the collector's and the evaluator's copies."""
-        return {'actor': {k: v.detach().cpu().clone() for k, v in self.actor.state_dict().items()},
-                'obs_mean': self.obs_mean.cpu().clone(), 'obs_inv_std': self.obs_inv_std.cpu().clone()}
+        cpu = lambda m: {k: v.detach().cpu().clone() for k, v in m.state_dict().items()}
+        out = {'actor': cpu(self.actor), 'obs_mean': self.obs_mean.cpu().clone(), 'obs_inv_std': self.obs_inv_std.cpu().clone()}
+        if self.actor_ema is not None:
+            out['actor_ema'] = cpu(self.actor_ema)
+        return out
 
     def state_dict(self) -> dict:
         return {
@@ -269,6 +277,7 @@ class SAC:
             'actor_opt': self.actor_opt.state_dict(), 'critic_opt': self.critic_opt.state_dict(),
             'alpha_opt': self.alpha_opt.state_dict(), 'log_alpha': self.log_alpha.detach().clone(),
             'obs_mean': self.obs_mean.clone(), 'obs_inv_std': self.obs_inv_std.clone(), 'updates': self.updates,
+            **({'actor_ema': self.actor_ema.state_dict()} if self.actor_ema is not None else {}),
         }
 
     def load_state_dict(self, d: dict) -> None:
@@ -279,6 +288,12 @@ class SAC:
         self.actor_opt.load_state_dict(d['actor_opt'])
         self.critic_opt.load_state_dict(d['critic_opt'])
         self.alpha_opt.load_state_dict(d['alpha_opt'])
+        if self.actor_ema is not None:   # (a checkpoint from before the average was kept: start it at the actor)
+            self.actor_ema.load_state_dict(d.get('actor_ema', d['actor']))
+        # the config's learning rates, not the checkpoint's: a resumed run can lower them
+        for opt, lr in ((self.actor_opt, self.cfg.lr_actor), (self.critic_opt, self.cfg.lr_critic), (self.alpha_opt, self.cfg.lr_alpha)):
+            for g in opt.param_groups:
+                g['lr'] = lr
         with torch.no_grad():
             self.log_alpha.copy_(d['log_alpha'])
         self.obs_mean.copy_(d['obs_mean'])
@@ -339,7 +354,7 @@ def load_act_fn(path: str | Path):
         return NumpyPolicy(path)
     ck = torch.load(path, map_location='cpu', weights_only=False)
     policy = CpuPolicy(load_config(base=ck['config']).sac, ck['obs_dim'], ck['act_dim'])
-    policy.load(ck['policy'])
+    policy.load(ck['policy'], averaged=True)
     return lambda obs: policy(obs, deterministic=True)
 
 
@@ -352,8 +367,9 @@ class CpuPolicy:
         self.mean = torch.zeros(obs_dim)
         self.inv_std = torch.ones(obs_dim)
 
-    def load(self, state: dict) -> None:
-        self.actor.load_state_dict(state['actor'])
+    def load(self, state: dict, averaged: bool = False) -> None:
+        """averaged: the averaged actor where the state has one (evaluation, export), else the live one."""
+        self.actor.load_state_dict(state.get('actor_ema', state['actor']) if averaged else state['actor'])
         self.mean.copy_(state['obs_mean'])
         self.inv_std.copy_(state['obs_inv_std'])
 
