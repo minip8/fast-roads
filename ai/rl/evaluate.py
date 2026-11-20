@@ -54,8 +54,14 @@ def _merge(base: dict, over: dict) -> dict:
 
 
 def evaluate_laps(act_fn: ActFn | None, combos: list[tuple[str, str]], *, config: dict | None = None,
-                  num_workers: int = 1, max_steps: int | None = None, seed: int = 0) -> list[dict]:
-    """One evaluation episode per (track, car) combo; act_fn None = the autopilot. Returns one dict per combo."""
+                  num_workers: int = 1, max_steps: int | None = None, seed: int = 0,
+                  noise: list[float] | None = None) -> list[dict]:
+    """One evaluation episode per (track, car) combo; act_fn None = the autopilot. Returns one dict per combo.
+
+    noise: per combo, the sigma of Gaussian noise added to the policy's actions (0: none). A lap is a chaotic system:
+    a difference in an action's last bits (numpy against the browser's arithmetic) moves the lap by tenths and can
+    take a marginal lap past the track limits, so repeating a combo with a little noise tells whether a policy's lap
+    is robust or lucky."""
     combos = [(str(t), str(c)) for t, c in combos]
     if not combos:
         return []
@@ -70,6 +76,11 @@ def evaluate_laps(act_fn: ActFn | None, combos: list[tuple[str, str]], *, config
     reset_cfg['eval'] = True
     total = workers * epw
     slots = combos + [combos[0]] * (total - n)   # padding envs drive combo 0 and are ignored
+
+    sigma = np.zeros((total, 1), np.float32)
+    if noise is not None:
+        sigma[:n, 0] = noise
+    rng = np.random.default_rng(seed)
 
     results = [dict(track=t, car=c, lap_time=None, lap_valid=False, end_reason='unfinished', steps=0,
                     episode_time=0.0, wall_contact_steps=0, max_wall_hit=0.0, off_track_time=0.0,
@@ -86,7 +97,10 @@ def evaluate_laps(act_fn: ActFn | None, combos: list[tuple[str, str]], *, config
             actions[:] = np.nan
             if act_fn is not None:
                 idx = np.flatnonzero(active)
-                actions[idx] = np.asarray(act_fn(obs[idx]), np.float32).reshape(len(idx), 2)
+                a = np.asarray(act_fn(obs[idx]), np.float32).reshape(len(idx), 2)
+                if noise is not None:
+                    a = np.clip(a + sigma[idx] * rng.standard_normal(a.shape, np.float32), -1, 1)
+                actions[idx] = a
             r = pool.step(actions)
             steps += 1
             info = r.info
@@ -110,6 +124,7 @@ def evaluate_laps(act_fn: ActFn | None, combos: list[tuple[str, str]], *, config
                     active[g] = False
             obs = r.obs
     for g, res in enumerate(results):
+        res['noise'] = float(sigma[g, 0])
         res['mean_speed'] = speed_sum[g] / res['steps'] if res['steps'] else 0.0
         if res['min_speed'] == math.inf:
             res['min_speed'] = 0.0

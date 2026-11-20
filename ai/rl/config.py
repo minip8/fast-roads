@@ -78,7 +78,9 @@ class EvalConfig:
     every_secs: float = 300.0
     combos: list[list[str]] = field(default_factory=lambda: [['melbourne', 'lcf1']])
     num_workers: int = 1
-    invalid_lap_secs: float = 1000.0  # score of a combo whose lap is invalid or unfinished
+    invalid_lap_secs: float = 1000.0  # score of a lap that is invalid, unfinished or touched a wall
+    repeats: int = 1              # laps per combo: the first as the policy drives it, the others with action noise
+    noise: float = 0.003          # sigma of that noise (evaluate_laps: a robust lap survives it)
 
 
 @dataclass

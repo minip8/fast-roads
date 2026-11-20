@@ -525,10 +525,14 @@ def lap_evaluator(cfg: TrainConfig) -> Evaluator:
     from evaluate import evaluate_laps
 
     def evaluate(act_fn) -> tuple[list[dict], float]:
-        combos = [tuple(c) for c in cfg.eval.combos]
-        res = evaluate_laps(act_fn, combos, config=cfg.env, num_workers=cfg.eval.num_workers, seed=cfg.seed + 7)
-        score = sum(r['lap_time'] if r['lap_valid'] and r['lap_time'] is not None else cfg.eval.invalid_lap_secs
-                    for r in res)
+        e = cfg.eval
+        combos = [tuple(c) for c in e.combos for _ in range(e.repeats)]
+        noise = [e.noise if k else 0.0 for _ in e.combos for k in range(e.repeats)]
+        res = evaluate_laps(act_fn, combos, config=cfg.env, num_workers=e.num_workers, seed=cfg.seed + 7, noise=noise)
+        # the score to minimise: each combo's mean lap time over its repeats, a lap that is not clean counting as
+        # invalid_lap_secs, so more clean laps always beats a faster lap
+        clean = lambda r: r['lap_valid'] and r['lap_time'] is not None and not r['wall_contact_steps']
+        score = sum(r['lap_time'] if clean(r) else e.invalid_lap_secs for r in res) / e.repeats
         return res, float(score)
 
     return evaluate
