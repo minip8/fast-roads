@@ -2,3 +2,6 @@ node_modules/
 dist/
 build/
 .wrangler/
+ai/rl/runs/
+ai/rl/.venv/
+__pycache__/
