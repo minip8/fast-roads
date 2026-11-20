@@ -205,7 +205,7 @@ class Collector(threading.Thread):
                 else:
                     actions = self.policy(obs, None if self.noise is None else self.noise.sample())
                 res = self.pool.step(actions)
-                reward = res.reward if self.shape is None else self.shape(res.info)
+                reward = res.reward if self.shape is None else self.shape(res.info, res.done_idx)
                 self.replay.add(obs, actions, reward, res.terminated, res.truncated, res.done_idx, res.final_obs)
                 with self.stats_lock:
                     if self.cfg.sac.obs_norm:

@@ -38,3 +38,16 @@ def test_env_penalties_off_and_an_old_worker_refused():
         Shaper({k: i for i, k in enumerate(FIELDS) if k != 'pit_lane_time'}, 0.05)
     with pytest.raises(ValueError, match='unknown'):
         Shaper(IX, 0.05, {'pit': 1})
+
+
+def test_events_once_per_excursion_and_episode():
+    sh = Shaper(IX, 0.05, {'off_event': 2.0, 'pit_event': 2.0, 'wall_event': 1.0, 'off_track': 0, 'pit_lane': 0,
+                           'wall_contact': 0, 'wall_hit': 0})
+    off = np.stack([row(speed=50.0, off_track_time=0.01), row(speed=40.0, wall_contact=1), row(speed=30.0)])
+    np.testing.assert_allclose(sh(off), [-100.0, -40.0, 0.0])             # the excursion begins: seconds x speed
+    np.testing.assert_allclose(sh(off), [0.0, 0.0, 0.0])                  # it goes on: nothing more
+    np.testing.assert_allclose(sh(np.stack([row(speed=50.0)] * 3)), 0.0)  # back on
+    np.testing.assert_allclose(sh(off, np.array([0])), [-100.0, -40.0, 0.0])   # again; env 0's episode ends here
+    np.testing.assert_allclose(sh(off), [-100.0, 0.0, 0.0])               # its new episode pays for its own
+    pit = np.stack([row(speed=20.0, pit_lane_time=0.05)] * 3)
+    np.testing.assert_allclose(Shaper(IX, 0.05, {'pit_event': 2.0, 'pit_lane': 0})(pit), -40.0)
