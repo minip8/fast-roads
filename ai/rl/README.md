@@ -9,6 +9,7 @@ only the baseline), against the environment worker of `docs/ai-env.md`, and inst
     ./run.sh <name> --config configs/gt3_all.json     # a run, detached: runs/<name>/, runs/<name>.out; ./stop.sh <name>
     .venv/bin/python summarize.py runs/<name>         # its evaluations
     ./specialists_all.sh <base run> lcgt3 3000000 melbourne silverstone ...   # a specialist per circuit from it
+    .venv/bin/python stint.py lcgt3 5                 # the installed policies over five laps on end
     .venv/bin/python install_specialists.py lcgt3     # validate each over 12 laps, install the clean ones
     .venv/bin/python -m pytest tests -q               # ~80 s (the Pendulum check: -m sanity)
 
@@ -57,5 +58,13 @@ The env gives about 1,650 steps/s over 6 workers x 16 envs; the learner 540 upda
 - **A lap is chaotic**: actions that differ in the last bit (numpy, torch, the browser's `Math`) give laps tenths
   apart, and a marginal lap valid in one and deleted in another. So: evaluate with repeats under noise, select on
   clean laps before time, and check the installed file in the game (`test/policyLap.ts`).
+- **Test what the game does, not what the evaluation does: consecutive laps.** An evaluation episode is one lap from
+  the flying start, on tyres at the heat the autopilot leaves them, and training episodes were 90 s from that same
+  heat. The policies drive much harder than the autopilot: at Barcelona the front-left's carcass went from below its
+  window to twice its top in three laps. Driven on as `?autopilot=rl` drives, 23 of the 24 specialists spun or hit
+  a wall on their second or third lap (`stint.py`, `stint_trace.py`). Episodes of 600-900 s (`env.episodeSecs`), so
+  that training reaches the heat the policy itself makes, and selection on stints (`eval.laps`) fixed Barcelona's
+  in one 3M-step round: 24 laps in four stints clean, 97.0 s for the first and 99.7 s for the slowest (it had gone
+  97.0, 99.6, 102.8, 104.8, 106.3). The first lap lost nothing. Validate with `install_specialists.py --stint`.
 - A one-circuit policy does not transfer: the F1's Melbourne specialist (93.1 s; the autopilot 116.5 s) finished no
   other circuit.

@@ -551,7 +551,7 @@ def lap_evaluator(cfg: TrainConfig, worker: str | None = None) -> Evaluator:
         combos = [c for c in base for _ in range(e.repeats)]
         noise = [e.noise if k else 0.0 for _ in base for k in range(e.repeats)]
         res = evaluate_laps(act_fn, combos, config=cfg.env, num_workers=e.num_workers, seed=cfg.seed + 7, noise=noise,
-                            worker_path=worker)
+                            worker_path=worker, laps=e.laps)
         # the score to minimise: each combo's mean lap time over its repeats, a lap that is not clean counting as
         # invalid_lap_secs, so more clean laps always beats a faster lap
         clean = lambda r: r['lap_valid'] and r['lap_time'] is not None and not r['wall_contact_steps']

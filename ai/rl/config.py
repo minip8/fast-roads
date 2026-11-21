@@ -97,6 +97,7 @@ class EvalConfig:
     combos: list[list[str]] = field(default_factory=list)  # [track, car] pairs; empty: every pair of env.reset
     num_workers: int = 1
     invalid_lap_secs: float = 1000.0  # score of a lap that is invalid, unfinished or touched a wall
+    laps: int = 1                 # > 1: each evaluation is a stint of that many laps on end (evaluate_laps)
     repeats: int = 1              # laps per combo: the first as the policy drives it, the others with action noise
     noise: float = 0.003          # sigma of that noise (evaluate_laps: a robust lap survives it)
 

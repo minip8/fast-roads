@@ -1,9 +1,9 @@
 #!/bin/sh
 # Another round for a circuit's specialist: ./refine.sh <car> <track> <steps> [train.py arguments]
-# runs/<car>_<track>_r2 continues runs/<car>_<track>/latest.pt (the best score forgotten, so the round keeps its own
+# runs/<car>_<track>_r2 continues runs/<car>_<track>/latest.pt (FROM=_r2 TO=_r3 in the environment: a third from the second) (the best score forgotten, so the round keeps its own
 # best) with eight-lap evaluations and 10 s excursion events; install_specialists.py --suffix _r2 installs it if it
 # validates clean and quicker than the installed one.
-cd "$(dirname "$0")" && car=$1 && track=$2 && steps=$3 && shift 3 && from="runs/${car}_${track}" && name="${car}_${track}_r2" &&
+cd "$(dirname "$0")" && car=$1 && track=$2 && steps=$3 && shift 3 && from="runs/${car}_${track}${FROM:-}" && name="${car}_${track}${TO:-_r2}" &&
 mkdir -p "runs/$name" && cp "$from/config.json" "$from/worker.mjs" "runs/$name/" &&
 start=$(.venv/bin/python -c "
 import math, sys, torch

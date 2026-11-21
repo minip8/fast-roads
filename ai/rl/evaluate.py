@@ -55,13 +55,19 @@ def _merge(base: dict, over: dict) -> dict:
 
 def evaluate_laps(act_fn: ActFn | None, combos: list[tuple[str, str]], *, config: dict | None = None,
                   num_workers: int = 1, max_steps: int | None = None, seed: int = 0,
-                  noise: list[float] | None = None, worker_path: str | None = None) -> list[dict]:
+                  noise: list[float] | None = None, worker_path: str | None = None, laps: int = 1) -> list[dict]:
     """One evaluation episode per (track, car) combo; act_fn None = the autopilot. Returns one dict per combo.
 
     noise: per combo, the sigma of Gaussian noise added to the policy's actions (0: none). A lap is a chaotic system:
     a difference in an action's last bits (numpy against the browser's arithmetic) moves the lap by tenths and can
     take a marginal lap past the track limits, so repeating a combo with a little noise tells whether a policy's lap
-    is robust or lucky."""
+    is robust or lucky.
+
+    laps > 1: a stint instead, the policy driving on from the flying start for that many timed laps as it does in the
+    game (the evaluation episode ends at the first). Laps after the first start from what the lap before left,
+    above all the tyres: a policy that only ever saw the first 90 s on tyres at the autopilot's heat overheats them
+    and spins on its second lap. Then `laps` is every lap's [time, valid], `lap_time` their mean if all were driven
+    (else None) and `lap_valid` whether all were valid."""
     combos = [(str(t), str(c)) for t, c in combos]
     if not combos:
         return []
@@ -73,7 +79,9 @@ def evaluate_laps(act_fn: ActFn | None, combos: list[tuple[str, str]], *, config
     for key, vals in (('tracks', [t for t, _ in combos]), ('cars', [c for _, c in combos])):
         have = list(reset_cfg.get(key, []))
         reset_cfg[key] = have + [v for v in dict.fromkeys(vals) if v not in have]
-    reset_cfg['eval'] = True
+    reset_cfg['eval'] = laps == 1
+    if laps > 1:
+        cfg['episodeSecs'] = 250.0 * laps
     total = workers * epw
     slots = combos + [combos[0]] * (total - n)   # padding envs drive combo 0 and are ignored
 
@@ -88,7 +96,8 @@ def evaluate_laps(act_fn: ActFn | None, combos: list[tuple[str, str]], *, config
     with EnvPool(workers, epw, cfg, seed=seed, worker_path=worker_path) as pool:
         ix = pool.info_index
         i_pit = ix.get('pit_lane_time')   # (a worker built before the pit lane was observed has none: 0)
-        obs, _ = pool.reset([{'eval': True, 'track': t, 'car': c, 'start': 'flying'} for t, c in slots])
+        obs, _ = pool.reset([{'eval': laps == 1, 'track': t, 'car': c, 'start': 'flying'} for t, c in slots])
+        stint: list[list] = [[] for _ in combos]
         active = np.zeros(total, bool)
         active[:n] = True
         speed_sum = np.zeros(n)
@@ -119,14 +128,24 @@ def evaluate_laps(act_fn: ActFn | None, combos: list[tuple[str, str]], *, config
                 speed_sum[g] += sp
                 res['reward_sum'] += float(r.reward[g])
                 if row[ix['lap_done']] > 0 and res['lap_time'] is None:
-                    res['lap_time'] = float(row[ix['lap_time']])
-                    res['lap_valid'] = bool(row[ix['lap_valid']] == 1)
+                    if laps == 1:
+                        res['lap_time'] = float(row[ix['lap_time']])
+                        res['lap_valid'] = bool(row[ix['lap_valid']] == 1)
+                    else:
+                        stint[g].append([float(row[ix['lap_time']]), bool(row[ix['lap_valid']] == 1)])
+                        if len(stint[g]) == laps:
+                            res['lap_time'] = float(np.mean([t for t, _ in stint[g]]))
+                            res['lap_valid'] = all(v for _, v in stint[g])
+                            res['end_reason'] = 'laps_done'
+                            active[g] = False
             for g in r.done_idx:
                 if g < n and active[g]:
                     results[g]['end_reason'] = pool.end_reasons[int(info[g, ix['end_reason']])]
                     active[g] = False
             obs = r.obs
     for g, res in enumerate(results):
+        if laps > 1:
+            res['laps'] = stint[g]
         res['noise'] = float(sigma[g, 0])
         res['mean_speed'] = speed_sum[g] / res['steps'] if res['steps'] else 0.0
         if res['min_speed'] == math.inf:
