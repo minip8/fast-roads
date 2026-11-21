@@ -47,7 +47,13 @@ The env gives about 1,650 steps/s over 6 workers x 16 envs; the learner 540 upda
   about once in 15 minutes of driving in training conditions.
 - **A specialist per circuit, fine-tuned from it, is both** quicker (1-3%) and clean: 3M steps (30 minutes) each,
   the best four-lap evaluation kept, then validated over 12 laps (11 with action noise): 23 of 24 clean in all 12 at
-  the first attempt. Every published superhuman lap is a specialist's too.
+  the first attempt. Every published superhuman lap is a specialist's too. A second round each (`refine.sh`: 3M more
+  steps, 10 s events, eight-lap evaluations, `actor_obs_noise` 0.05) took another 1-2.5% off and steadied them: 20 of
+  23 validated clean and quicker (two had one unclean lap in 12, one was no quicker; they keep the first round's).
+  The installed GT3 set laps at 0.845 of the autopilot's times on average (0.785 at Madrid to 0.890 at Spielberg).
+- **Noise on the actor's input in its own update** (`actor_obs_noise`, GT Sophy's policy dropout in another form)
+  made Melbourne's specialist quicker, cleaner and smoother at once (steering reversals on 1,086 steps of a lap
+  instead of 1,482; the autopilot's lap has about 200). The steering still dithers: not solved.
 - **A lap is chaotic**: actions that differ in the last bit (numpy, torch, the browser's `Math`) give laps tenths
   apart, and a marginal lap valid in one and deleted in another. So: evaluate with repeats under noise, select on
   clean laps before time, and check the installed file in the game (`test/policyLap.ts`).
