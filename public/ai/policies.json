@@ -1,1 +1,30 @@
-{"lcgt3":{"default":"lcgt3.bin"}}
+{
+ "lcgt3": {
+  "default": "lcgt3.bin",
+  "tracks": {
+   "melbourne": "lcgt3-melbourne.bin",
+   "silverstone": "lcgt3-silverstone.bin",
+   "shanghai": "lcgt3-shanghai.bin",
+   "suzuka": "lcgt3-suzuka.bin",
+   "miami": "lcgt3-miami.bin",
+   "montreal": "lcgt3-montreal.bin",
+   "monaco": "lcgt3-monaco.bin",
+   "barcelona": "lcgt3-barcelona.bin",
+   "spa": "lcgt3-spa.bin",
+   "hungaroring": "lcgt3-hungaroring.bin",
+   "zandvoort": "lcgt3-zandvoort.bin",
+   "monza": "lcgt3-monza.bin",
+   "madrid": "lcgt3-madrid.bin",
+   "baku": "lcgt3-baku.bin",
+   "singapore": "lcgt3-singapore.bin",
+   "austin": "lcgt3-austin.bin",
+   "mexico": "lcgt3-mexico.bin",
+   "saopaulo": "lcgt3-saopaulo.bin",
+   "lasvegas": "lcgt3-lasvegas.bin",
+   "lusail": "lcgt3-lusail.bin",
+   "yasmarina": "lcgt3-yasmarina.bin",
+   "bahrain": "lcgt3-bahrain.bin",
+   "jeddah": "lcgt3-jeddah.bin"
+  }
+ }
+}

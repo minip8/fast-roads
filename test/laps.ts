@@ -4,6 +4,7 @@ import { expect, it } from 'vitest';
 import type { CarId } from '../src/cars';
 import { TRACKS, type TrackId } from '../src/tracks';
 import { session } from './harness';
+import { policyLaps } from './policyLap';
 
 // Autopilot lap times from the game's flying start, pinned to the millisecond. The simulation is deterministic, so
 // they only change when physics or car tuning changes (or the start: TrackDef.startBack and .flying, before the last
@@ -62,6 +63,7 @@ export function calendarLaps(track: keyof typeof CALENDAR) {
     const clean = !NOT_CLEAN[track]?.includes(car);
     it(`${car} laps ${track} ${clean ? 'cleanly ' : ''}in ${time} s`, () => lapCheck(track, car, true, time, 240, clean));
   }
+  policyLaps(track);   // (and the trained policies installed for it: test/policyLap.ts)
 }
 
 async function lapCheck(track: TrackId, car: CarId, tc: boolean, time: string, limit: number, clean = true) {

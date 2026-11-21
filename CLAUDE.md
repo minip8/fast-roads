@@ -100,12 +100,13 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   the fixtures `ai/rl/tests/make_policy_fixture.py` writes into `test/fixtures/` for both exportable actors, the
   files refused, the manifest), `test/ai-policy-driver.test.ts` (`PolicyDriver` in a harness `Session` against
   `RaceEnv` from the flying start: every observation, action and the car bit for bit; the game's policy for 25 s, a
-  random-weights fixture into the walls in every car; a restart), `test/laps-rl.test.ts` (the
-  game's policy for each car at Melbourne, `test/policies.ts` `gamePolicy`, laps validly with no resets within 0.5 s
+  random-weights fixture into the walls in every car; a restart), `test/policyLap.ts` `policyLaps(track)` (the
+  game's policy for each car at a circuit, `test/policies.ts` `gamePolicy`, laps validly with no resets within 1.5 s
   of the lap its file's provenance records from the trainer's evaluation: replace the file, and this checks the new
-  one). The tests of the game's own policy skip (saying why) for a car `policies.json` names none for: after an
-  `OBS_VERSION` change the old files cannot load, and a car has none until its policy is retrained (now: the GT3's
-  `lcgt3.bin`, one policy for all 24 circuits).
+  one): Melbourne and Silverstone in `test/laps-rl.test.ts`, the other 22 with the circuit's pinned laps
+  (`calendarLaps`, `npm run test:laps`). A car `policies.json` names no policy for is skipped (saying why): after an
+  `OBS_VERSION` change the old files cannot load, and a car has none until its policies are retrained (now: the GT3,
+  a specialist per circuit and `lcgt3.bin`, one policy for all 24, as its default).
 - Multiplayer: `test/net-*.test.ts` cover `src/net/` and the relay on their own (docs/net.md, **Tests**;
   `test/net-cf.test.ts` runs the Cloudflare relay in local workerd through wrangler's `unstable_startWorker`, ~3 s);
   `test/multiplayer.test.ts` joins game Sessions (harness `session()`) through an in-process `Relay` over
@@ -460,6 +461,11 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
     (no progress, `reward.pitLane`, `pit_lane_time`) tell a learner what the timing deletes the lap for.
   - `walls.ts`: wall contact per tick, read from each engine (Rapier contact pairs; the LibreCorsa engine's
     telemetry over its steps, by wrapping the engine instance's `step`). `rng.ts`: seeded sfc32; no `Math.random`.
+  - `ai/rl/` (Python, its own `README.md`: read it before training anything): the trainer (SAC with quantile
+    critics, replay on the GPU), evaluation, the specialists' fine-tuning and `install_specialists.py`, which
+    validates and installs policies in `public/ai/`. Runs are in `ai/rl/runs/` (git-ignored, each with its own copy
+    of the worker). After an env change: `npm run build:env`, and policies trained before an `OBS_VERSION` change
+    are gone.
   - `protocol.ts` (pure byte layout) and `ai/worker.ts` (Node I/O; stdout carries protocol frames only).
     `vite.env.config.ts` bundles the worker with everything inline (SSR build, `noExternal`), embedding the git
     commit and dirty flag. `ai/client.mjs` / `ai/client.py`: reference clients; `ai/bench.mjs`: throughput.
