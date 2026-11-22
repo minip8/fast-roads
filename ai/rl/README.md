@@ -69,6 +69,10 @@ The env gives about 1,650 steps/s over 6 workers x 16 envs; the learner 540 upda
   For all 24: one round sufficed at 16 circuits, a second (4.5M steps) at four more, a third at the last four (street
   circuits mostly), validated on four six-lap stints each. Checkpoints of one run swing between all clean and
   mostly not from one evaluation to the next, so keep every clean one (`eval.keep_clean`) and let the validation
-  pick. `stint.py lcgt3 5` on the installed set: 1 of 24 circuits before, 23 after (Lusail one invalid lap).
+  pick: at Lusail the round's best drove one clean stint of six and its third clean checkpoint all six.
+  `stint.py lcgt3 5` on the installed set: 1 of 24 circuits before, 23 after; `browser_stint.mjs` (three laps in
+  headless Chromium): 23 of 24. What is left is about one unclean lap in fifty: twelve laps on end at six circuits
+  were 71 clean of 72, lap times level after five or six (Melbourne 110.5 s to 113.6 s), so the policies hold far
+  past the 900 s they were trained to. Spa's is installed at 35 clean validation laps of 36.
 - A one-circuit policy does not transfer: the F1's Melbourne specialist (93.1 s; the autopilot 116.5 s) finished no
   other circuit.
