@@ -66,5 +66,9 @@ The env gives about 1,650 steps/s over 6 workers x 16 envs; the learner 540 upda
   that training reaches the heat the policy itself makes, and selection on stints (`eval.laps`) fixed Barcelona's
   in one 3M-step round: 24 laps in four stints clean, 97.0 s for the first and 99.7 s for the slowest (it had gone
   97.0, 99.6, 102.8, 104.8, 106.3). The first lap lost nothing. Validate with `install_specialists.py --stint`.
+  For all 24: one round sufficed at 16 circuits, a second (4.5M steps) at four more, a third at the last four (street
+  circuits mostly), validated on four six-lap stints each. Checkpoints of one run swing between all clean and
+  mostly not from one evaluation to the next, so keep every clean one (`eval.keep_clean`) and let the validation
+  pick. `stint.py lcgt3 5` on the installed set: 1 of 24 circuits before, 23 after (Lusail one invalid lap).
 - A one-circuit policy does not transfer: the F1's Melbourne specialist (93.1 s; the autopilot 116.5 s) finished no
   other circuit.
