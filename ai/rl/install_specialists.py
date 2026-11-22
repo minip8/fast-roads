@@ -36,6 +36,7 @@ def main() -> None:
     ap.add_argument('--workers', type=int, default=4)
     ap.add_argument('--suffix', default='', help="runs are runs/<car>_<track><suffix>")
     ap.add_argument('--stint', type=int, default=1, help='laps on end per validation run')
+    ap.add_argument('--candidates', type=int, default=4, help="the run's other clean checkpoints to try after best.npz")
     ap.add_argument('--force', action='store_true', help='install a clean one even if the installed one is quicker')
     ap.add_argument('--dry', action='store_true', help='validate only')
     args = ap.parse_args()
@@ -52,10 +53,17 @@ def main() -> None:
             print(f'{track:<12} no run')
             continue
         cfg = json.loads((run / 'config.json').read_text())
-        res = evaluate_laps(NumpyPolicy(run / 'best.npz'), [(track, car)] * args.laps, config=cfg.get('env', {}),
-                            num_workers=args.workers, noise=[0.0] + [args.noise] * (args.laps - 1),
-                            worker_path=str(run / 'worker.mjs'), seed=11, laps=args.stint)
-        ok = [r['lap_time'] for r in res if r['lap_valid'] and r['lap_time'] and not r['wall_contact_steps']]
+        # best.npz first, then the run's other clean checkpoints (eval.keep_clean) from the quickest, until one passes
+        others = [json.loads(l) for l in (run / 'clean.jsonl').read_text().splitlines()] if (run / 'clean.jsonl').exists() else []
+        files = ['best.npz'] + [f"clean-{c['env_steps']:010d}.npz" for c in sorted(others, key=lambda c: c['score'])][:args.candidates]
+        for policy_file in files:
+            res = evaluate_laps(NumpyPolicy(run / policy_file), [(track, car)] * args.laps, config=cfg.get('env', {}),
+                                num_workers=args.workers, noise=[0.0] + [args.noise] * (args.laps - 1),
+                                worker_path=str(run / 'worker.mjs'), seed=11, laps=args.stint)
+            ok = [r['lap_time'] for r in res if r['lap_valid'] and r['lap_time'] and not r['wall_contact_steps']]
+            if len(ok) == len(res):
+                break
+            print(f'{track:<12} {policy_file}: {len(ok)}/{len(res)} clean', flush=True)
         every = [t for r in res for t, _ in r.get('laps', [[r['lap_time'], 0]]) if t]
         good = len(ok) == len(res)
         name = f'{car}-{track}.bin'
@@ -64,7 +72,7 @@ def main() -> None:
             m = re.search(r'median ([\d.]+) s', note)
             good = not m or statistics.median(ok) < float(m.group(1))
         if good and not args.dry:
-            export_web.main(['--run', str(run), '--out', str(PUBLIC / name), '--worker', str(run / 'worker.mjs'),
+            export_web.main(['--run', str(run), '--policy', policy_file, '--out', str(PUBLIC / name), '--worker', str(run / 'worker.mjs'),
                              '--note', f'{track} specialist; {len(ok)}/{len(res)} validation laps clean, median '
                                        f'{statistics.median(ok):.3f} s' if args.stint == 1 else
                                        f'{track} specialist; {len(ok)}/{len(res)} validation stints of {args.stint} laps clean, '

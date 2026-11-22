@@ -86,13 +86,17 @@ def effective_env(env: dict, worker: str | None) -> tuple[dict, dict, dict]:
 
 
 def eval_record(run: Path, policy: Path, line: int | None) -> dict | None:
-    """The eval.jsonl entry that produced `policy`: the given line (1-based), or for best.npz the last improving one."""
+    """The eval.jsonl entry that produced `policy`: the given line (1-based), for best.npz the last improving one, for
+    a clean-<env steps>.npz the one at those steps."""
     path = run / 'eval.jsonl'
     if not path.exists():
         return None
     rows = [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
     if line is not None:
         return rows[line - 1]
+    if policy.name.startswith('clean-'):   # clean-<env steps>.npz (eval.keep_clean): that evaluation
+        steps = int(policy.stem.split('-')[1])
+        return next((r for r in reversed(rows) if r.get('env_steps') == steps), None)
     if policy.name != 'best.npz':
         return None
     best = [r for r in rows if r.get('best')]

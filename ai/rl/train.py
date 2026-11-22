@@ -268,6 +268,11 @@ class EvalThread(threading.Thread):
             ck['best_score'] = score
             atomic_save(ck, self.run_dir / 'best.pt')
             export_from_checkpoint(ck, self.run_dir / 'best.npz')
+        if self.cfg.eval.keep_clean and records and all(
+                r.get('lap_valid') and r.get('lap_time') and not r.get('wall_contact_steps') for r in records):
+            export_from_checkpoint(ck, self.run_dir / f"clean-{ck['env_steps']:010d}.npz")
+            with open(self.run_dir / 'clean.jsonl', 'a') as f:
+                f.write(json.dumps({'env_steps': ck['env_steps'], 'score': score}) + '\n')
         self.results.append(line)
         with open(self.run_dir / 'eval.jsonl', 'a') as f:
             f.write(json.dumps(line, default=_json_default) + '\n')
