@@ -181,7 +181,7 @@ class Collector(threading.Thread):
         self.paused_secs = 0.0
         self.combos = env_combos(cfg)
         # the trainer's own reward from the env's info (reward.py), or the env's reward as it is
-        self.shape = Shaper(pool.info_index, 1 / pool.config['actionHz'], cfg.reward) if cfg.reward is not None else None
+        self.shape = Shaper(pool.info_index, 1 / pool.config['actionHz'], cfg.reward, pool.obs_index) if cfg.reward is not None else None
 
     def run(self) -> None:
         sh, c = self.shared, self.cfg.collect
@@ -205,7 +205,7 @@ class Collector(threading.Thread):
                 else:
                     actions = self.policy(obs, None if self.noise is None else self.noise.sample())
                 res = self.pool.step(actions)
-                reward = res.reward if self.shape is None else self.shape(res.info, res.done_idx)
+                reward = res.reward if self.shape is None else self.shape(res.info, res.done_idx, obs, actions)
                 self.replay.add(obs, actions, reward, res.terminated, res.truncated, res.done_idx, res.final_obs)
                 with self.stats_lock:
                     if self.cfg.sac.obs_norm:

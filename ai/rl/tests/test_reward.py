@@ -51,3 +51,14 @@ def test_events_once_per_excursion_and_episode():
     np.testing.assert_allclose(sh(off), [-100.0, 0.0, 0.0])               # its new episode pays for its own
     pit = np.stack([row(speed=20.0, pit_lane_time=0.05)] * 3)
     np.testing.assert_allclose(Shaper(IX, 0.05, {'pit_event': 2.0, 'pit_lane': 0})(pit), -40.0)
+
+
+def test_rate_terms_charge_the_absolute_change_of_the_action():
+    sh = Shaper(IX, 0.05, {'steer_rate': 2.0, 'pedal_rate': 0.5}, {'prev_steer': 1, 'prev_pedal': 3})
+    obs = np.zeros((2, 5), np.float32)
+    obs[:, 1], obs[:, 3] = [0.1, -0.2], [1.0, 0.0]
+    actions = np.array([[0.15, 1.3], [0.2, -0.5]], np.float32)   # (the pedal's 1.3 reaches the env as 1)
+    info = np.stack([row(reward_progress=3.0, speed=50.0)] * 2)
+    np.testing.assert_allclose(sh(info, None, obs, actions), [3 - 2 * 0.05 - 0, 3 - 2 * 0.4 - 0.5 * 0.5], rtol=1e-5)
+    with pytest.raises(ValueError, match='observation index'):
+        Shaper(IX, 0.05, {'steer_rate': 1.0})
