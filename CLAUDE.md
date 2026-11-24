@@ -635,7 +635,10 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   end of the tick the lap ended in); a new valid best lap's recording becomes `timing.ghost` and is saved under the
   same key + `.ghost` (base64, after the best times, so a full storage loses only the ghost), and is loaded only if
   its lap time is the stored best lap. `Timing.lastRecording` is the last finished lap's packed recording, valid or
-  not (the lap tests take the autopilot's ghost laps from it). `clearStore` (Reset best times) removes both. The ghost plays at the lap time
+  not (the lap tests take the autopilot's ghost laps from it). The delta (`liveDelta`, and the `lap` event's `delta`)
+  counts against `Timing.reference` when it is set, else the best lap: main.ts sets it every frame to the autopilot's
+  lap while that is the ghost (`DeltaLap`: its lap time and `lapTrace(track, lap)`, the 10 m trace taken from the
+  recording's playback by the rule `tick` takes the live one by). `clearStore` (Reset best times) removes both. The ghost plays at the lap time
   the car is drawn at (`simTime - (1 - alpha) * DT - lapStart`), which keeps it level with the car when the delta is 0.
 - **Input**: keyboard, gamepad and visible-cursor mouse steering (cursor x relative to screen centre, with
   sensitivity/deadzone settings) merge in `Input.poll` into one input object. `input.mouse.active` is set each frame

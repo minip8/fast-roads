@@ -25,7 +25,7 @@ import { Session } from './sim';
 import { buildStage } from './stage';
 import { timeFromUrl } from './timeOfDay';
 import { StartupError } from './startup';
-import { clearStore, loadStore, type Timing } from './timing';
+import { clearStore, lapTrace, loadStore, type DeltaLap, type Timing } from './timing';
 import { loadCircuit } from './circuit';
 import type { Track } from './track';
 import { TRACKS, type TrackId } from './tracks';
@@ -164,14 +164,15 @@ export async function main() {
   };
   // The Ghost car setting's Autopilot choice: the game's own driver's lap in this car here (public/ghosts/), fetched
   // when first wanted and again for another car. Until it is there, or if there is none, no ghost is drawn.
-  let autoLap: GhostLap | null = null, autoLapCar = '';
+  // While it is the ghost the delta counts against it too (autoRef: Timing.reference), not against the best lap.
+  let autoLap: GhostLap | null = null, autoRef: DeltaLap | null = null, autoLapCar = '';
   const loadAutoLap = () => {
     const car = session.car.spec.id;
     if (autoLapCar === car) return;
-    autoLapCar = car; autoLap = null;
+    autoLapCar = car; autoLap = null; autoRef = null;
     void loadAutoGhost(import.meta.env.BASE_URL, car, def.id).then((lap) => {
       if (autoLapCar !== car) return;   // (another car meanwhile)
-      autoLap = lap;
+      autoLap = lap; autoRef = lap && { lapTime: lap.lapTime, trace: lapTrace(track, lap) };
       if (!lap) { autoLapCar = ''; console.warn(`Ghost car: no autopilot lap for the ${CARS[car].name} here (${autoGhostFile(car, def.id)})`); }
     });
   };
@@ -534,7 +535,9 @@ export async function main() {
     // (no ghost of a best lap in a race: real cars are racing)
     const ghostOn = settings.ghost !== 'off' && !netRt?.mp.weekend.inRace;
     if (ghost.enabled !== ghostOn) ghost.enabled = ghostOn;
-    ghost.update(car, settings.ghost === 'auto' ? autoLap : timing.ghost, timing.lapStart, session.simTime, alpha, camera);
+    const autoGhost = ghostOn && settings.ghost === 'auto';
+    timing.reference = autoGhost ? autoRef : null;   // the delta is to the ghost's lap
+    ghost.update(car, autoGhost ? autoLap : timing.ghost, timing.lapStart, session.simTime, alpha, camera);
     // other players at the time the car is drawn at (it is interpolated a tick behind the physics)
     if (netRt) netRt.view.update(netRt.mp, nowS - DT, camera, simDt, !hud.hidden && !menu.isOpen);
     cockpitDisplay.update(car, timing, session.simTime, alpha, cam.mode === 'driver' && !cam.lookBack);

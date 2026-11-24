@@ -79,7 +79,7 @@ export const SETTING_DEFS: { [K in SettingKey]: SettingDef<K> } = {
 
   units: { label: 'Speed units', section: 'hud', options: [['kmh', 'km/h'], ['mph', 'mph']] },
   timingPanel: { label: 'Timing panel', section: 'hud', hint: 'Compact: lap time, delta and best lap only', options: [['full', 'Full'], ['compact', 'Compact'], ['off', 'Hidden']] },
-  delta: { label: 'Live delta to best lap', section: 'hud', options: onOff('Shown', 'Hidden') },
+  delta: { label: 'Live delta', section: 'hud', hint: 'Time lost or gained on the ghost car’s lap (your best lap if the ghost is hidden)', options: onOff('Shown', 'Hidden') },
   minimap: { label: 'Track map', section: 'hud', options: [['off', 'Hidden'], ['small', 'Small'], ['medium', 'Medium'], ['large', 'Large']] },
   tyres: { label: 'Tyre temperatures', section: 'hud', hint: 'F1 and GT3: blue cold, green in the working window, red hot', options: onOff('Shown', 'Hidden') },
   mirror: { label: 'Rear-view mirror', section: 'hud', hint: 'Hold {lookBack} to look behind', options: [['off', 'Hidden'], ['cockpit', 'Onboard & driver'], ['on', 'All cameras']] },

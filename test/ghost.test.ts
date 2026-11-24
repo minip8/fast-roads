@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DT } from '../src/config';
 import { GHOST_SUFFIX, GHOST_TICKS, ghostPose, loadGhost, unpackGhost, type GhostLap, type GhostPose } from '../src/ghost';
-import { clearStore, loadStore, Timing } from '../src/timing';
+import { clearStore, lapTrace, loadStore, Timing } from '../src/timing';
 import { pointAt, projectOnTrack, type Track } from '../src/track';
 import type { Vehicle } from '../src/vehicle';
 import { session, trackFor } from './harness';
@@ -226,5 +226,45 @@ describe('ghost playback', () => {
       const f = proj.s / 10, b = Math.floor(f);
       expect(Math.abs(tr[b] + (tr[b + 1] - tr[b]) * (f - b) - tt)).toBeLessThan(0.05);
     }
+    // and a trace made from the recording alone (lapTrace: what the delta against the autopilot's ghost uses) is the
+    // trace the lap itself left, bucket for bucket
+    const made = lapTrace(track, g);
+    expect(made.length).toBe(tr.length);
+    let worst = 0;
+    for (let b = 0; b < tr.length; b++) worst = Math.max(worst, Math.abs(made[b] - tr[b]));
+    expect(worst).toBeLessThan(0.02);
+  });
+});
+
+describe('the delta', () => {
+  it('counts against the reference lap when there is one (the ghost car’s, when it is not the best lap), live and at the line', async () => {
+    const track = await trackFor('melbourne'), timing = new Timing(track, KEY);
+    const { run, lap } = scripted(track, timing);
+    const laps = () => timing.events.splice(0).filter((e) => e.type === 'lap');
+    const live = (at: number) => { run(60, () => timing.trace.length > at / 10); return timing.liveDelta(timing.lapStart! + (timing.trace.length - 1) / 6, (timing.trace.length - 1) * 10); };
+    run(60, () => timing.lapStart != null);
+    lap(60);                                   // the best lap, at 60 m/s
+    expect(laps()[0].delta).toBeNull();        // (the first lap: nothing to compare with)
+    const best = timing.store.bestLap!, g = timing.ghost!;
+    expect(live(1200)).toBeCloseTo(0, 1);      // the same pace again: level with the best lap
+
+    // a reference lap 5% slower all round, as if it were the ghost: the same car is now ahead of it everywhere
+    timing.reference = { lapTime: best * 1.05, trace: lapTrace(track, g).map((t) => t * 1.05) };
+    const there = (timing.trace.length - 1) * 10;
+    expect(timing.liveDelta(timing.lapStart! + there / 60, there)).toBeCloseTo((-0.05 * there) / 60, 1);
+    run(60, () => timing.laps.length > 1);
+    expect(laps()[0].delta).toBeCloseTo(timing.laps[0].time - best * 1.05, 9);   // about -4.4 s: to the reference, not the best lap
+    // a new best lap still gets its delta to the reference (it is not the lap being raced)
+    lap(62);
+    const ev = laps()[0];
+    expect(ev.lap.pb).toBe(true);
+    expect(ev.delta).toBeCloseTo(ev.lap.time - best * 1.05, 9);
+
+    // without it: against the best lap, and none for a new best
+    timing.reference = null;
+    lap(61);
+    expect(laps()[0].delta).toBeCloseTo(timing.laps[0].time - timing.store.bestLap!, 9);
+    lap(63);
+    expect(laps()[0].delta).toBeNull();
   });
 });

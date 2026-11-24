@@ -74,7 +74,7 @@ Cameras: **Onboard** (above the F1's airbox, on the other cars' bonnets), **Driv
 the cockpit, steering wheel and the driver's arms; the wheel turns with the road wheels at each car's steering
 ratio), **Chase** and **Far**. Every car carries a driver, visible from outside too. The driver's arms and gloves
 are hidden in the Driver camera unless **Driver camera hands** is set to Shown (they always show from outside).
-In the Driver camera the instruments are live: the F1's steering-wheel screen (speed, gear, live delta to your best
+In the Driver camera the instruments are live: the F1's steering-wheel screen (speed, gear, live delta to the ghost's
 lap, battery charge, straight-mode flaps, TC) under 15 shift lights; the GT3's dash display (rpm bar, gear, speed,
 lap time, delta, last lap, ABS and TC lights, pedals) under its 10 LEDs; the drift car's cluster (tachometer, gear,
 speed, lap time, TC and ABS lights) with a shift light on top. The shift lights fill as the HUD's do and flash at
@@ -158,6 +158,8 @@ best becomes the ghost; it is saved with your best times, so it is there after a
 instead be the **autopilot's** lap (the game's own driver in the same car from the same flying start: in the GT3 the
 driver trained by reinforcement learning, 11-21% quicker than the built-in one, which drives the F1's and the drift
 car's), or hidden. The autopilot's lap needs the network the first time (it is a small file per car and circuit).
+The **delta** is to the ghost's lap: the live delta, and the one shown with a finished lap's time, count against the
+autopilot's lap while it is the ghost, and against your best lap otherwise (also with the ghost hidden).
 
 **Every lap is a flying lap.** You start before the last corner or corners of the lap, on the straight leading
 to them (at Albert Park before turns 13 and 14, at Silverstone before Vale and Club, at Monza before the Parabolica,
@@ -410,7 +412,7 @@ window: blue more than 10 °C short of it, light blue nearly there, green in it,
 The strip across its top is the tread surface's outer, middle and inner bands (outer edge outside, as on the car),
 coloured against the same window with 20 °C margins: the carcass moves slowly and sets the window, the tread heats
 in a corner and cools on a straight within seconds (the grip reads a quarter of it). On a phone: the strip,
-carcass temperatures and pressures only, bottom left. In race conditions with tyre wear, a badge between the tyres shows the compound (S M H I W, in its colour) and each tile the tread left (amber under half, red under a fifth); the drift car then shows the tread left alone. Top left: the lap time, live delta to your best lap, sectors (purple: your best ever, green: best
+carcass temperatures and pressures only, bottom left. In race conditions with tyre wear, a badge between the tyres shows the compound (S M H I W, in its colour) and each tile the tread left (amber under half, red under a fifth); the drift car then shows the tread left alone. Top left: the lap time, live delta to the ghost's lap (your best lap, unless the ghost is the autopilot's), sectors (purple: your best ever, green: best
 this session, yellow: slower), last / best / optimal laps and the laps driven. Under it, in a multiplayer room: the room's board and notices. Top right: the track map. Top centre: the rear-view mirror. Bottom left
 for the first seconds of driving: the keys, as currently bound (then a small reminder of the help and menu keys).
 What shows, and how big, is set in the menu's HUD settings.

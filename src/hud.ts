@@ -124,8 +124,8 @@ export class Hud {
       }
       if (ev.type === 'lap') {
         const l = ev.lap;
-        const d = ev.deltaToBest != null ? ` <span style="color:${ev.deltaToBest <= 0 ? 'var(--green)' : 'var(--red)'}">${fmtDelta(ev.deltaToBest)}</span>` : '';
-        this.showMsg(l.valid ? `${l.pb ? '<span style="color:var(--purple)">PERSONAL BEST</span><br>' : ''}${fmtTime(l.time)}${l.pb ? '' : d}` : `<span style="color:var(--muted);text-decoration:line-through">${fmtTime(l.time)}</span><small>Invalid lap · ${l.reason}</small>`, 4);
+        const d = ev.delta != null ? ` <span style="color:${ev.delta <= 0 ? 'var(--green)' : 'var(--red)'}">${fmtDelta(ev.delta)}</span>` : '';
+        this.showMsg(l.valid ? `${l.pb ? '<span style="color:var(--purple)">PERSONAL BEST</span><br>' : ''}${fmtTime(l.time)}${d}` : `<span style="color:var(--muted);text-decoration:line-through">${fmtTime(l.time)}</span><small>Invalid lap · ${l.reason}</small>`, 4);
         this.el.list.innerHTML = timing.laps.slice(0, 6).map((l, k) =>
           `<div class="${l.valid ? (l.pb ? 'pb' : '') : 'inv'}"><span>L${timing.laps.length - k}</span><span>${fmtTime(l.time)}</span></div>`).join('');
       }

@@ -1,6 +1,7 @@
-import { GhostRecorder, GHOST_SUFFIX, loadGhost, saveGhost, unpackGhost, type GhostLap } from './ghost';
+import { DT } from './config';
+import { GhostRecorder, GHOST_SUFFIX, ghostPose, loadGhost, saveGhost, unpackGhost, type GhostLap } from './ghost';
 import { laneGate } from './pitLane';
-import { inPitLane, type Track } from './track';
+import { inPitLane, projectOnTrack, type Track } from './track';
 import { lerp } from './util';
 import type { Vehicle } from './vehicle';
 
@@ -22,7 +23,10 @@ export interface Lap { time: number; sectors: SectorTimes; classes: string[]; va
 export type TimingEvent =
   | { type: 'invalid'; reason: string; laps: 'this' | 'next' | 'both' }   // which laps it deletes
   | { type: 'sector'; k: number; t: number }
-  | { type: 'lap'; lap: Lap; deltaToBest: number | null };
+  | { type: 'lap'; lap: Lap; delta: number | null };   // delta: to the reference lap, else to the best lap before it (null: there was none, or this is the new best)
+
+// A lap to count the delta against: its time and its trace (the elapsed time at every 10 m, as BestStore.bestTrace).
+export interface DeltaLap { lapTime: number; trace: number[] }
 
 // A timing line: across the track at sample i (s), and across the pit lane where the lane passes s (pit lanes have
 // their own timing loops): each a segment (a to b) with the racing direction (tx, tz) there.
@@ -48,6 +52,9 @@ export class Timing {
   ghost!: GhostLap | null;
   ghostSaved = true;                             // whether the last new best lap's recording fitted in storage
   lastRecording: Uint8Array | null = null;       // the last finished lap's recording, packed (valid or not; null: none)
+  // The lap the delta counts against (the live delta, and a finished lap's) when it is not the best lap: the ghost
+  // car's, when that drives another lap (the autopilot's: main.ts sets it). Null: the best lap, which is the ghost's.
+  reference: DeltaLap | null = null;
   private readonly rec = new GhostRecorder();    // the lap under way
 
   // runup: how far before the line the car starts (TrackDef.startBack). That stretch is the run-up to every lap, the
@@ -185,13 +192,14 @@ export class Timing {
         this.ghostSaved = saveGhost(this.storeKey, packed);
       }
     }
-    const prevBest = pb ? null : this.store.bestLap;
+    const against = this.reference ? this.reference.lapTime : pb ? null : this.store.bestLap;
     this.lastLap = { time: lapTime, sectors, classes, valid, pb, reason: this.invalidReason };
     this.laps.unshift(this.lastLap);
-    this.events.push({ type: 'lap', lap: this.lastLap, deltaToBest: prevBest != null ? lapTime - prevBest : null });
+    this.events.push({ type: 'lap', lap: this.lastLap, delta: against != null ? lapTime - against : null });
   }
+  // How far behind (+) or ahead (-) of the reference lap, else the best lap, the car is at lap position s, in seconds.
   liveDelta(simTime: number, s: number) {
-    const bt = this.store.bestTrace;
+    const bt = this.reference ? this.reference.trace : this.store.bestTrace;
     if (this.lapStart == null || !bt || !bt.length) return null;
     const el = simTime - this.lapStart;
     if (s > this.track.L - 60 && el < 6) return 0;
@@ -199,6 +207,21 @@ export class Timing {
     if (bt[b] == null || bt[b + 1] == null) return null;
     return el - lerp(bt[b], bt[b + 1], f - b);
   }
+}
+// A recorded lap's trace: the elapsed time at every 10 m of the lap, taken from its playback tick by tick by the rule
+// Timing.tick takes the lap under way's by, so the live delta against it reads zero when the car is level with the
+// ghost that replays it.
+export function lapTrace(track: Track, g: GhostLap): number[] {
+  const trace: number[] = [0], proj = { i: -1, s: 0, lat: 0 };
+  const pose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0, steer: 0, dist: 0 };
+  for (let k = 1, t = DT; t <= g.lapTime; t = ++k * DT) {
+    ghostPose(g, t, pose);
+    const d = projectOnTrack(track, pose.x, pose.z, proj.i, proj).s;
+    if (d > track.L - 60 && t < 6) continue;
+    const bkt = Math.floor(d / 10);
+    if (trace[bkt] == null && (bkt === 0 || trace[bkt - 1] != null)) trace[bkt] = t;
+  }
+  return trace;
 }
 // Saved best times, or empty ones if there are none or they're unreadable (corrupt, or from an incompatible version).
 export function loadStore(key: string): BestStore {
