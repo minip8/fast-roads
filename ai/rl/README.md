@@ -13,7 +13,7 @@ only the baseline), against the environment worker of `docs/ai-env.md`, and inst
     .venv/bin/python install_specialists.py lcgt3     # validate each over 12 laps, install the clean ones
     .venv/bin/python -m pytest tests -q               # ~80 s (the Pendulum check: -m sanity)
 
-## Where it stands (23 November 2026), and how to go on
+## Where it stands (24 November 2026), and how to go on
 
 Installed in `public/ai/`: a GT3 specialist for each of the 24 circuits, each validated on four or six six-lap stints
 (every lap valid, no wall contact) and driven for three laps on end in the game's `Session` (`npm run test:laps`) and
@@ -21,15 +21,14 @@ in headless Chromium (`browser_stint.mjs`). Nothing for the F1 or the drift car 
 were the test bed for the method; their policies predate the pit lane's observation or the long episodes).
 
 The **smoothness round** (`rate_round.sh`: the absolute action-rate penalty, about 1% off the first lap for a
-steering command that moves half as much) is done and installed at 12 circuits: Melbourne, Silverstone, Shanghai,
-Suzuka, Miami, Montreal, Monaco, Barcelona, Spielberg, Spa, Hungaroring, Zandvoort. The other 12 still have their
-quicker, shakier specialists. To finish it (about 45 minutes a circuit, 9 hours; `runs/` must still be there: it is
-git-ignored and holds every circuit's checkpoints):
+steering command that moves half as much, measured at Melbourne) is done and installed at all 24 circuits, the last
+12 on 24 November. This is how a round like it is run (about 45 minutes a circuit; `runs/` must still be there: it
+is git-ignored and holds every circuit's checkpoints):
 
     cd ai/rl
-    setsid nohup ./rate_round.sh lcgt3 monza madrid baku singapore austin mexico saopaulo lasvegas lusail yasmarina bahrain jeddah > runs/rate.err 2>&1 &
+    setsid nohup ./rate_round.sh lcgt3 monza madrid baku > runs/rate.err 2>&1 &
     # runs/rate.log says where it is; when it says "all done":
-    .venv/bin/python install_specialists.py lcgt3 --tracks monza,madrid,baku,singapore,austin,mexico,saopaulo,lasvegas,lusail,yasmarina,bahrain,jeddah --suffix _rate --stint 6 --laps 4 --force --candidates 5
+    .venv/bin/python install_specialists.py lcgt3 --tracks monza,madrid,baku --suffix _rate --stint 6 --laps 4 --force --candidates 5
     cd ../.. && npm test && npm run test:laps        # each installed policy drives three laps on end in the game
     npm run dev -- --port 5199 --strictPort &        # then the same in Chromium:
     node ai/rl/browser_stint.mjs lcgt3 3
