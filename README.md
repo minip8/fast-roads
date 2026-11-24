@@ -27,8 +27,8 @@ Spa, which slides wide in the fast sweepers there. `?autopilot=rl` has a driver 
 drive instead (`ai/rl/`; the policies are in `public/ai/`, listed per car and circuit in `policies.json`: the
 GT3 has one for every circuit, a specialist each, fine-tuned from a policy trained on all 24, which is its fallback;
 they lap 11-21% quicker than the autopilot, e.g. Melbourne in 110.4 s against 133.9 s, and keep lapping, on the tyres
-they heat themselves, a second or two slower; at half the circuits they have had a further round for a steadier
-steering wheel, at about 1% of the first lap); where there is none for the
+they heat themselves, a second or two slower; each has since had a further round for a steadier steering wheel,
+at about 1% of the first lap); where there is none for the
 car and circuit, the built-in autopilot drives. `ai/rl/README.md` has how they are trained.
 See docs/ai-env.md, **Trained policies in the game**. `?opponents=2` (that many of your car) or `?opponents=lcgt3,drift`
 (car ids: `lcf1`, `lcgt3`, `drift`) adds autopilot cars starting 30 m apart ahead of you, to drive into: a first step
