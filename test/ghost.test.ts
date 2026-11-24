@@ -84,6 +84,7 @@ describe('ghost recording', () => {
     const { run, lap, truth } = scripted(track, timing);
     run(60, () => timing.lapStart != null);   // out to the line: the first lap starts there
     expect(timing.ghost).toBeNull();          // the first ever lap: nothing to race yet
+    expect(timing.lastRecording).toBeNull();
 
     let start = lap(60);
     const first = timing.ghost!;
@@ -103,6 +104,8 @@ describe('ghost recording', () => {
     lap(70, () => { if (timing.valid && timing.trace.length > 200) timing.invalidate('TRACK LIMITS'); });
     expect(timing.laps[0].valid).toBe(false);
     expect(timing.ghost).toBe(first);
+    // (every finished lap's recording is kept until the next, valid or not: the lap tests take the autopilot's)
+    expect(unpackGhost(timing.lastRecording!)!.lapTime).toBe(timing.laps[0].time);
     expect(localStorage.getItem(KEY + GHOST_SUFFIX)).toBe(stored);
 
     // the same, valid: the new ghost
@@ -126,6 +129,7 @@ describe('ghost recording', () => {
     // Reset best times
     clearStore(KEY); timing.useStore(KEY);
     expect(timing.ghost).toBeNull();
+    expect(timing.lastRecording).toBeNull();
     expect(timing.store.bestLap).toBeNull();
     expect(localStorage.getItem(KEY + GHOST_SUFFIX)).toBeNull();
   });

@@ -3,6 +3,7 @@ import { laneWalls, type Track } from '../src/track';
 import { expect, it } from 'vitest';
 import type { CarId } from '../src/cars';
 import { TRACKS, type TrackId } from '../src/tracks';
+import { checkAutoGhost, policyOwnsGhost } from './autoGhost';
 import { session } from './harness';
 import { policyLaps } from './policyLap';
 
@@ -87,6 +88,16 @@ async function lapCheck(track: TrackId, car: CarId, tc: boolean, time: string, l
   // the flying start is the speed the car really has there on a lap: retake TrackDef.flying if this drifts
   expect(atStart).toBeGreaterThan(flying - 2);
   expect(atStart).toBeLessThan(flying + 2);
+  // this lap is the Ghost car setting's Autopilot lap, unless a trained policy's is (test/autoGhost.ts)
+  if (tc && !policyOwnsGhost(car, track)) checkAutoGhost(car, track, timing.lastRecording);
+}
+
+// The pinned time of the autopilot's lap (TC on) in a car at a circuit.
+export function pinnedLap(track: TrackId, car: CarId): string {
+  if (track !== 'melbourne' && track !== 'silverstone') return CALENDAR[track][car];
+  const lap = Object.values(EXPECTED).find((e) => e.track === track && e.car === car && e.tc);
+  if (!lap) throw new Error(`no pinned lap for ${car} at ${track}`);
+  return lap.time;
 }
 
 // The distance from (x, z) to the nearest of the pit lane's walls.

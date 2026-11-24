@@ -2,6 +2,7 @@ import { expect, it } from 'vitest';
 import { PolicyDriver } from '../src/ai/policyDriver';
 import { CARS, type CarId } from '../src/cars';
 import type { TrackId } from '../src/tracks';
+import { checkAutoGhost } from './autoGhost';
 import { session } from './harness';
 import { gamePolicy, noGamePolicy } from './policies';
 
@@ -29,12 +30,17 @@ export function policyLaps(track: TrackId) {
       const drv = new PolicyDriver(policy, s);
       let resets = 0;
       s.onReset = () => { resets++; };
-      drive(want.reduce((a, b) => a + b, 0) + 60, () => drv.input(), () => timing.laps.length >= want.length);
+      let first: Uint8Array | null = null;   // the first lap's recording: the Ghost car setting's Autopilot lap
+      drive(want.reduce((a, b) => a + b, 0) + 60, () => drv.input(), () => {
+        if (!first && timing.laps.length) first = timing.lastRecording;
+        return timing.laps.length >= want.length;
+      });
       const laps = timing.laps.slice().reverse().slice(0, want.length);   // (timing.laps: the newest first)
       console.log(`${file} at ${track}: ${laps.map((l) => l.time.toFixed(3) + (l.valid ? '' : '!')).join(' ')} s in the game, ${want.map((t) => t.toFixed(3)).join(' ')} s in the trainer's evaluation`);
       expect(resets).toBe(0);
       expect(laps.map((l) => l.valid)).toEqual(want.map(() => true));
       laps.forEach((l, k) => expect(Math.abs(l.time - want[k])).toBeLessThan(1.5));
+      checkAutoGhost(car, track, first);   // (test/autoGhost.ts)
     });
   }
 }

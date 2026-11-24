@@ -47,6 +47,7 @@ export class Timing {
   // no best lap, or its recording was lost (storage full) or is from before ghosts were recorded.
   ghost!: GhostLap | null;
   ghostSaved = true;                             // whether the last new best lap's recording fitted in storage
+  lastRecording: Uint8Array | null = null;       // the last finished lap's recording, packed (valid or not; null: none)
   private readonly rec = new GhostRecorder();    // the lap under way
 
   // runup: how far before the line the car starts (TrackDef.startBack). That stretch is the run-up to every lap, the
@@ -76,7 +77,7 @@ export class Timing {
     this.storeKey = key; this.store = loadStore(key);
     this.ghost = loadGhost(key, this.store.bestLap);
     this.sessionBestSectors = [null, null, null]; this.sessionBest = null;
-    this.laps = []; this.lastLap = null;
+    this.laps = []; this.lastLap = null; this.lastRecording = null;
   }
   reset() {
     this.lapStart = null; this.next = 0; this.valid = true; this.sectorStart = 0;
@@ -165,6 +166,7 @@ export class Timing {
     const sectors = this.cur.slice();
     const valid = this.valid;
     const classes = sectors.map((t, k) => this.sectorClass(k, t));
+    const packed = this.lastRecording = this.rec.pack();
     let pb = false;
     if (valid) {
       sectors.forEach((st, k) => {
@@ -179,7 +181,6 @@ export class Timing {
       }
       saveStore(this.storeKey, this.store);   // first: the times must not depend on the recording fitting
       if (pb) {
-        const packed = this.rec.pack();
         this.ghost = packed && unpackGhost(packed);   // as it will load next time
         this.ghostSaved = saveGhost(this.storeKey, packed);
       }

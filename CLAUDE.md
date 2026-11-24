@@ -20,6 +20,7 @@ dev and the tests use the inline copy.
     npm run typecheck   # tsc for src/, then test/ and ai/ (only those get Node types)
     npm test            # Vitest project `unit`: headless physics (~35 s: the test files run in parallel)
     npm run test:laps   # Vitest project `laps`: the pinned laps at the 22 other circuits (2-4 min)
+    GHOSTS=write npm test && GHOSTS=write npm run test:laps   # rewrite the autopilot's ghost laps (public/ghosts/) from those laps
     TYRES='wear lcf1' npm run tyres:report   # tyre numbers (wear, life, wet; lcf1, lcgt3, drift): test/tyres-report.test.ts
     npx vitest run test/handling.test.ts -t 'reverse'   # one file / one test by name
     npm run build       # typecheck + static build in dist/ (base './'); npm run preview serves it
@@ -47,7 +48,8 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   autopilot lap times from the game's flying start at every circuit, so any physics or tuning change shows up
   there. Melbourne and Silverstone run in `npm test`: Melbourne `lcf1` 116.548 s, `lcgt3` 133.860 s, drift car 157.515 s with TC on and 157.492 s off;
   Silverstone `lcf1` 123.931 s, `lcgt3` 144.184 s, drift car 169.789 s. When a change is intended, check the
-  handling still makes sense, then update the expected times. Each lap test also checks that the car passes the start
+  handling still makes sense, then update the expected times and rewrite the autopilot's ghost laps (`GHOSTS=write`,
+  below). Each lap test also checks that the car passes the start
   spot at the end of the lap within 2 km/h of its `TrackDef.flying` speed; `test/start.test.ts` checks the flying
   start (the run-up through Albert Park's last corners), the restart, and track limits in the run-up. Each lap is run by its own `laps-*.test.ts` file so the seven (about
   10–20 s each) run in parallel. The other 22 circuits' laps (TC on, all three cars: `CALENDAR` in `test/laps.ts`)
@@ -72,6 +74,15 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   comment on what the rule picked) marks the four set by hand (Miami, Monaco, Mexico City, Baku: the rule's spot was
   a 21–28 s run-up). The speeds are measured from laps started at the current spot, so after moving a start run the
   lap tests, which check the speed there within 2 km/h.
+- The autopilot's ghost laps (`public/ghosts/<car>-<track>.bin`, the Ghost car setting's Autopilot choice) are the
+  laps the lap tests drive: the trained policy's first lap where the game has a policy for the car at the circuit
+  (`test/policyLap.ts`), else the built-in autopilot's with TC on (`test/laps.ts`). Each of those tests ends with
+  `checkAutoGhost` (`test/autoGhost.ts`): the lap just driven (`Timing.lastRecording`) against the file (same samples
+  and lap time, never 0.25 m apart), or with `GHOSTS=write` in the environment the file written. So after a change
+  that moves a pinned lap, or a policy installed: `GHOSTS=write npm test && GHOSTS=write npm run test:laps`, and
+  commit the files. `test/autoGhost.test.ts` (in `npm test`) checks there is one file per car and circuit and no
+  other, each with its pinned lap time (a policy's: within 1.5 s of its evaluation, and quicker than the autopilot),
+  and `loadAutoGhost`.
 - `test/rearview.test.ts` checks the look-behind camera in every mode and the mirror's camera and flip (geometry
   only; the mirror pass itself needs a browser: `__game.mirror.stats` has its draw calls and triangles).
 - `test/handling.test.ts` holds loose-bound checks of tuning intent: the drift car's brake-and-turn kick, slides,
@@ -315,7 +326,9 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   (an `OfflineAudioContext` in headless Chromium plays the real graph) and compare spectra and levels.
 - `timing.ts`, `input.ts`, `dust.ts`, `autopilot.ts`
 - `ghost.ts`: ghost laps without rendering (`GhostRecorder`, which `Timing` runs; the packed format; `ghostPose`
-  interpolation; load/save); `ghostCar.ts`: `GhostCar`, which draws `timing.ghost` as a translucent copy of the
+  interpolation; load/save; `loadAutoGhost`: the autopilot's lap for a car and circuit, a packed lap fetched from
+  `public/ghosts/`, not precached by the service worker); `ghostCar.ts`: `GhostCar`, which draws the lap `main.ts`
+  hands it (`timing.ghost`, or with the Ghost car setting on Autopilot the fetched one) as a translucent copy of the
   current car's body (cloned materials, never the shared model ones; rebuilt on car switch, re-ghosted when a model
   is swapped in) and fades it near the camera (`fade(camera)`, also called for the mirror's camera)
 - `stage.ts`: renderer, scene, lights, sky, shadow-following sun, static track visuals (`buildStage`)
@@ -621,7 +634,8 @@ tuning, the autopilot or track building (`src/track.ts`, `tracks/`).
   (`useStore` switches). Every lap is recorded (`GhostRecorder`, 10 Hz, from the pose just before the line to the
   end of the tick the lap ended in); a new valid best lap's recording becomes `timing.ghost` and is saved under the
   same key + `.ghost` (base64, after the best times, so a full storage loses only the ghost), and is loaded only if
-  its lap time is the stored best lap. `clearStore` (Reset best times) removes both. The ghost plays at the lap time
+  its lap time is the stored best lap. `Timing.lastRecording` is the last finished lap's packed recording, valid or
+  not (the lap tests take the autopilot's ghost laps from it). `clearStore` (Reset best times) removes both. The ghost plays at the lap time
   the car is drawn at (`simTime - (1 - alpha) * DT - lapStart`), which keeps it level with the car when the delta is 0.
 - **Input**: keyboard, gamepad and visible-cursor mouse steering (cursor x relative to screen centre, with
   sensitivity/deadzone settings) merge in `Input.poll` into one input object. `input.mouse.active` is set each frame

@@ -12,12 +12,13 @@ import type { WeatherQuality } from './weather';
 // Player settings: menu rows, defaults and persistence. What each one does is the applySetting table in main.ts.
 // ============================================================================
 type OnOff = 'on' | 'off';
+export type GhostChoice = 'best' | 'auto' | 'off';   // whose lap the ghost car drives: yours, the autopilot's, none
 
 export interface Settings {
   // race (the menu's Race tab)
   track: TrackId; car: CarId;
   // driving
-  gearbox: 'auto' | 'manual'; tc: OnOff; assist: OnOff; ghost: OnOff;
+  gearbox: 'auto' | 'manual'; tc: OnOff; assist: OnOff; ghost: GhostChoice;
   // controls
   steering: 'keyboard' | 'mouse'; mouseSens: MouseSensitivity; mouseDeadzone: MouseDeadzone; padDeadzone: PadDeadzone;
   // camera
@@ -63,7 +64,7 @@ export const SETTING_DEFS: { [K in SettingKey]: SettingDef<K> } = {
   gearbox: { label: 'Gears', section: 'driving', hint: 'Manual: shift with {shiftUp} / {shiftDown}, RB / LB or the mouse wheel', options: [['auto', 'Automatic'], ['manual', 'Manual']] },
   tc: { label: 'Traction control', section: 'driving', hint: 'Limits wheelspin on the throttle', options: onOff() },
   assist: { label: 'Countersteer assist', section: 'driving', hint: 'Drift car only: catches slides for you', options: [['off', 'Off'], ['on', 'On']] },
-  ghost: { label: 'Ghost car', section: 'driving', hint: 'Your best lap here in this car, to race against', options: onOff('Shown', 'Hidden') },
+  ghost: { label: 'Ghost car', section: 'driving', hint: 'A lap to race against: your best here in this car, or the game’s own driver’s', options: [['best', 'Your best lap'], ['auto', 'Autopilot'], ['off', 'Hidden']] },
 
   steering: { label: 'Steering', section: 'controls', hint: 'Mouse: the cursor’s distance from the screen centre turns the wheel', options: [['keyboard', 'Keyboard'], ['mouse', 'Mouse']] },
   mouseSens: { label: 'Mouse sensitivity', section: 'controls', hint: 'Low spreads the steering over more of the screen', options: [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']] },
@@ -101,7 +102,7 @@ export const SETTING_DEFS: { [K in SettingKey]: SettingDef<K> } = {
 export const SETTING_KEYS = Object.keys(SETTING_DEFS) as SettingKey[];
 export const DEFAULT_SETTINGS: Settings = {
   track: 'melbourne', car: 'lcf1',
-  gearbox: 'auto', tc: 'on', assist: 'off', ghost: 'on',
+  gearbox: 'auto', tc: 'on', assist: 'off', ghost: 'best',
   steering: 'keyboard', mouseSens: 'medium', mouseDeadzone: 'small', padDeadzone: 'medium',
   camera: 'onboard', fov: 0, speedFov: 'on', shake: 'on', hands: 'off',
   units: 'kmh', timingPanel: 'full', delta: 'on', minimap: 'medium', tyres: 'on', mirror: 'on', mouseBar: 'on', help: 'auto', fps: 'off', hudScale: 100, hudOpacity: 70,
@@ -126,6 +127,8 @@ export function loadSettings(): Settings {
     // cars since removed: their twins on LibreCorsa's engine take their place
     const car: unknown = settings.car;
     if (car === 'f1' || car === 'gt3') settings.car = car === 'f1' ? 'lcf1' : 'lcgt3';
+    // the ghost car was shown or hidden before it had a choice of laps
+    if ((settings.ghost as string) === 'on') settings.ghost = 'best';
   } catch { /* storage unavailable or corrupt */ }
   const validate = <K extends SettingKey>(k: K) => {
     if (!SETTING_DEFS[k].options.some(([v]) => v === settings[k])) settings[k] = DEFAULT_SETTINGS[k];

@@ -77,7 +77,8 @@ const CAR_MODELS = carModels();
 // whenever any of them does, so a new deploy installs a new service worker. The car models are not precached
 // (most players never drive some cars): the service worker keeps each one the first time the game fetches it. Nor
 // are the trained policies (public/ai/: only ?autopilot=rl fetches them, and they are replaced in place by better
-// ones), which are left to the network.
+// ones), nor the autopilot's ghost laps (public/ghosts/: one small file per car and circuit, fetched only with the
+// Ghost car setting on Autopilot), which are left to the network.
 function serviceWorker(): Plugin {
   let root = '', outDir = '';
   return {
@@ -92,7 +93,7 @@ function serviceWorker(): Plugin {
       for (const f of files) hash.update(f).update(readFileSync(join(outDir, f)));
       const lazy = files.filter((f) => f in CAR_MODELS);
       if (lazy.length !== Object.keys(CAR_MODELS).length) this.error('service-worker: a car model is missing from the build');
-      const urls = files.filter((f) => !lazy.includes(f) && !f.startsWith('ai/')).map((f) => (f === 'index.html' ? './' : './' + f));
+      const urls = files.filter((f) => !lazy.includes(f) && !f.startsWith('ai/') && !f.startsWith('ghosts/')).map((f) => (f === 'index.html' ? './' : './' + f));
       const template = readFileSync(resolve(root, 'src/sw.js'), 'utf8');
       for (const p of ['__VERSION__', '__FILES__', '__LAZY__']) if (!template.includes(p)) this.error(`service-worker: src/sw.js has no ${p} placeholder`);
       const src = template

@@ -36,6 +36,15 @@ describe('loadSettings', () => {
   });
 });
 
+describe('the ghost car setting', () => {
+  it('loads a save from when it was only shown or hidden: shown is your best lap, hidden stays hidden', () => {
+    for (const [old, now] of [['on', 'best'], ['off', 'off'], ['auto', 'auto'], ['best', 'best'], ['nope', 'best']]) {
+      localStorage.setItem('fastroads.settings', JSON.stringify({ ghost: old }));
+      expect(loadSettings().ghost).toBe(now);
+    }
+  });
+});
+
 describe('settings definitions', () => {
   it('give every setting a default among its options', () => {
     for (const k of SETTING_KEYS) expect(SETTING_DEFS[k].options.map(([v]) => v)).toContain(DEFAULT_SETTINGS[k]);

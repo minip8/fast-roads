@@ -29,7 +29,9 @@ is git-ignored and holds every circuit's checkpoints):
     setsid nohup ./rate_round.sh lcgt3 monza madrid baku > runs/rate.err 2>&1 &
     # runs/rate.log says where it is; when it says "all done":
     .venv/bin/python install_specialists.py lcgt3 --tracks monza,madrid,baku --suffix _rate --stint 6 --laps 4 --force --candidates 5
-    cd ../.. && npm test && npm run test:laps        # each installed policy drives three laps on end in the game
+    cd ../.. && GHOSTS=write npm test && GHOSTS=write npm run test:laps   # each installed policy drives three laps on
+                                                     # end in the game, and its first becomes the car's ghost lap there
+                                                     # (public/ghosts/: the Ghost car setting's Autopilot choice)
     npm run dev -- --port 5199 --strictPort &        # then the same in Chromium:
     node ai/rl/browser_stint.mjs lcgt3 3
 

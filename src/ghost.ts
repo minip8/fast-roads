@@ -149,6 +149,21 @@ function hermite(p: Float64Array, i0: number, i: number, i3: number, t0: number,
   return (2 * u3 - 3 * u2 + 1) * p[i] + (u3 - 2 * u2 + u) * span * m1 + (-2 * u3 + 3 * u2) * p[i + 1] + (u3 - u2) * span * m2;
 }
 
+// ---------------- The autopilot's lap ----------------
+// The Ghost car setting's Autopilot choice: the lap the game's own driver sets in `car` at `track` from the flying
+// start (the trained policy's first lap where the car has one for the circuit, else the built-in autopilot's with TC
+// on), a packed lap as above in public/ghosts/. The lap tests write and check the files (test/autoGhost.ts).
+export const autoGhostFile = (car: string, track: string) => `ghosts/${car}-${track}.bin`;
+// Fetched from `base` (the page's base URL); null if it is not there or is not a lap (the ghost is then not drawn).
+export async function loadAutoGhost(base: string, car: string, track: string, get: typeof fetch = fetch): Promise<GhostLap | null> {
+  try {
+    // (no-cache: the files are replaced in place when the physics or a policy changes; the service worker leaves
+    // them to the network)
+    const r = await get(base + autoGhostFile(car, track), { cache: 'no-cache' });
+    return r.ok ? unpackGhost(new Uint8Array(await r.arrayBuffer())) : null;
+  } catch { return null; }
+}
+
 // ---------------- Storage ----------------
 function toBase64(b: Uint8Array) {
   let s = '';

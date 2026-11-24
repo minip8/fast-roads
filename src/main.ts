@@ -9,6 +9,7 @@ import { conditionsFromUrl, type CompoundId } from './conditions';
 import { DT, MAX_STEPS_PER_FRAME } from './config';
 import { $ } from './dom';
 import { Dust } from './dust';
+import { autoGhostFile, loadAutoGhost, type GhostLap } from './ghost';
 import { GhostCar } from './ghostCar';
 import { Hud } from './hud';
 import { Input, MOUSE_DEADZONE, MOUSE_RANGE, PAD_DEADZONE } from './input';
@@ -160,6 +161,19 @@ export async function main() {
     console.info(`Trained policy ${r.file} drives (run ${String(pv.run)}, ${String(pv.env_steps ?? '?')} env steps)`, pv);
     if (env.tc !== session.car.tc) console.warn(`Trained policy: trained with TC ${env.tc ? 'on' : 'off'}, the car has it ${session.car.tc ? 'on' : 'off'}`);
     hud.showMsg(`Trained policy<small>${r.file}</small>`, 2.5);
+  };
+  // The Ghost car setting's Autopilot choice: the game's own driver's lap in this car here (public/ghosts/), fetched
+  // when first wanted and again for another car. Until it is there, or if there is none, no ghost is drawn.
+  let autoLap: GhostLap | null = null, autoLapCar = '';
+  const loadAutoLap = () => {
+    const car = session.car.spec.id;
+    if (autoLapCar === car) return;
+    autoLapCar = car; autoLap = null;
+    void loadAutoGhost(import.meta.env.BASE_URL, car, def.id).then((lap) => {
+      if (autoLapCar !== car) return;   // (another car meanwhile)
+      autoLap = lap;
+      if (!lap) { autoLapCar = ''; console.warn(`Ghost car: no autopilot lap for the ${CARS[car].name} here (${autoGhostFile(car, def.id)})`); }
+    });
   };
   // the input when the autopilot drives: the trained policy if one is loaded, but the built-in one for a pit stop
   const autoInput = () => {
@@ -323,13 +337,14 @@ export async function main() {
       applySetting.gearbox(settings.gearbox); applySetting.tc(settings.tc); applySetting.assist(settings.assist);
       hud.clearLaps(); acc = 0;
       if (rlOn) void loadRl();
+      if (settings.ghost === 'auto') loadAutoLap();
       const { name, hint } = CARS[id];
       if (hint) hud.showMsg(`${name}<small>${hint}</small>`, 3);
     },
     gearbox: (v) => { session.car.manual = v === 'manual'; },
     tc: (v) => { session.car.tc = v === 'on'; },
     assist: (v) => { session.car.assist = v === 'on'; },
-    ghost: (v) => { ghost.enabled = v === 'on'; },
+    ghost: (v) => { ghost.enabled = v !== 'off'; if (v === 'auto') loadAutoLap(); },
     steering: (v) => { input.setMouse(v === 'mouse'); applySetting.mouseBar(settings.mouseBar); },
     mouseSens: (v) => { input.mouse.range = MOUSE_RANGE[v]; },
     mouseDeadzone: (v) => { input.mouse.deadzone = MOUSE_DEADZONE[v]; },
@@ -517,9 +532,9 @@ export async function main() {
     cam.lookBack = !menu.isOpen && input.lookingBack();
     cam.update(fdt, car);
     // (no ghost of a best lap in a race: real cars are racing)
-    const ghostOn = settings.ghost === 'on' && !netRt?.mp.weekend.inRace;
+    const ghostOn = settings.ghost !== 'off' && !netRt?.mp.weekend.inRace;
     if (ghost.enabled !== ghostOn) ghost.enabled = ghostOn;
-    ghost.update(car, timing, session.simTime, alpha, camera);
+    ghost.update(car, settings.ghost === 'auto' ? autoLap : timing.ghost, timing.lapStart, session.simTime, alpha, camera);
     // other players at the time the car is drawn at (it is interpolated a tick behind the physics)
     if (netRt) netRt.view.update(netRt.mp, nowS - DT, camera, simDt, !hud.hidden && !menu.isOpen);
     cockpitDisplay.update(car, timing, session.simTime, alpha, cam.mode === 'driver' && !cam.lookBack);

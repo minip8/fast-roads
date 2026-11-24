@@ -48,7 +48,7 @@ The game opens on a menu with **Drive** at the top right and four tabs:
 - **Online**: create or join a multiplayer room (**Multiplayer**, below). In a room this tab becomes **Room** and the
   Time trial tab goes away: the room decides the circuit.
 - **Settings**, in five sections:
-  - *Driving*: gears (automatic / manual), traction control, countersteer assist (drift car), ghost car (shown / hidden).
+  - *Driving*: gears (automatic / manual), traction control, countersteer assist (drift car), ghost car (your best lap / the autopilot's / hidden).
   - *Camera*: camera, field of view (−15° to +20° on every camera), widen the view with speed, camera shake on kerbs
     and off track, driver camera hands.
   - *HUD*: speed units (km/h / mph), timing panel (full / compact / hidden), live delta, track map (hidden / small /
@@ -154,7 +154,10 @@ race yourself. It sets off from the line as your lap does and stays in step with
 live delta reads zero, and it crosses the line at your best lap time, where it disappears until your next lap starts.
 It has no collision and casts no shadow, fades out when it is close to the camera (so in the Driver and Onboard
 cameras it never blocks the view), and shows on the track map as a light blue dot. Only a valid lap that beats your
-best becomes the ghost; it is saved with your best times, so it is there after a reload. Turn it off under Driving.
+best becomes the ghost; it is saved with your best times, so it is there after a reload. Under Driving the ghost can
+instead be the **autopilot's** lap (the game's own driver in the same car from the same flying start: in the GT3 the
+driver trained by reinforcement learning, 11-21% quicker than the built-in one, which drives the F1's and the drift
+car's), or hidden. The autopilot's lap needs the network the first time (it is a small file per car and circuit).
 
 **Every lap is a flying lap.** You start before the last corner or corners of the lap, on the straight leading
 to them (at Albert Park before turns 13 and 14, at Silverstone before Vale and Club, at Monza before the Parabolica,
@@ -588,7 +591,9 @@ and override the mouse while held.
 - **Ghost**: every lap is recorded at 10 Hz (position, heading, pitch, roll, steering) as it is driven; a new best
   lap's recording is packed (1 cm deltas and small angle steps, 11 bytes a sample: about 13 kB, 17 k characters of
   base64, for a two-minute lap) and saved next to the best times, which are saved first so a full storage only loses
-  the ghost. Playback interpolates the samples smoothly (cubic for position) at the frame rate.
+  the ghost. Playback interpolates the samples smoothly (cubic for position) at the frame rate. The autopilot's
+  laps are the same packed recordings as files (`public/ghosts/<car>-<circuit>.bin`, 9-21 kB each), written by the
+  lap tests from the laps they pin (`GHOSTS=write npm test && GHOSTS=write npm run test:laps`) and checked by them.
 - **RL environment** (`src/ai/`, `ai/`): for training a driver by reinforcement learning, in the game's own
   headless simulation. Reset/step over the same session the game and tests run (20 actions a second by default:
   steering as a share of the car's lock and one throttle/brake axis, automatic gears), a track-relative observation

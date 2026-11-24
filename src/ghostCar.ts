@@ -1,13 +1,12 @@
 import * as THREE from 'three';
 import { poseCockpit, type CarMesh, type Cockpit } from './carMeshes';
 import { DT } from './config';
-import { ghostPose, type GhostPose } from './ghost';
-import type { Timing } from './timing';
+import { ghostPose, type GhostLap, type GhostPose } from './ghost';
 import type { Vehicle } from './vehicle';
 
 // ============================================================================
-// Ghost car: the best lap here in this car (Timing.ghost), replayed as a translucent copy of the car's body in step
-// with the lap under way. No physics, no collision, no shadow. It appears at the line when the lap starts and
+// Ghost car: a recorded lap (the best lap here in this car, Timing.ghost, or the autopilot's: the Ghost car setting)
+// replayed as a translucent copy of the car's body in step with the lap under way. No physics, no collision, no shadow. It appears at the line when the lap starts and
 // disappears there when its own lap ends, and fades out near the camera so it never blocks the view.
 // ============================================================================
 const OPACITY = 0.42;
@@ -32,19 +31,19 @@ export class GhostCar {
 
   constructor(private readonly scene: THREE.Scene) { this.depthMat.userData.shared = true; }
 
-  // Each frame, before rendering: the car being driven (the ghost is its body), and the camera it is seen from.
-  update(car: Vehicle, timing: Timing, simTime: number, alpha: number, camera: THREE.Camera) {
-    const g = timing.ghost, lapStart = timing.lapStart;
+  // Each frame, before rendering: the car being driven (the ghost is its body), the lap to replay (null: none),
+  // when the lap under way started (Timing.lapStart), and the camera it is seen from.
+  update(car: Vehicle, g: GhostLap | null, lapStart: number | null, simTime: number, alpha: number, camera: THREE.Camera) {
     // the lap time of the pose the car is drawn at (it is interpolated a tick behind simTime)
     const t = lapStart == null ? -1 : simTime - (1 - alpha) * DT - lapStart;
     if (this.mesh && car.spec.id !== this.specId) this.removeMesh();   // another car: its body is built when next shown
     this.shown = this.enabled && g != null && t >= g.t0 && t <= g.lapTime;
-    if (!this.shown) { if (this.mesh) this.mesh.root.visible = false; return; }
+    if (!this.shown || !g) { if (this.mesh) this.mesh.root.visible = false; return; }
     if (!this.mesh) this.build(car);
     const m = this.mesh!;
     if (m.cockpit !== this.cockpit) this.ghostify(m);
 
-    const p = ghostPose(g!, t, _pose);
+    const p = ghostPose(g, t, _pose);
     m.root.position.set(p.x, p.y, p.z);
     m.root.quaternion.setFromEuler(_e.set(p.pitch, p.yaw, p.roll, 'YXZ'));
     const own = car.mesh.wheels, spin = p.dist / car.spec.wheelRadius;
